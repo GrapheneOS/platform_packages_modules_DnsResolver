@@ -199,6 +199,7 @@ cc_test {
         "libstatssocket",
         "libsysutils",
         "libutils",
+        "resolv_stats_test_utils",
         "server_configurable_flags",
         "stats_proto",
     ],

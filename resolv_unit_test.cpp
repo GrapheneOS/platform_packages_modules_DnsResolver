@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <netdb.h>
 #include <netdutils/InternetAddresses.h>
+#include <resolv_stats_test_utils.h>
 
 #include "dns_responder.h"
 #include "getaddrinfo.h"
@@ -387,6 +388,62 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_PortNameAndNumber) {
 
 TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
     constexpr char v4_host_name[] = "v4only.example.com.";
+    // Following fields will not be verified during the test in proto NetworkDnsEventReported.
+    // So don't need to config those values: event_type, return_code, latency_micros,
+    // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+    constexpr char event_ipv6[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                }
+               ]
+             }
+        })Event";
+
     test::DNSResponder dns;
     dns.addMapping(v4_host_name, ns_type::ns_t_a, "1.2.3.3");
     ASSERT_TRUE(dns.startServer());
@@ -397,6 +454,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
     const addrinfo hints = {.ai_family = AF_INET6};
     NetworkDnsEventReported event;
     int rv = resolv_getaddrinfo("v4only", nullptr, &hints, &mNetcontext, &result, &event);
+    EXPECT_THAT(event, NetworkDnsEventEq(fromNetworkDnsEventReportedStr(event_ipv6)));
     ScopedAddrinfo result_cleanup(result);
     EXPECT_LE(1U, GetNumQueries(dns, v4_host_name));
     EXPECT_EQ(nullptr, result);
@@ -407,7 +465,66 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
     constexpr char host_name[] = "sawadee.example.com.";
     constexpr char v4addr[] = "1.2.3.4";
     constexpr char v6addr[] = "::1.2.3.4";
+    // Following fields will not be verified during the test in proto NetworkDnsEventReported.
+    // So don't need to config those values: event_type, return_code, latency_micros,
+    // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+    constexpr char event_ipv4[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 2,
+                 ip_version: 0,
+                 protocol: 0,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+               ]
+             }
+        })Event";
 
+    constexpr char event_ipv6[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 2,
+                 ip_version: 0,
+                 protocol: 0,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+               ]
+             }
+        })Event";
     test::DNSResponder dns;
     dns.addMapping(host_name, ns_type::ns_t_a, v4addr);
     dns.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
@@ -417,9 +534,10 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
     static const struct TestConfig {
         int ai_family;
         const std::string expected_addr;
+        const std::string expected_event;
     } testConfigs[]{
-            {AF_INET, v4addr},
-            {AF_INET6, v6addr},
+            {AF_INET, v4addr, event_ipv4},
+            {AF_INET6, v6addr, event_ipv6},
     };
 
     for (const auto& config : testConfigs) {
@@ -430,6 +548,8 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
         const addrinfo hints = {.ai_family = config.ai_family};
         NetworkDnsEventReported event;
         int rv = resolv_getaddrinfo("sawadee", nullptr, &hints, &mNetcontext, &result, &event);
+        EXPECT_THAT(event,
+                    NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         ScopedAddrinfo result_cleanup(result);
         EXPECT_EQ(0, rv);
         EXPECT_TRUE(result != nullptr);
@@ -690,7 +810,48 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
     constexpr char host_name[] = "jiababuei.example.com.";
     constexpr char v4addr[] = "1.2.3.4";
     constexpr char v6addr[] = "::1.2.3.4";
+    // Following fields will not be verified during the test in proto NetworkDnsEventReported.
+    // So don't need to config those values: event_type, return_code, latency_micros,
+    // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+    constexpr char event_ipv4[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                }
+               ]
+             }
+        })Event";
 
+    constexpr char event_ipv6[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                }
+               ]
+             }
+        })Event";
     test::DNSResponder dns;
     dns.addMapping(host_name, ns_type::ns_t_a, v4addr);
     dns.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
@@ -700,9 +861,10 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
     static const struct TestConfig {
         int ai_family;
         const std::string expected_addr;
+        const std::string expected_event;
     } testConfigs[]{
-            {AF_INET, v4addr},
-            {AF_INET6, v6addr},
+            {AF_INET, v4addr, event_ipv4},
+            {AF_INET6, v6addr, event_ipv6},
     };
 
     for (const auto& config : testConfigs) {
@@ -715,6 +877,8 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
         NetworkDnsEventReported event;
         int rv = resolv_gethostbyname("jiababuei", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
                                       &mNetcontext, &hp, &event);
+        EXPECT_THAT(event,
+                    NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         EXPECT_EQ(0, rv);
         EXPECT_TRUE(hp != nullptr);
         EXPECT_EQ(1U, GetNumQueries(dns, host_name));
