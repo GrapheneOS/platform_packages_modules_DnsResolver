@@ -60,18 +60,16 @@ class DnsResponderClient {
 
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
-                             const std::vector<int>& params, const std::string& name,
-                             const std::vector<std::string>& fingerprints) {
+                             const std::vector<int>& params, const std::string& name) {
         // Pass servers as both network-assigned and TLS servers.  Tests can
         // determine on which server and by which protocol queries arrived.
-        return SetResolversWithTls(servers, searchDomains, params, servers, name, fingerprints);
+        return SetResolversWithTls(servers, searchDomains, params, servers, name);
     }
 
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
                              const std::vector<int>& params,
-                             const std::vector<std::string>& tlsServers, const std::string& name,
-                             const std::vector<std::string>& fingerprints);
+                             const std::vector<std::string>& tlsServers, const std::string& name);
 
     static void SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,
                                 std::vector<std::unique_ptr<test::DNSResponder>>* dns,

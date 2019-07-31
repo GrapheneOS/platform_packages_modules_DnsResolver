@@ -88,7 +88,7 @@ static bool operator ==(const sockaddr_storage& x, const sockaddr_storage& y) {
 namespace android {
 namespace net {
 
-// This comparison ignores ports and fingerprints.
+// This comparison ignores ports and certificates.
 bool AddressComparator::operator() (const DnsTlsServer& x, const DnsTlsServer& y) const {
     if (x.ss.ss_family != y.ss.ss_family) {
         return x.ss.ss_family < y.ss.ss_family;
@@ -112,7 +112,6 @@ auto make_tie(const DnsTlsServer& s) {
     return std::tie(
         s.ss,
         s.name,
-        s.fingerprints,
         s.protocol
     );
 }
@@ -126,7 +125,7 @@ bool DnsTlsServer::operator ==(const DnsTlsServer& other) const {
 }
 
 bool DnsTlsServer::wasExplicitlyConfigured() const {
-    return !name.empty() || !fingerprints.empty();
+    return !name.empty();
 }
 
 }  // namespace net

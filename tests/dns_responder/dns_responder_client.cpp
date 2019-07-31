@@ -35,6 +35,27 @@ using android::base::StringPrintf;
 using android::net::INetd;
 using android::net::ResolverParamsParcel;
 
+static const char kCaCert[] = R"(
+-----BEGIN CERTIFICATE-----
+MIIC4TCCAcmgAwIBAgIUQUHZnWhL6M4qcS+I0lLkMyqf3VMwDQYJKoZIhvcNAQEL
+BQAwADAeFw0xOTA2MTAwODM3MzlaFw0yOTA2MDcwODM3MzlaMAAwggEiMA0GCSqG
+SIb3DQEBAQUAA4IBDwAwggEKAoIBAQCapRbBg6dRT4id4DxmlyktomE8gpm4W+VA
+ZOivhKat4CvGfVjVIAUYxV7LOGREkkT8Qhn5/gU0lShsnURzEDWY+IjMDDw+kRAm
+iFAlMRnCobTp/tenseNRB2tDuUhkRbzaT6qaidPbKy099p909gxf4YqsgY2NfsY2
+JkideqIkVq2hvLehsu3BgiK06TGUgxOHfj74vx7iGyujq1v38J1hlox5vj/svJF6
+jVdDw8p2UkJbO2N9u3al0nNSMG+MCgd3cvKUySTnjedYXsYB0WyH/JZn//KDq6o+
+as6eQVHuH1fu+8XPzBNATlkHzy+YAs7T+UWbkoa1F8wIElVQg66lAgMBAAGjUzBR
+MB0GA1UdDgQWBBShu/e54D3VdqdLOWo9Ou5hbjaIojAfBgNVHSMEGDAWgBShu/e5
+4D3VdqdLOWo9Ou5hbjaIojAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA
+A4IBAQBFkEGqqzzdQlhP5m1kzh+SiUCwekzSump0CSk0JAXAdeLNbWs3H+pE1/hM
+Fx7oFonoX5O6pi68JfcIP0u7wNuZkKqubUl4gG6aHDkAad2oeTov0Be7EKt8Ekwf
+tmFWVQQrF9otlG3Stn4vmE5zVNGQXDgRsNKPekSo0XJz757q5WgblauB71Rekvio
+TCUXXt3jf3SuovcUFjgBkaohikBRbLiPWZrW4y0XUsgBKI6sLtiSZOPiNevY2xAR
+y7mCSmi4wP7vtUQ5G8znkAMKoo0FzyfjSogGQeREUM8Oe9Mmh/D39sq/D4TsiAxt
+Pwl59DlzlHHJhmOL+SCGciBX4X7p
+-----END CERTIFICATE-----
+)";
+
 void DnsResponderClient::SetupMappings(unsigned num_hosts, const std::vector<std::string>& domains,
                                        std::vector<Mapping>* mappings) {
     mappings->resize(num_hosts * domains.size());
@@ -52,11 +73,12 @@ void DnsResponderClient::SetupMappings(unsigned num_hosts, const std::vector<std
 
 // TODO: Use SetResolverConfiguration() with ResolverParamsParcel struct directly.
 // DEPRECATED: Use SetResolverConfiguration() in new code
-static ResolverParamsParcel makeResolverParamsParcel(
-        int netId, const std::vector<int>& params, const std::vector<std::string>& servers,
-        const std::vector<std::string>& domains, const std::string& tlsHostname,
-        const std::vector<std::string>& tlsServers,
-        const std::vector<std::string>& tlsFingerprints) {
+static ResolverParamsParcel makeResolverParamsParcel(int netId, const std::vector<int>& params,
+                                                     const std::vector<std::string>& servers,
+                                                     const std::vector<std::string>& domains,
+                                                     const std::string& tlsHostname,
+                                                     const std::vector<std::string>& tlsServers,
+                                                     const std::string& caCert) {
     using android::net::IDnsResolver;
     ResolverParamsParcel paramsParcel;
 
@@ -79,7 +101,8 @@ static ResolverParamsParcel makeResolverParamsParcel(
     paramsParcel.domains = domains;
     paramsParcel.tlsName = tlsHostname;
     paramsParcel.tlsServers = tlsServers;
-    paramsParcel.tlsFingerprints = tlsFingerprints;
+    paramsParcel.tlsFingerprints = {};
+    paramsParcel.caCertificate = caCert;
 
     return paramsParcel;
 }
@@ -88,7 +111,7 @@ bool DnsResponderClient::SetResolversForNetwork(const std::vector<std::string>& 
                                                 const std::vector<std::string>& domains,
                                                 const std::vector<int>& params) {
     const auto& resolverParams =
-            makeResolverParamsParcel(TEST_NETID, params, servers, domains, "", {}, {});
+            makeResolverParamsParcel(TEST_NETID, params, servers, domains, "", {}, "");
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
     return rv.isOk();
 }
@@ -97,10 +120,9 @@ bool DnsResponderClient::SetResolversWithTls(const std::vector<std::string>& ser
                                              const std::vector<std::string>& domains,
                                              const std::vector<int>& params,
                                              const std::vector<std::string>& tlsServers,
-                                             const std::string& name,
-                                             const std::vector<std::string>& fingerprints) {
+                                             const std::string& name) {
     const auto& resolverParams = makeResolverParamsParcel(TEST_NETID, params, servers, domains,
-                                                          name, tlsServers, fingerprints);
+                                                          name, tlsServers, kCaCert);
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
     if (!rv.isOk()) LOG(ERROR) << "SetResolversWithTls() -> " << rv.toString8();
     return rv.isOk();

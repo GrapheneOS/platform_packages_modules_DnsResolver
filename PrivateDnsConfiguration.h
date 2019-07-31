@@ -54,7 +54,7 @@ struct ExternalPrivateDnsStatus {
 class PrivateDnsConfiguration {
   public:
     int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
-            const std::string& name, const std::set<std::vector<uint8_t>>& fingerprints);
+            const std::string& name, const std::string& caCert);
 
     PrivateDnsStatus getStatus(unsigned netId);
 
