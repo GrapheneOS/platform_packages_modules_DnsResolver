@@ -459,11 +459,11 @@ void DNSResponder::removeMapping(const std::string& name, ns_type type) {
     std::lock_guard lock(mappings_mutex_);
     auto it = mappings_.find(QueryKey(name, type));
     if (it != mappings_.end()) {
-        LOG(ERROR) << "Cannot remove mapping mapping from (" << name << ", " << dnstype2str(type)
-                   << "), not present";
+        mappings_.erase(it);
         return;
     }
-    mappings_.erase(it);
+    LOG(ERROR) << "Cannot remove mapping from (" << name << ", " << dnstype2str(type)
+               << "), not present";
 }
 
 void DNSResponder::setResponseProbability(double response_probability) {
@@ -667,24 +667,9 @@ bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, char* respo
         }
     }
 
-    for (const DNSQuestion& question : header.questions) {
-        if (question.qclass != ns_class::ns_c_in && question.qclass != ns_class::ns_c_any) {
-            LOG(INFO) << "unsupported question class " << question.qclass;
-            return makeErrorResponse(&header, ns_rcode::ns_r_notimpl, response, response_len);
-        }
-
-        if (!addAnswerRecords(question, &header.answers)) {
-            return makeErrorResponse(&header, ns_rcode::ns_r_servfail, response, response_len);
-        }
-    }
-
-    header.qr = true;
-    char* response_cur = header.write(response, response + *response_len);
-    if (response_cur == nullptr) {
-        return false;
-    }
-    *response_len = response_cur - response;
-    return true;
+    // Make the response. The query has been read into |header| which is used to build and return
+    // the response as well.
+    return makeResponse(&header, response, response_len);
 }
 
 bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
@@ -792,6 +777,27 @@ bool DNSResponder::makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* re
     header->qr = true;
     char* response_cur = header->write(response, response + *response_len);
     if (response_cur == nullptr) return false;
+    *response_len = response_cur - response;
+    return true;
+}
+
+bool DNSResponder::makeResponse(DNSHeader* header, char* response, size_t* response_len) const {
+    for (const DNSQuestion& question : header->questions) {
+        if (question.qclass != ns_class::ns_c_in && question.qclass != ns_class::ns_c_any) {
+            LOG(INFO) << "unsupported question class " << question.qclass;
+            return makeErrorResponse(header, ns_rcode::ns_r_notimpl, response, response_len);
+        }
+
+        if (!addAnswerRecords(question, &header->answers)) {
+            return makeErrorResponse(header, ns_rcode::ns_r_servfail, response, response_len);
+        }
+    }
+
+    header->qr = true;
+    char* response_cur = header->write(response, response + *response_len);
+    if (response_cur == nullptr) {
+        return false;
+    }
     *response_len = response_cur - response;
     return true;
 }
