@@ -20,6 +20,36 @@ cc_test_library {
 }
 
 cc_test {
+    name: "resolv_gold_test",
+    test_suites: ["device-tests"],
+    require_root: true,
+    defaults: ["netd_defaults"],
+    srcs: [
+        "resolv_gold_test.cpp",
+    ],
+    header_libs: [
+        "libnetd_resolv_internal_headers",
+    ],
+    shared_libs: [
+        "libcrypto",
+        "libprotobuf-cpp-lite",
+        "libssl",
+    ],
+    static_libs: [
+        "dnsresolver_aidl_interface-cpp",
+        "libbase",
+        "libgmock",
+        "liblog",
+        "libnetd_resolv",
+        "libnetd_test_dnsresponder",
+        "libnetd_test_resolv_utils",
+        "libnetdutils",
+        "server_configurable_flags",
+        "stats_proto",
+    ],
+}
+
+cc_test {
     name: "resolv_stress_test",
     test_suites: ["device-tests"],
     // This won't work with test_config

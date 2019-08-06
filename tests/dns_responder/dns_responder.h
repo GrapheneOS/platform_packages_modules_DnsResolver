@@ -94,6 +94,7 @@ struct DNSHeader {
     std::vector<DNSRecord> additionals;
     const char* read(const char* buffer, const char* buffer_end);
     char* write(char* buffer, const char* buffer_end) const;
+    bool write(std::vector<uint8_t>* out) const;
     std::string toString() const;
 
   private:
@@ -129,13 +130,13 @@ class DNSResponder {
         DROP              // DNS server not supporting EDNS will not do any response.
     };
     // Indicate which mapping the DNS server used to build the response.
-    // See also addMapping(), addMappingDnsHeader(), removeMapping(), removeMappingDnsHeader(),
-    // makeResponse(), makeResponseFromDnsHeader().
+    // See also addMapping{, DnsHeader, BinaryPacket}, removeMapping{, DnsHeader, BinaryPacket},
+    // makeResponse{, FromDnsHeader, FromBinaryPacket}.
     // TODO: Perhaps break class DNSResponder for each mapping.
-    // TODO: Add the mapping from (raw dns query) to (raw dns response).
     enum class MappingType : uint8_t {
         ADDRESS_OR_HOSTNAME,  // Use the mapping from (name, type) to (address or hostname)
         DNS_HEADER,           // Use the mapping from (name, type) to (DNSHeader)
+        BINARY_PACKET,        // Use the mapping from (query packet) to (response packet)
     };
 
     DNSResponder(std::string listen_address = kDefaultListenAddr,
@@ -152,11 +153,14 @@ class DNSResponder {
 
     ~DNSResponder();
 
-    // Functions used for accessing mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER}.
+    // Functions used for accessing mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER, BINARY_PACKET}.
     void addMapping(const std::string& name, ns_type type, const std::string& addr);
     void addMappingDnsHeader(const std::string& name, ns_type type, const DNSHeader& header);
+    void addMappingBinaryPacket(const std::vector<uint8_t>& query,
+                                const std::vector<uint8_t>& response);
     void removeMapping(const std::string& name, ns_type type);
     void removeMappingDnsHeader(const std::string& name, ns_type type);
+    void removeMappingBinaryPacket(const std::vector<uint8_t>& query);
 
     void setResponseProbability(double response_probability);
     void setEdns(Edns edns);
@@ -172,6 +176,9 @@ class DNSResponder {
     std::mutex& getCvMutex() { return cv_mutex_; }
     void setDeferredResp(bool deferred_resp);
     static bool fillAnswerRdata(const std::string& rdatastr, DNSRecord& record);
+
+    // TODO: Make DNSResponder record unknown queries in a vector for improving the debugging.
+    // Unit test could dump the unexpected query for further debug if any unexpected failure.
 
   private:
     // Key used for accessing mappings.
@@ -194,6 +201,21 @@ class DNSResponder {
         }
     };
 
+    // Used for generating combined hash value of a vector.
+    // std::hash<T> doesn't provide a specialization for std::vector<T>.
+    struct QueryKeyVectorHash {
+        std::size_t operator()(const std::vector<uint8_t>& v) const {
+            std::size_t combined = 0;
+            for (const uint8_t i : v) {
+                // Hash combination comes from boost::hash_combine
+                // See also system/extras/simpleperf/utils.h
+                combined ^=
+                        std::hash<uint8_t>{}(i) + 0x9e3779b9 + (combined << 6) + (combined >> 2);
+            }
+            return combined;
+        }
+    };
+
     void requestHandler();
 
     // Parses and generates a response message for incoming DNS requests.
@@ -206,13 +228,18 @@ class DNSResponder {
 
     bool generateErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                                size_t* response_len) const;
-    // TODO: Change makeErrorResponse and makeResponse{, FromDnsHeader} to use C++ containers
-    // instead of the unsafe pointer + length buffer.
+
+    // TODO: Change writePacket, makeErrorResponse and
+    // makeResponse{, FromDnsHeader, FromBinaryPacket} to use C++ containers instead of the unsafe
+    // pointer + length buffer.
+    bool writePacket(const DNSHeader* header, char* response, size_t* response_len) const;
     bool makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                            size_t* response_len) const;
-    // Build a response from mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER}.
+    // Build a response from mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER, BINARY_PACKET}.
     bool makeResponse(DNSHeader* header, char* response, size_t* response_len) const;
     bool makeResponseFromDnsHeader(DNSHeader* header, char* response, size_t* response_len) const;
+    bool makeResponseFromBinaryPacket(DNSHeader* header, char* response,
+                                      size_t* response_len) const;
 
     // Add a new file descriptor to be polled by the handler thread.
     bool addFd(int fd, uint32_t events);
@@ -251,9 +278,12 @@ class DNSResponder {
     // decides which mapping is used. See also makeResponse{, FromDnsHeader}.
     // - mappings_: Mapping from (name, type) to (address or hostname).
     // - dnsheader_mappings_: Mapping from (name, type) to (DNSHeader).
+    // - packet_mappings_: Mapping from (query packet) to (response packet).
     std::unordered_map<QueryKey, std::string, QueryKeyHash> mappings_ GUARDED_BY(mappings_mutex_);
     std::unordered_map<QueryKey, DNSHeader, QueryKeyHash> dnsheader_mappings_
             GUARDED_BY(mappings_mutex_);
+    std::unordered_map<std::vector<uint8_t>, std::vector<uint8_t>, QueryKeyVectorHash>
+            packet_mappings_ GUARDED_BY(mappings_mutex_);
 
     mutable std::mutex mappings_mutex_;
     // Query names received so far and the corresponding mutex.

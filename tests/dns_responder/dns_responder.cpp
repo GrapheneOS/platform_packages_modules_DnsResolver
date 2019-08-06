@@ -36,10 +36,12 @@
 #include <android-base/logging.h>
 #include <android-base/strings.h>
 #include <netdutils/InternetAddresses.h>
+#include <netdutils/Slice.h>
 #include <netdutils/SocketOption.h>
 
 using android::netdutils::enableSockopt;
 using android::netdutils::ScopedAddrinfo;
+using android::netdutils::Slice;
 
 namespace test {
 
@@ -402,6 +404,15 @@ char* DNSHeader::write(char* buffer, const char* buffer_end) const {
     return buffer_cur;
 }
 
+// TODO: convert all callers to this interface, then delete the old one.
+bool DNSHeader::write(std::vector<uint8_t>* out) const {
+    char buffer[4096];
+    char* end = this->write(buffer, buffer + sizeof buffer);
+    if (end == nullptr) return false;
+    out->insert(out->end(), buffer, end);
+    return true;
+}
+
 std::string DNSHeader::toString() const {
     // TODO
     return std::string();
@@ -446,54 +457,45 @@ DNSResponder::~DNSResponder() {
 
 void DNSResponder::addMapping(const std::string& name, ns_type type, const std::string& addr) {
     std::lock_guard lock(mappings_mutex_);
-    // TODO: Consider using std::map::insert_or_assign().
-    auto it = mappings_.find(QueryKey(name, type));
-    if (it != mappings_.end()) {
-        LOG(INFO) << "Overwriting mapping for (" << name << ", " << dnstype2str(type)
-                  << "), previous address " << it->second << " new address " << addr;
-        it->second = addr;
-        return;
-    }
-    mappings_.try_emplace({name, type}, addr);
+    mappings_[{name, type}] = addr;
 }
 
 void DNSResponder::addMappingDnsHeader(const std::string& name, ns_type type,
                                        const DNSHeader& header) {
     std::lock_guard lock(mappings_mutex_);
-    // TODO: Consider using std::map::insert_or_assign().
-    auto it = dnsheader_mappings_.find(QueryKey(name, type));
-    if (it != dnsheader_mappings_.end()) {
-        // TODO: Perhaps replace header pointer with header content once DNSHeader::toString() has
-        // been implemented.
-        LOG(INFO) << "Overwriting mapping for (" << name << ", " << dnstype2str(type)
-                  << "), previous header " << (void*)&it->second << " new header "
-                  << (void*)&header;
-        it->second = header;
-        return;
-    }
-    dnsheader_mappings_.try_emplace({name, type}, header);
+    dnsheader_mappings_[{name, type}] = header;
+}
+
+void DNSResponder::addMappingBinaryPacket(const std::vector<uint8_t>& query,
+                                          const std::vector<uint8_t>& response) {
+    std::lock_guard lock(mappings_mutex_);
+    packet_mappings_[query] = response;
 }
 
 void DNSResponder::removeMapping(const std::string& name, ns_type type) {
     std::lock_guard lock(mappings_mutex_);
-    auto it = mappings_.find(QueryKey(name, type));
-    if (it != mappings_.end()) {
-        mappings_.erase(it);
-        return;
+    if (!mappings_.erase({name, type})) {
+        LOG(ERROR) << "Cannot remove mapping from (" << name << ", " << dnstype2str(type)
+                   << "), not present in registered mappings";
     }
-    LOG(ERROR) << "Cannot remove mapping from (" << name << ", " << dnstype2str(type)
-               << "), not present in registered mappings";
 }
 
 void DNSResponder::removeMappingDnsHeader(const std::string& name, ns_type type) {
     std::lock_guard lock(mappings_mutex_);
-    auto it = dnsheader_mappings_.find(QueryKey(name, type));
-    if (it != dnsheader_mappings_.end()) {
-        dnsheader_mappings_.erase(it);
-        return;
+    if (!dnsheader_mappings_.erase({name, type})) {
+        LOG(ERROR) << "Cannot remove mapping from (" << name << ", " << dnstype2str(type)
+                   << "), not present in registered DnsHeader mappings";
     }
-    LOG(ERROR) << "Cannot remove mapping from (" << name << ", " << dnstype2str(type)
-               << "), not present in registered DnsHeader mappings";
+}
+
+void DNSResponder::removeMappingBinaryPacket(const std::vector<uint8_t>& query) {
+    std::lock_guard lock(mappings_mutex_);
+    if (!packet_mappings_.erase(query)) {
+        LOG(ERROR) << "Cannot remove mapping, not present in registered BinaryPacket mappings";
+        LOG(INFO) << "Hex dump:";
+        LOG(INFO) << android::netdutils::toHex(
+                Slice(const_cast<uint8_t*>(query.data()), query.size()), 32);
+    }
 }
 
 void DNSResponder::setResponseProbability(double response_probability) {
@@ -706,6 +708,8 @@ bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, char* respo
     switch (mapping_type_) {
         case MappingType::DNS_HEADER:
             return makeResponseFromDnsHeader(&header, response, response_len);
+        case MappingType::BINARY_PACKET:
+            return makeResponseFromBinaryPacket(&header, response, response_len);
         case MappingType::ADDRESS_OR_HOSTNAME:
         default:
             return makeResponse(&header, response, response_len);
@@ -808,6 +812,16 @@ bool DNSResponder::fillAnswerRdata(const std::string& rdatastr, DNSRecord& recor
     return true;
 }
 
+bool DNSResponder::writePacket(const DNSHeader* header, char* response,
+                               size_t* response_len) const {
+    char* response_cur = header->write(response, response + *response_len);
+    if (response_cur == nullptr) {
+        return false;
+    }
+    *response_len = response_cur - response;
+    return true;
+}
+
 bool DNSResponder::makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                                      size_t* response_len) const {
     header->answers.clear();
@@ -815,10 +829,7 @@ bool DNSResponder::makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* re
     header->additionals.clear();
     header->rcode = rcode;
     header->qr = true;
-    char* response_cur = header->write(response, response + *response_len);
-    if (response_cur == nullptr) return false;
-    *response_len = response_cur - response;
-    return true;
+    return writePacket(header, response, response_len);
 }
 
 bool DNSResponder::makeResponse(DNSHeader* header, char* response, size_t* response_len) const {
@@ -832,14 +843,8 @@ bool DNSResponder::makeResponse(DNSHeader* header, char* response, size_t* respo
             return makeErrorResponse(header, ns_rcode::ns_r_servfail, response, response_len);
         }
     }
-
     header->qr = true;
-    char* response_cur = header->write(response, response + *response_len);
-    if (response_cur == nullptr) {
-        return false;
-    }
-    *response_len = response_cur - response;
-    return true;
+    return writePacket(header, response, response_len);
 }
 
 bool DNSResponder::makeResponseFromDnsHeader(DNSHeader* header, char* response,
@@ -885,13 +890,45 @@ bool DNSResponder::makeResponseFromDnsHeader(DNSHeader* header, char* response,
         // a response.
         header->qr = true;
     }
+    return writePacket(header, response, response_len);
+}
 
-    char* response_cur = header->write(response, response + *response_len);
-    if (response_cur == nullptr) {
-        return false;
+bool DNSResponder::makeResponseFromBinaryPacket(DNSHeader* header, char* response,
+                                                size_t* response_len) const {
+    std::lock_guard guard(mappings_mutex_);
+
+    // Build a search key of mapping from the query.
+    // TODO: Perhaps pass the query packet buffer directly from the caller.
+    std::vector<uint8_t> queryKey;
+    if (!header->write(&queryKey)) return false;
+    // Clear ID field (byte 0-1) because it is not required by the mapping key.
+    queryKey[0] = 0;
+    queryKey[1] = 0;
+
+    const auto it = packet_mappings_.find(queryKey);
+    if (it != packet_mappings_.end()) {
+        if (it->second.size() > *response_len) {
+            LOG(ERROR) << "buffer overflow on line " << __LINE__;
+            return false;
+        } else {
+            std::copy(it->second.begin(), it->second.end(), response);
+            // Leave the "RD" flag assignment for testing. The "RD" flag of the response keep
+            // using the one from the raw packet mapping but the received query.
+            // Assign "ID" field from query to response. See RFC 1035 section 4.1.1.
+            reinterpret_cast<uint16_t*>(response)[0] = htons(header->id);  // bytes 0-1: id
+            *response_len = it->second.size();
+            return true;
+        }
+    } else {
+        // TODO: handle correctly. See also TODO in addAnswerRecords().
+        // TODO: Perhaps dump packet content to indicate which query failed.
+        LOG(INFO) << "no mapping found, couldn't build a response from BinaryPacket mapping";
+        // Note that do nothing as makeResponse() if no mapping is found. It just changes the QR
+        // flag from query (0) to response (1) in the query. Then, send the modified query back as
+        // a response.
+        header->qr = true;
+        return writePacket(header, response, response_len);
     }
-    *response_len = response_cur - response;
-    return true;
 }
 
 void DNSResponder::setDeferredResp(bool deferred_resp) {
@@ -945,6 +982,8 @@ void DNSResponder::handleQuery() {
             PLOG(INFO) << "sendto() failed for " << host_str;
         }
         // Test that the response is actually a correct DNS message.
+        // TODO: Make DNS message test to support name compression. Or it throws a warning for
+        // a valid DNS message with name compression while the raw packet mapping is used.
         const char* response_end = response + len;
         DNSHeader header;
         const char* cur = header.read(response, response_end);
