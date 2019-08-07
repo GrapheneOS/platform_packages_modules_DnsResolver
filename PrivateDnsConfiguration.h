@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef NETD_RESOLV_PRIVATEDNSCONFIGURATION_H
-#define NETD_RESOLV_PRIVATEDNSCONFIGURATION_H
+#pragma once
 
 #include <list>
 #include <map>
@@ -37,31 +36,28 @@ enum class Validation : uint8_t { in_process, success, fail, unknown_server, unk
 
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
-    std::list<DnsTlsServer> validatedServers;
-};
+    std::map<DnsTlsServer, Validation, AddressComparator> serversMap;
 
-// TODO: remove this C-style struct and use PrivateDnsStatus everywhere.
-struct ExternalPrivateDnsStatus {
-    PrivateDnsMode mode;
-    int numServers;
-    struct PrivateDnsInfo {
-        sockaddr_storage ss;
-        const char* hostname;
-        Validation validation;
-    } serverStatus[MAXNS];
+    std::list<DnsTlsServer> validatedServers() const {
+        std::list<DnsTlsServer> servers;
+
+        for (const auto& pair : serversMap) {
+            if (pair.second == Validation::success) {
+                servers.push_back(pair.first);
+            }
+        }
+        return servers;
+    }
 };
 
 class PrivateDnsConfiguration {
   public:
     int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
-            const std::string& name, const std::string& caCert);
+            const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
 
-    PrivateDnsStatus getStatus(unsigned netId);
+    PrivateDnsStatus getStatus(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
-    // DEPRECATED, use getStatus() above.
-    void getStatus(unsigned netId, ExternalPrivateDnsStatus* status);
-
-    void clear(unsigned netId);
+    void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
   private:
     typedef std::map<DnsTlsServer, Validation, AddressComparator> PrivateDnsTracker;
@@ -88,5 +84,3 @@ extern PrivateDnsConfiguration gPrivateDnsConfiguration;
 
 }  // namespace net
 }  // namespace android
-
-#endif /* NETD_RESOLV_PRIVATEDNSCONFIGURATION_H */

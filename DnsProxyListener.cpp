@@ -118,18 +118,11 @@ constexpr bool requestingUseLocalNameservers(unsigned flags) {
     return (flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS) != 0;
 }
 
-inline bool queryingViaTls(unsigned dns_netid) {
-    // TODO: The simpler PrivateDnsStatus should suffice here.
-    ExternalPrivateDnsStatus privateDnsStatus = {PrivateDnsMode::OFF, 0, {}};
-    gPrivateDnsConfiguration.getStatus(dns_netid, &privateDnsStatus);
-    switch (static_cast<PrivateDnsMode>(privateDnsStatus.mode)) {
+bool queryingViaTls(unsigned dns_netid) {
+    const auto privateDnsStatus = gPrivateDnsConfiguration.getStatus(dns_netid);
+    switch (privateDnsStatus.mode) {
         case PrivateDnsMode::OPPORTUNISTIC:
-            for (int i = 0; i < privateDnsStatus.numServers; i++) {
-                if (privateDnsStatus.serverStatus[i].validation == Validation::success) {
-                    return true;
-                }
-            }
-            return false;
+            return !privateDnsStatus.validatedServers().empty();
         case PrivateDnsMode::STRICT:
             return true;
         default:
