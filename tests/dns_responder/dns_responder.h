@@ -116,6 +116,13 @@ inline const std::string kDefaultListenService = "53";
  */
 class DNSResponder {
   public:
+    enum class Edns : uint8_t {
+        ON,
+        FORMERR_ON_EDNS,  // DNS server not supporting EDNS will reply FORMERR.
+        FORMERR_UNCOND,   // DNS server reply FORMERR unconditionally
+        DROP              // DNS server not supporting EDNS will not do any response.
+    };
+
     DNSResponder(std::string listen_address = kDefaultListenAddr,
                  std::string listen_service = kDefaultListenService,
                  ns_rcode error_rcode = ns_rcode::ns_r_servfail);
@@ -124,13 +131,6 @@ class DNSResponder {
         : DNSResponder(kDefaultListenAddr, kDefaultListenService, error_rcode){};
 
     ~DNSResponder();
-
-    enum class Edns : uint8_t {
-        ON,
-        FORMERR_ON_EDNS,  // DNS server not supporting EDNS will reply FORMERR.
-        FORMERR_UNCOND,   // DNS server reply FORMERR unconditionally
-        DROP              // DNS server not supporting EDNS will not do any response.
-    };
 
     void addMapping(const std::string& name, ns_type type, const std::string& addr);
     void removeMapping(const std::string& name, ns_type type);
@@ -184,6 +184,7 @@ class DNSResponder {
                                size_t* response_len) const;
     bool makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                            size_t* response_len) const;
+    bool makeResponse(DNSHeader* header, char* response, size_t* response_len) const;
 
     // Add a new file descriptor to be polled by the handler thread.
     bool addFd(int fd, uint32_t events);
