@@ -97,11 +97,10 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
     for (const auto& server : orderedServers) {
         DnsQueryEvent* dnsQueryEvent =
                 statp->event->mutable_dns_query_events()->add_dns_query_event();
-        dnsQueryEvent->set_rcode(NS_R_INTERNAL_ERROR);
-        Stopwatch query_stopwatch;
+        Stopwatch queryStopwatch;
         code = this->query(server, statp->_mark, query, ans, resplen);
 
-        dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(query_stopwatch.timeTakenUs()));
+        dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
         dnsQueryEvent->set_dns_server_index(serverCount++);
         dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(server.ss.ss_family));
         dnsQueryEvent->set_protocol(PROTO_DOT);
@@ -113,16 +112,18 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
             case DnsTlsTransport::Response::success:
                 dnsQueryEvent->set_rcode(
                         static_cast<NsRcode>(reinterpret_cast<HEADER*>(ans.base())->rcode));
-                [[fallthrough]];
+                return code;
             case DnsTlsTransport::Response::limit_error:
+                dnsQueryEvent->set_rcode(NS_R_INTERNAL_ERROR);
                 return code;
             // These response codes might differ when trying other servers, so
             // keep iterating to see if we can get a different (better) result.
             case DnsTlsTransport::Response::network_error:
                 // Sync from res_tls_send in res_send.cpp
                 dnsQueryEvent->set_rcode(NS_R_TIMEOUT);
-                [[fallthrough]];
+                continue;
             case DnsTlsTransport::Response::internal_error:
+                dnsQueryEvent->set_rcode(NS_R_INTERNAL_ERROR);
                 continue;
             // No "default" statement.
         }
