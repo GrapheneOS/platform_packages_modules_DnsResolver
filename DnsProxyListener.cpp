@@ -300,7 +300,14 @@ bool parseQuery(const uint8_t* msg, size_t msgLen, uint16_t* query_id, int* rr_t
 }
 
 void initDnsEvent(NetworkDnsEventReported* event) {
-    // The value 0 has the special meaning of unset/unknown in Westworld atoms.
+    // The value 0 has the special meaning of unset/unknown in Westworld atoms. So, we set both
+    // flags to -1 as default value.
+    //  1. The hints flag is only used in resolv_getaddrinfo. When user set it to -1 in
+    //     resolv_getaddrinfo, the flag will cause validation (validateHints) failure in
+    //     getaddrinfo, so it will not do DNS query and will upload DNS stats log with
+    //     return_code = RC_EAI_BADFLAGS.
+    //  2. The res_nsend flags are only used in resolv_res_nsend. When user set it to -1 in
+    //     resolv_res_nsend,res_nsend will do nothing special by the setting.
     event->set_hints_ai_flags(-1);
     event->set_res_nsend_flags(-1);
 }
