@@ -416,9 +416,9 @@ int res_nsend(res_state statp, const u_char* buf, int buflen, u_char* ans, int a
     terrno = ETIMEDOUT;
 
     int anslen = 0;
-    Stopwatch cache_stopwatch;
+    Stopwatch cacheStopwatch;
     cache_status = resolv_cache_lookup(statp->netid, buf, buflen, ans, anssiz, &anslen, flags);
-    const int32_t cacheLatencyUs = saturate_cast<int32_t>(cache_stopwatch.timeTakenUs());
+    const int32_t cacheLatencyUs = saturate_cast<int32_t>(cacheStopwatch.timeTakenUs());
     if (cache_status == RESOLV_CACHE_FOUND) {
         HEADER* hp = (HEADER*)(void*)ans;
         *rcode = hp->rcode;
@@ -560,7 +560,7 @@ int res_nsend(res_state statp, const u_char* buf, int buflen, u_char* ans, int a
                 LOG(DEBUG) << __func__ << ": Querying server (# " << ns + 1
                            << ") address = " << abuf;
 
-            Stopwatch query_stopwatch;
+            Stopwatch queryStopwatch;
             if (v_circuit) {
                 /* Use VC; at most one attempt per server. */
                 bool shouldRecordStats = (attempt == 0);
@@ -570,7 +570,7 @@ int res_nsend(res_state statp, const u_char* buf, int buflen, u_char* ans, int a
                             &delay);
 
                 dnsQueryEvent->set_latency_micros(
-                        saturate_cast<int32_t>(query_stopwatch.timeTakenUs()));
+                        saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
                 dnsQueryEvent->set_dns_server_index(ns);
                 dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(nsap->sa_family));
                 dnsQueryEvent->set_retry_times(attempt);
@@ -607,7 +607,7 @@ int res_nsend(res_state statp, const u_char* buf, int buflen, u_char* ans, int a
                             &gotsomewhere, &now, rcode, &delay);
 
                 dnsQueryEvent->set_latency_micros(
-                        saturate_cast<int32_t>(query_stopwatch.timeTakenUs()));
+                        saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
                 dnsQueryEvent->set_dns_server_index(ns);
                 dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(nsap->sa_family));
                 dnsQueryEvent->set_retry_times(attempt);
