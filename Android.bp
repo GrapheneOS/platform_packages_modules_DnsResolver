@@ -70,7 +70,7 @@ cc_library {
     // on system ABIs
     stl: "libc++_static",
     static_libs: [
-        "dnsresolver_aidl_interface-V2-ndk_platform",
+        "dnsresolver_aidl_interface-ndk_platform",
         "libbase",
         "libcrypto",
         "libcutils",
@@ -100,6 +100,7 @@ cc_library {
         debuggable: {
             cppflags: [
                 "-DRESOLV_ALLOW_VERBOSE_LOGGING=1",
+                "-DRESOLV_INJECT_CA_CERTIFICATE=1",
             ],
         },
     },
@@ -171,6 +172,7 @@ cc_test {
         "libutils",
     ],
     static_libs: [
+        "dnsresolver_aidl_interface-cpp",
         "libgmock",
         "libnetd_test_dnsresponder",
         "libnetd_test_metrics_listener",
@@ -180,7 +182,6 @@ cc_test {
         "libnetdutils",
         "netd_aidl_interface-V2-cpp",
         "netd_event_listener_interface-V1-cpp",
-        "dnsresolver_aidl_interface-V2-cpp",
     ],
     compile_multilib: "both",
     sanitize: {

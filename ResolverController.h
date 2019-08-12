@@ -43,8 +43,7 @@ class ResolverController {
 
     // Binder specific functions, which convert between the ResolverParamsParcel and the
     // actual data structures, and call setDnsServer() / getDnsInfo() for the actual processing.
-    int setResolverConfiguration(const aidl::android::net::ResolverParamsParcel& resolverParams,
-                                 const std::set<std::vector<uint8_t>>& tlsFingerprints);
+    int setResolverConfiguration(const aidl::android::net::ResolverParamsParcel& resolverParams);
 
     int getResolverInfo(int32_t netId, std::vector<std::string>* servers,
                         std::vector<std::string>* domains, std::vector<std::string>* tlsServers,

@@ -52,9 +52,9 @@ class DnsTlsTransport : public IDnsTlsSocketObserver {
     // Given a |query|, this method sends it to the server and returns the result asynchronously.
     std::future<Result> query(const netdutils::Slice query) EXCLUDES(mLock);
 
-    // Check that a given TLS server is fully working on the specified netid, and has the
-    // provided SHA-256 fingerprint (if nonempty).  This function is used in ResolverController
-    // to ensure that we don't enable DNS over TLS on networks where it doesn't actually work.
+    // Check that a given TLS server is fully working on the specified netid.
+    // This function is used in ResolverController to ensure that we don't enable DNS over TLS
+    // on networks where it doesn't actually work.
     static bool validate(const DnsTlsServer& server, unsigned netid, uint32_t mark);
 
     // Implement IDnsTlsSocketObserver
