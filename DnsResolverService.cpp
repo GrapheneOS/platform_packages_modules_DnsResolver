@@ -27,8 +27,6 @@
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 #include <netdutils/DumpWriter.h>
-#include <netdutils/NetworkConstants.h>  // SHA256_SIZE
-#include <openssl/base64.h>
 #include <private/android_filesystem_config.h>  // AID_SYSTEM
 
 #include "DnsResolver.h"
@@ -164,33 +162,6 @@ binder_status_t DnsResolverService::dump(int fd, const char**, uint32_t) {
     return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(EX_SECURITY, err.c_str()));
 }
 
-namespace {
-
-// Parse a base64 encoded string into a vector of bytes.
-// On failure, return an empty vector.
-static std::vector<uint8_t> parseBase64(const std::string& input) {
-    std::vector<uint8_t> decoded;
-    size_t out_len;
-    if (EVP_DecodedLength(&out_len, input.size()) != 1) {
-        return decoded;
-    }
-    // out_len is now an upper bound on the output length.
-    decoded.resize(out_len);
-    if (EVP_DecodeBase64(decoded.data(), &out_len, decoded.size(),
-                         reinterpret_cast<const uint8_t*>(input.data()), input.size()) == 1) {
-        // Possibly shrink the vector if the actual output was smaller than the bound.
-        decoded.resize(out_len);
-    } else {
-        decoded.clear();
-    }
-    if (out_len != android::netdutils::SHA256_SIZE) {
-        decoded.clear();
-    }
-    return decoded;
-}
-
-}  // namespace
-
 ::ndk::ScopedAStatus DnsResolverService::setResolverConfiguration(
         const ResolverParamsParcel& resolverParams) {
     // Locking happens in PrivateDnsConfiguration and res_* functions.
@@ -203,21 +174,9 @@ static std::vector<uint8_t> parseBase64(const std::string& input) {
                           resolverParams.sampleValiditySeconds, resolverParams.successThreshold,
                           resolverParams.minSamples, resolverParams.maxSamples,
                           resolverParams.baseTimeoutMsec, resolverParams.retryCount,
-                          resolverParams.tlsServers, resolverParams.tlsFingerprints);
+                          resolverParams.tlsName, resolverParams.tlsServers);
 
-    std::set<std::vector<uint8_t>> decoded_fingerprints;
-    for (const std::string& fingerprint : resolverParams.tlsFingerprints) {
-        std::vector<uint8_t> decoded = parseBase64(fingerprint);
-        if (decoded.empty()) {
-            return ::ndk::ScopedAStatus(AStatus_fromServiceSpecificErrorWithMessage(
-                    EINVAL, "ResolverController error: bad fingerprint"));
-        }
-        decoded_fingerprints.emplace(decoded);
-    }
-
-    int res =
-            gDnsResolv->resolverCtrl.setResolverConfiguration(resolverParams, decoded_fingerprints);
-
+    int res = gDnsResolv->resolverCtrl.setResolverConfiguration(resolverParams);
     gResNetdCallbacks.log(entry.returns(res).withAutomaticDuration().toString().c_str());
 
     return statusFromErrcode(res);

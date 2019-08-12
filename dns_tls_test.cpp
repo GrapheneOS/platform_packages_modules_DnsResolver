@@ -62,9 +62,6 @@ static void parseServer(const char* server, in_port_t port, sockaddr_storage* pa
     LOG(ERROR) << "Failed to parse server address: " << server;
 }
 
-bytevec FINGERPRINT1 = { 1 };
-bytevec FINGERPRINT2 = { 2 };
-
 std::string SERVERNAME1 = "dns.example.com";
 std::string SERVERNAME2 = "dns.example.org";
 
@@ -78,7 +75,6 @@ class BaseTest : public ::testing::Test {
         parseServer("2001:db8::2", 853, &V6ADDR2);
 
         SERVER1 = DnsTlsServer(V4ADDR1);
-        SERVER1.fingerprints.insert(FINGERPRINT1);
         SERVER1.name = SERVERNAME1;
     }
 
@@ -789,29 +785,6 @@ TEST_F(ServerTest, Name) {
     checkUnequal(s1, s2);
     s2.name = SERVERNAME2;
     checkUnequal(s1, s2);
-    EXPECT_TRUE(isAddressEqual(s1, s2));
-
-    EXPECT_TRUE(s1.wasExplicitlyConfigured());
-    EXPECT_TRUE(s2.wasExplicitlyConfigured());
-}
-
-TEST_F(ServerTest, Fingerprint) {
-    DnsTlsServer s1(V4ADDR1), s2(V4ADDR1);
-
-    s1.fingerprints.insert(FINGERPRINT1);
-    checkUnequal(s1, s2);
-    EXPECT_TRUE(isAddressEqual(s1, s2));
-
-    s2.fingerprints.insert(FINGERPRINT2);
-    checkUnequal(s1, s2);
-    EXPECT_TRUE(isAddressEqual(s1, s2));
-
-    s2.fingerprints.insert(FINGERPRINT1);
-    checkUnequal(s1, s2);
-    EXPECT_TRUE(isAddressEqual(s1, s2));
-
-    s1.fingerprints.insert(FINGERPRINT2);
-    EXPECT_EQ(s1, s2);
     EXPECT_TRUE(isAddressEqual(s1, s2));
 
     EXPECT_TRUE(s1.wasExplicitlyConfigured());

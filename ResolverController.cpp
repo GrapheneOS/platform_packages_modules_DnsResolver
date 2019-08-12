@@ -195,9 +195,7 @@ int ResolverController::createNetworkCache(unsigned netId) {
     return resolv_create_cache_for_net(netId);
 }
 
-int ResolverController::setResolverConfiguration(
-        const ResolverParamsParcel& resolverParams,
-        const std::set<std::vector<uint8_t>>& tlsFingerprints) {
+int ResolverController::setResolverConfiguration(const ResolverParamsParcel& resolverParams) {
     using aidl::android::net::IDnsResolver;
 
     // At private DNS validation time, we only know the netId, so we have to guess/compute the
@@ -213,8 +211,10 @@ int ResolverController::setResolverConfiguration(
     if (tlsServers.size() > MAXNS) {
         tlsServers.resize(MAXNS);
     }
-    const int err = gPrivateDnsConfiguration.set(resolverParams.netId, fwmark.intValue, tlsServers,
-                                                 resolverParams.tlsName, tlsFingerprints);
+    const int err =
+            gPrivateDnsConfiguration.set(resolverParams.netId, fwmark.intValue, tlsServers,
+                                         resolverParams.tlsName, resolverParams.caCertificate);
+
     if (err != 0) {
         return err;
     }
