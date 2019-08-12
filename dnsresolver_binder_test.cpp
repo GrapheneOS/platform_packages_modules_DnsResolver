@@ -29,9 +29,7 @@
 #include <binder/IServiceManager.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <netdutils/NetworkConstants.h>  // SHA256_SIZE
 #include <netdutils/Stopwatch.h>
-#include <openssl/base64.h>
 
 #include "tests/dns_metrics_listener/base_metrics_listener.h"
 #include "tests/dns_metrics_listener/test_metrics.h"
@@ -95,22 +93,12 @@ class TimedOperation : public Stopwatch {
 
 namespace {
 
-std::string base64Encode(const std::vector<uint8_t>& input) {
-    size_t out_len;
-    EXPECT_EQ(1, EVP_EncodedLength(&out_len, input.size()));
-    // out_len includes the trailing NULL.
-    uint8_t output_bytes[out_len];
-    EXPECT_EQ(out_len - 1, EVP_EncodeBlock(output_bytes, input.data(), input.size()));
-    return std::string(reinterpret_cast<char*>(output_bytes));
-}
-
 // TODO: Convert tests to ResolverParamsParcel and delete this stub.
 ResolverParamsParcel makeResolverParamsParcel(int netId, const std::vector<int>& params,
                                               const std::vector<std::string>& servers,
                                               const std::vector<std::string>& domains,
                                               const std::string& tlsHostname,
-                                              const std::vector<std::string>& tlsServers,
-                                              const std::vector<std::string>& tlsFingerprints) {
+                                              const std::vector<std::string>& tlsServers) {
     using android::net::IDnsResolver;
     ResolverParamsParcel paramsParcel;
 
@@ -133,7 +121,7 @@ ResolverParamsParcel makeResolverParamsParcel(int netId, const std::vector<int>&
     paramsParcel.domains = domains;
     paramsParcel.tlsName = tlsHostname;
     paramsParcel.tlsServers = tlsServers;
-    paramsParcel.tlsFingerprints = tlsFingerprints;
+    paramsParcel.tlsFingerprints = {};
 
     return paramsParcel;
 }
@@ -250,43 +238,47 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_onDnsEvent) {
     dnsClient.TearDown();
 }
 
+// TODO: Need to test more than one server cases.
 TEST_F(DnsResolverBinderTest, SetResolverConfiguration_Tls) {
     const std::vector<std::string> LOCALLY_ASSIGNED_DNS{"8.8.8.8", "2001:4860:4860::8888"};
-    std::vector<uint8_t> fp(android::netdutils::SHA256_SIZE);
-    std::vector<uint8_t> short_fp(1);
-    std::vector<uint8_t> long_fp(android::netdutils::SHA256_SIZE + 1);
-    std::vector<std::string> test_domains;
+    static const std::vector<std::string> valid_v4_addr = {"192.0.2.1"};
+    static const std::vector<std::string> valid_v6_addr = {"2001:db8::2"};
+    static const std::vector<std::string> invalid_v4_addr = {"192.0.*.5"};
+    static const std::vector<std::string> invalid_v6_addr = {"2001:dg8::6"};
+    constexpr char valid_tls_name[] = "example.com";
     std::vector<int> test_params = {300, 25, 8, 8};
+    // We enumerate valid and invalid v4/v6 address, and several different TLS names
+    // to be the input data and verify the binder status.
     static const struct TestData {
         const std::vector<std::string> servers;
         const std::string tlsName;
-        const std::vector<std::vector<uint8_t>> tlsFingerprints;
         const int expectedReturnCode;
     } kTlsTestData[] = {
-            {{"192.0.2.1"}, "", {}, 0},
-            {{"2001:db8::2"}, "host.name", {}, 0},
-            {{"192.0.2.3"}, "@@@@", {fp}, 0},
-            {{"2001:db8::4"}, "", {fp}, 0},
-            {{}, "", {}, 0},
-            {{""}, "", {}, EINVAL},
-            {{"192.0.*.5"}, "", {}, EINVAL},
-            {{"2001:dg8::6"}, "", {}, EINVAL},
-            {{"2001:db8::c"}, "", {short_fp}, EINVAL},
-            {{"192.0.2.12"}, "", {long_fp}, EINVAL},
-            {{"2001:db8::e"}, "", {fp, fp, fp}, 0},
-            {{"192.0.2.14"}, "", {fp, short_fp}, EINVAL},
+            {valid_v4_addr, valid_tls_name, 0},
+            {valid_v4_addr, "host.com", 0},
+            {valid_v4_addr, "@@@@", 0},
+            {valid_v4_addr, "", 0},
+            {valid_v6_addr, valid_tls_name, 0},
+            {valid_v6_addr, "host.com", 0},
+            {valid_v6_addr, "@@@@", 0},
+            {valid_v6_addr, "", 0},
+            {invalid_v4_addr, valid_tls_name, EINVAL},
+            {invalid_v4_addr, "host.com", EINVAL},
+            {invalid_v4_addr, "@@@@", EINVAL},
+            {invalid_v4_addr, "", EINVAL},
+            {invalid_v6_addr, valid_tls_name, EINVAL},
+            {invalid_v6_addr, "host.com", EINVAL},
+            {invalid_v6_addr, "@@@@", EINVAL},
+            {invalid_v6_addr, "", EINVAL},
+            {{}, "", 0},
+            {{""}, "", EINVAL},
     };
 
     for (size_t i = 0; i < std::size(kTlsTestData); i++) {
         const auto& td = kTlsTestData[i];
 
-        std::vector<std::string> fingerprints;
-        for (const auto& fingerprint : td.tlsFingerprints) {
-            fingerprints.push_back(base64Encode(fingerprint));
-        }
-        const auto resolverParams =
-                makeResolverParamsParcel(TEST_NETID, test_params, LOCALLY_ASSIGNED_DNS,
-                                         test_domains, td.tlsName, td.servers, fingerprints);
+        const auto resolverParams = makeResolverParamsParcel(
+                TEST_NETID, test_params, LOCALLY_ASSIGNED_DNS, {}, td.tlsName, td.servers);
         binder::Status status = mDnsResolver->setResolverConfiguration(resolverParams);
 
         if (td.expectedReturnCode == 0) {
@@ -312,7 +304,7 @@ TEST_F(DnsResolverBinderTest, GetResolverInfo) {
             3,       // retry count
     };
     const auto resolverParams =
-            makeResolverParamsParcel(TEST_NETID, testParams, servers, domains, "", {}, {});
+            makeResolverParamsParcel(TEST_NETID, testParams, servers, domains, "", {});
     binder::Status status = mDnsResolver->setResolverConfiguration(resolverParams);
     EXPECT_TRUE(status.isOk()) << status.exceptionMessage();
 

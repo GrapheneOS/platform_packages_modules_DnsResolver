@@ -39,6 +39,11 @@
 #include "netdutils/SocketOption.h"
 #include "private/android_filesystem_config.h"  // AID_DNS
 
+// NOTE: Inject CA certificate for internal testing -- do NOT enable in production builds
+#ifndef RESOLV_INJECT_CA_CERTIFICATE
+#define RESOLV_INJECT_CA_CERTIFICATE 0
+#endif
+
 namespace android {
 
 using netdutils::enableSockopt;
@@ -51,7 +56,6 @@ namespace net {
 namespace {
 
 constexpr const char kCaCertDir[] = "/system/etc/security/cacerts";
-constexpr size_t SHA256_SIZE = SHA256_DIGEST_LENGTH;
 
 int waitForReading(int fd) {
     struct pollfd fds = { .fd = fd, .events = POLLIN };
@@ -121,31 +125,27 @@ Status DnsTlsSocket::tcpConnect() {
     return netdutils::status::ok;
 }
 
-bool getSPKIDigest(const X509* cert, std::vector<uint8_t>* out) {
-    int spki_len = i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), nullptr);
-    unsigned char spki[spki_len];
-    unsigned char* temp = spki;
-    if (spki_len != i2d_X509_PUBKEY(X509_get_X509_PUBKEY(cert), &temp)) {
-        LOG(WARNING) << "SPKI length mismatch";
+bool DnsTlsSocket::setTestCaCertificate() {
+    bssl::UniquePtr<BIO> bio(
+            BIO_new_mem_buf(mServer.certificate.data(), mServer.certificate.size()));
+    bssl::UniquePtr<X509> cert(PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr));
+    if (!cert) {
+        LOG(ERROR) << "Failed to read cert";
         return false;
     }
-    out->resize(SHA256_SIZE);
-    unsigned int digest_len = 0;
-    int ret = EVP_Digest(spki, spki_len, out->data(), &digest_len, EVP_sha256(), nullptr);
-    if (ret != 1) {
-        LOG(WARNING) << "Server cert digest extraction failed";
-        return false;
-    }
-    if (digest_len != out->size()) {
-        LOG(WARNING) << "Wrong digest length: " << digest_len;
+
+    X509_STORE* cert_store = SSL_CTX_get_cert_store(mSslCtx.get());
+    if (!X509_STORE_add_cert(cert_store, cert.get())) {
+        LOG(ERROR) << "Failed to add cert";
         return false;
     }
     return true;
 }
 
+// TODO: Try to use static sSslCtx instead of mSslCtx
 bool DnsTlsSocket::initialize() {
-    // This method should only be called once, at the beginning, so locking should be
-    // unnecessary.  This lock only serves to help catch bugs in code that calls this method.
+    // This method is called every time when a new SSL connection is created.
+    // This lock only serves to help catch bugs in code that calls this method.
     std::lock_guard guard(mLock);
     if (mSslCtx) {
         // This is a bug in the caller.
@@ -156,12 +156,21 @@ bool DnsTlsSocket::initialize() {
         return false;
     }
 
-    // Load system CA certs for hostname verification.
+    // Load system CA certs from CAPath for hostname verification.
     //
     // For discussion of alternative, sustainable approaches see b/71909242.
-    if (SSL_CTX_load_verify_locations(mSslCtx.get(), nullptr, kCaCertDir) != 1) {
-        LOG(ERROR) << "Failed to load CA cert dir: " << kCaCertDir;
-        return false;
+    if (RESOLV_INJECT_CA_CERTIFICATE && !mServer.certificate.empty()) {
+        // Inject test CA certs from ResolverParamsParcel.caCertificate for internal testing.
+        LOG(WARNING) << "test CA certificate is valid";
+        if (!setTestCaCertificate()) {
+            LOG(ERROR) << "Failed to set test CA certificate";
+            return false;
+        }
+    } else {
+        if (SSL_CTX_load_verify_locations(mSslCtx.get(), nullptr, kCaCertDir) != 1) {
+            LOG(ERROR) << "Failed to load CA cert dir: " << kCaCertDir;
+            return false;
+        }
     }
 
     // Enable TLS false start
@@ -210,8 +219,9 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
     }
 
     if (!mServer.name.empty()) {
+        LOG(VERBOSE) << "Checking DNS over TLS hostname = " << mServer.name.c_str();
         if (SSL_set_tlsext_host_name(ssl.get(), mServer.name.c_str()) != 1) {
-            LOG(ERROR) << "ailed to set SNI to " << mServer.name;
+            LOG(ERROR) << "Failed to set SNI to " << mServer.name;
             return nullptr;
         }
         X509_VERIFY_PARAM* param = SSL_get0_param(ssl.get());
@@ -256,56 +266,6 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
                               << markToFwmarkString(mMark);
                 return nullptr;
         }
-    }
-
-    // TODO: Call SSL_shutdown before discarding the session if validation fails.
-    if (!mServer.fingerprints.empty()) {
-        LOG(DEBUG) << "Checking DNS over TLS fingerprint";
-
-        // We only care that the chain is internally self-consistent, not that
-        // it chains to a trusted root, so we can ignore some kinds of errors.
-        // TODO: Add a CA root verification mode that respects these errors.
-        int verify_result = SSL_get_verify_result(ssl.get());
-        switch (verify_result) {
-            case X509_V_OK:
-            case X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT:
-            case X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN:
-            case X509_V_ERR_CERT_UNTRUSTED:
-                break;
-            default:
-                LOG(WARNING) << "Invalid certificate chain, error " << verify_result;
-                return nullptr;
-        }
-
-        STACK_OF(X509) *chain = SSL_get_peer_cert_chain(ssl.get());
-        if (!chain) {
-            LOG(WARNING) << "Server has null certificate";
-            return nullptr;
-        }
-        // Chain and its contents are owned by ssl, so we don't need to free explicitly.
-        bool matched = false;
-        for (size_t i = 0; i < sk_X509_num(chain); ++i) {
-            // This appears to be O(N^2), but there doesn't seem to be a straightforward
-            // way to walk a STACK_OF nondestructively in linear time.
-            X509* cert = sk_X509_value(chain, i);
-            std::vector<uint8_t> digest;
-            if (!getSPKIDigest(cert, &digest)) {
-                LOG(ERROR) << "Digest computation failed";
-                return nullptr;
-            }
-
-            if (mServer.fingerprints.count(digest) > 0) {
-                matched = true;
-                break;
-            }
-        }
-
-        if (!matched) {
-            LOG(WARNING) << "No matching fingerprint";
-            return nullptr;
-        }
-
-        LOG(DEBUG) << "DNS over TLS fingerprint is correct";
     }
 
     LOG(DEBUG) << mMark << " handshake complete";

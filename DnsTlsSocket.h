@@ -96,6 +96,9 @@ class DnsTlsSocket : public IDnsTlsSocket {
     bool sendQuery(const std::vector<uint8_t>& buf) REQUIRES(mLock);
     bool readResponse() REQUIRES(mLock);
 
+    // It is only used for DNS-OVER-TLS internal test.
+    bool setTestCaCertificate() REQUIRES(mLock);
+
     // Similar to query(), this function uses incrementEventFd to send a message to the
     // loop thread.  However, instead of incrementing the counter by one (indicating a
     // new query), it wraps the counter to negative, which we use to indicate a shutdown
