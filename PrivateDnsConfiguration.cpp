@@ -54,11 +54,9 @@ bool parseServer(const char* server, sockaddr_storage* parsed) {
 
 int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
                                  const std::vector<std::string>& servers, const std::string& name,
-                                 const std::set<std::vector<uint8_t>>& fingerprints) {
+                                 const std::string& caCert) {
     LOG(VERBOSE) << "PrivateDnsConfiguration::set(" << netId << ", " << mark << ", "
-                 << servers.size() << ", " << name << ", " << fingerprints.size() << ")";
-
-    const bool explicitlyConfigured = !name.empty() || !fingerprints.empty();
+                 << servers.size() << ", " << name << ")";
 
     // Parse the list of servers that has been passed in
     std::set<DnsTlsServer> tlsServers;
@@ -69,12 +67,12 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         }
         DnsTlsServer server(parsed);
         server.name = name;
-        server.fingerprints = fingerprints;
+        server.certificate = caCert;
         tlsServers.insert(server);
     }
 
     std::lock_guard guard(mPrivateDnsLock);
-    if (explicitlyConfigured) {
+    if (!name.empty()) {
         mPrivateDnsModes[netId] = PrivateDnsMode::STRICT;
     } else if (!tlsServers.empty()) {
         mPrivateDnsModes[netId] = PrivateDnsMode::OPPORTUNISTIC;

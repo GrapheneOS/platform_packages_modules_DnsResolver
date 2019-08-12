@@ -81,6 +81,12 @@ parcelable ResolverParamsParcel {
      * An array containing TLS public key fingerprints (pins) of which each server must match
      * at least one, or empty if there are no pinned keys.
      */
-    // DEPRECATED: remove tlsFingerprints in new code
+    // DEPRECATED: no longer to use it
     @utf8InCpp String[] tlsFingerprints;
+
+    /**
+     * Certificate authority that signed the certificate; only used by DNS-over-TLS tests.
+     *
+     */
+    @utf8InCpp String caCertificate;
 }
