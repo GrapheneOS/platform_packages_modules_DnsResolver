@@ -71,6 +71,11 @@ constexpr int MAXPACKET = (8 * 1024);
 // Use maximum reserved appId for applications to avoid conflict with existing uids.
 static const int TEST_UID = 99999;
 
+// Currently the hostname of TLS server must match the CN filed on the server's certificate.
+// Inject a test CA whose hostname is "example.com" for DNS-OVER-TLS tests.
+static const std::string kDefaultPrivateDnsHostName = "example.com";
+static const std::string kDefaultIncorrectPrivateDnsHostName = "www.example.com";
+
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
 extern "C" int android_getaddrinfofornet(const char* hostname, const char* servname,
@@ -1048,20 +1053,10 @@ TEST_F(ResolverTest, SearchPathPrune) {
             testing::ElementsAreArray(res_domains2));
 }
 
-static std::string base64Encode(const std::vector<uint8_t>& input) {
-    size_t out_len;
-    EXPECT_EQ(1, EVP_EncodedLength(&out_len, input.size()));
-    // out_len includes the trailing NULL.
-    uint8_t output_bytes[out_len];
-    EXPECT_EQ(out_len - 1, EVP_EncodeBlock(output_bytes, input.data(), input.size()));
-    return std::string(reinterpret_cast<char*>(output_bytes));
-}
-
 // If we move this function to dns_responder_client, it will complicate the dependency need of
 // dns_tls_frontend.h.
 static void setupTlsServers(const std::vector<std::string>& servers,
-                            std::vector<std::unique_ptr<test::DnsTlsFrontend>>* tls,
-                            std::vector<std::string>* fingerprints) {
+                            std::vector<std::unique_ptr<test::DnsTlsFrontend>>* tls) {
     constexpr char listen_udp[] = "53";
     constexpr char listen_tls[] = "853";
 
@@ -1069,7 +1064,6 @@ static void setupTlsServers(const std::vector<std::string>& servers,
         auto t = std::make_unique<test::DnsTlsFrontend>(server, listen_tls, server, listen_udp);
         t = std::make_unique<test::DnsTlsFrontend>(server, listen_tls, server, listen_udp);
         t->startServer();
-        fingerprints->push_back(base64Encode(t->fingerprint()));
         tls->push_back(std::move(t));
     }
 }
@@ -1079,7 +1073,6 @@ TEST_F(ResolverTest, MaxServerPrune_Binder) {
     std::vector<std::unique_ptr<test::DNSResponder>> dns;
     std::vector<std::unique_ptr<test::DnsTlsFrontend>> tls;
     std::vector<std::string> servers;
-    std::vector<std::string> fingerprints;
     std::vector<DnsResponderClient::Mapping> mappings;
 
     for (unsigned i = 0; i < MAXDNSRCH + 1; i++) {
@@ -1087,9 +1080,10 @@ TEST_F(ResolverTest, MaxServerPrune_Binder) {
     }
     ASSERT_NO_FATAL_FAILURE(mDnsClient.SetupMappings(1, domains, &mappings));
     ASSERT_NO_FATAL_FAILURE(mDnsClient.SetupDNSServers(MAXNS + 1, mappings, &dns, &servers));
-    ASSERT_NO_FATAL_FAILURE(setupTlsServers(servers, &tls, &fingerprints));
+    ASSERT_NO_FATAL_FAILURE(setupTlsServers(servers, &tls));
 
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, domains, kDefaultParams, "", fingerprints));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, domains, kDefaultParams,
+                                               kDefaultPrivateDnsHostName));
 
     // If the private DNS validation hasn't completed yet before backend DNS servers stop,
     // TLS servers will get stuck in handleOneRequest(), which causes this test stuck in
@@ -1177,8 +1171,7 @@ TEST_F(ResolverTest, GetHostByName_TlsMissing) {
 
     // There's nothing listening on this address, so validation will either fail or
     /// hang.  Either way, queries will continue to flow to the DNSResponder.
-    ASSERT_TRUE(
-            mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "", {}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
 
     const hostent* result;
 
@@ -1218,8 +1211,7 @@ TEST_F(ResolverTest, GetHostByName_TlsBroken) {
     ASSERT_FALSE(listen(s, 1));
 
     // Trigger TLS validation.
-    ASSERT_TRUE(
-            mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "", {}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
 
     struct sockaddr_storage cliaddr;
     socklen_t sin_size = sizeof(cliaddr);
@@ -1269,8 +1261,7 @@ TEST_F(ResolverTest, GetHostByName_Tls) {
 
     test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
     ASSERT_TRUE(tls.startServer());
-    ASSERT_TRUE(
-            mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "", {}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
 
     const hostent* result;
 
@@ -1306,152 +1297,6 @@ TEST_F(ResolverTest, GetHostByName_Tls) {
     EXPECT_EQ("1.2.3.3", ToString(result));
 }
 
-TEST_F(ResolverTest, GetHostByName_TlsFingerprint) {
-    constexpr char listen_addr[] = "127.0.0.3";
-    constexpr char listen_udp[] = "53";
-    constexpr char listen_tls[] = "853";
-    test::DNSResponder dns;
-    ASSERT_TRUE(dns.startServer());
-    for (int chain_length = 1; chain_length <= 3; ++chain_length) {
-        std::string host_name = StringPrintf("tlsfingerprint%d.example.com.", chain_length);
-        dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.1");
-        std::vector<std::string> servers = { listen_addr };
-
-        test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
-        tls.set_chain_length(chain_length);
-        ASSERT_TRUE(tls.startServer());
-        ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
-                                                   "", {base64Encode(tls.fingerprint())}));
-
-        const hostent* result;
-
-        // Wait for validation to complete.
-        EXPECT_TRUE(tls.waitForQueries(1, 5000));
-
-        result = gethostbyname(StringPrintf("tlsfingerprint%d", chain_length).c_str());
-        EXPECT_FALSE(result == nullptr);
-        if (result) {
-            EXPECT_EQ("1.2.3.1", ToString(result));
-
-            // Wait for query to get counted.
-            EXPECT_TRUE(tls.waitForQueries(2, 5000));
-        }
-
-        // Clear TLS bit to ensure revalidation.
-        ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
-        tls.stopServer();
-    }
-}
-
-TEST_F(ResolverTest, GetHostByName_BadTlsFingerprint) {
-    constexpr char listen_addr[] = "127.0.0.3";
-    constexpr char listen_udp[] = "53";
-    constexpr char listen_tls[] = "853";
-    constexpr char host_name[] = "badtlsfingerprint.example.com.";
-
-    test::DNSResponder dns;
-    StartDns(dns, {{host_name, ns_type::ns_t_a, "1.2.3.1"}});
-    std::vector<std::string> servers = { listen_addr };
-
-    test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
-    ASSERT_TRUE(tls.startServer());
-    std::vector<uint8_t> bad_fingerprint = tls.fingerprint();
-    bad_fingerprint[5] += 1;  // Corrupt the fingerprint.
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "",
-                                               {base64Encode(bad_fingerprint)}));
-
-    // The initial validation should fail at the fingerprint check before
-    // issuing a query.
-    EXPECT_FALSE(tls.waitForQueries(1, 500));
-
-    // A fingerprint was provided and failed to match, so the query should fail.
-    EXPECT_EQ(nullptr, gethostbyname("badtlsfingerprint"));
-
-    // Clear TLS bit.
-    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
-}
-
-// Test that we can pass two different fingerprints, and connection succeeds as long as
-// at least one of them matches the server.
-TEST_F(ResolverTest, GetHostByName_TwoTlsFingerprints) {
-    constexpr char listen_addr[] = "127.0.0.3";
-    constexpr char listen_udp[] = "53";
-    constexpr char listen_tls[] = "853";
-    constexpr char host_name[] = "twotlsfingerprints.example.com.";
-
-    test::DNSResponder dns;
-    StartDns(dns, {{host_name, ns_type::ns_t_a, "1.2.3.1"}});
-    std::vector<std::string> servers = { listen_addr };
-
-    test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
-    ASSERT_TRUE(tls.startServer());
-    std::vector<uint8_t> bad_fingerprint = tls.fingerprint();
-    bad_fingerprint[5] += 1;  // Corrupt the fingerprint.
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(
-            servers, kDefaultSearchDomains, kDefaultParams, "",
-            {base64Encode(bad_fingerprint), base64Encode(tls.fingerprint())}));
-
-    const hostent* result;
-
-    // Wait for validation to complete.
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
-
-    result = gethostbyname("twotlsfingerprints");
-    ASSERT_FALSE(result == nullptr);
-    EXPECT_EQ("1.2.3.1", ToString(result));
-
-    // Wait for query to get counted.
-    EXPECT_TRUE(tls.waitForQueries(2, 5000));
-
-    // Clear TLS bit.
-    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
-}
-
-TEST_F(ResolverTest, GetHostByName_TlsFingerprintGoesBad) {
-    constexpr char listen_addr[] = "127.0.0.3";
-    constexpr char listen_udp[] = "53";
-    constexpr char listen_tls[] = "853";
-    constexpr char host_name1[] = "tlsfingerprintgoesbad1.example.com.";
-    constexpr char host_name2[] = "tlsfingerprintgoesbad2.example.com.";
-    const std::vector<DnsRecord> records = {
-            {host_name1, ns_type::ns_t_a, "1.2.3.1"},
-            {host_name2, ns_type::ns_t_a, "1.2.3.2"},
-    };
-
-    test::DNSResponder dns;
-    StartDns(dns, records);
-    std::vector<std::string> servers = { listen_addr };
-
-    test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
-    ASSERT_TRUE(tls.startServer());
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "",
-                                               {base64Encode(tls.fingerprint())}));
-
-    const hostent* result;
-
-    // Wait for validation to complete.
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
-
-    result = gethostbyname("tlsfingerprintgoesbad1");
-    ASSERT_FALSE(result == nullptr);
-    EXPECT_EQ("1.2.3.1", ToString(result));
-
-    // Wait for query to get counted.
-    EXPECT_TRUE(tls.waitForQueries(2, 5000));
-
-    // Restart the TLS server.  This will generate a new certificate whose fingerprint
-    // no longer matches the stored fingerprint.
-    tls.stopServer();
-    tls.startServer();
-
-    result = gethostbyname("tlsfingerprintgoesbad2");
-    ASSERT_TRUE(result == nullptr);
-    EXPECT_EQ(HOST_NOT_FOUND, h_errno);
-
-    // Clear TLS bit.
-    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
-}
-
 TEST_F(ResolverTest, GetHostByName_TlsFailover) {
     constexpr char listen_addr1[] = "127.0.0.3";
     constexpr char listen_addr2[] = "127.0.0.4";
@@ -1479,9 +1324,8 @@ TEST_F(ResolverTest, GetHostByName_TlsFailover) {
     test::DnsTlsFrontend tls2(listen_addr2, listen_tls, listen_addr2, listen_udp);
     ASSERT_TRUE(tls1.startServer());
     ASSERT_TRUE(tls2.startServer());
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(
-            servers, kDefaultSearchDomains, kDefaultParams, "",
-            {base64Encode(tls1.fingerprint()), base64Encode(tls2.fingerprint())}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
+                                               kDefaultPrivateDnsHostName));
 
     const hostent* result;
 
@@ -1528,10 +1372,10 @@ TEST_F(ResolverTest, GetHostByName_BadTlsName) {
     test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
     ASSERT_TRUE(tls.startServer());
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
-                                               "www.example.com", {}));
+                                               kDefaultIncorrectPrivateDnsHostName));
 
-    // The TLS server's certificate doesn't chain to a known CA, and a nonempty name was specified,
-    // so the client should fail the TLS handshake before ever issuing a query.
+    // The TLS handshake would fail because the name of TLS server doesn't
+    // match with TLS server's certificate.
     EXPECT_FALSE(tls.waitForQueries(1, 500));
 
     // The query should fail hard, because a name was specified.
@@ -1557,8 +1401,8 @@ TEST_F(ResolverTest, GetAddrInfo_Tls) {
 
     test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
     ASSERT_TRUE(tls.startServer());
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "",
-                                               {base64Encode(tls.fingerprint())}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
+                                               kDefaultPrivateDnsHostName));
 
     // Wait for validation to complete.
     EXPECT_TRUE(tls.waitForQueries(1, 5000));
@@ -1589,8 +1433,6 @@ TEST_F(ResolverTest, TlsBypass) {
     const char GETADDRINFOFORNET[] = "getaddrinfofornet";
 
     const unsigned BYPASS_NETID = NETID_USE_LOCAL_NAMESERVERS | TEST_NETID;
-
-    const std::vector<uint8_t> NOOP_FINGERPRINT(android::netdutils::SHA256_SIZE, 0U);
 
     const char ADDR4[] = "192.0.2.1";
     const char ADDR6[] = "2001:db8::1";
@@ -1662,17 +1504,12 @@ TEST_F(ResolverTest, TlsBypass) {
                                                           kDefaultParams));
         } else if (config.mode == OPPORTUNISTIC) {
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
-                                                       kDefaultParams, "", {}));
+                                                       kDefaultParams, ""));
             // Wait for validation to complete.
             if (config.withWorkingTLS) EXPECT_TRUE(tls.waitForQueries(1, 5000));
         } else if (config.mode == STRICT) {
-            // We use the existence of fingerprints to trigger strict mode,
-            // rather than hostname validation.
-            const auto& fingerprint =
-                    (config.withWorkingTLS) ? tls.fingerprint() : NOOP_FINGERPRINT;
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
-                                                       kDefaultParams, "",
-                                                       {base64Encode(fingerprint)}));
+                                                       kDefaultParams, kDefaultPrivateDnsHostName));
             // Wait for validation to complete.
             if (config.withWorkingTLS) EXPECT_TRUE(tls.waitForQueries(1, 5000));
         }
@@ -1724,7 +1561,6 @@ TEST_F(ResolverTest, TlsBypass) {
 }
 
 TEST_F(ResolverTest, StrictMode_NoTlsServers) {
-    const std::vector<uint8_t> NOOP_FINGERPRINT(android::netdutils::SHA256_SIZE, 0U);
     constexpr char cleartext_addr[] = "127.0.0.53";
     const std::vector<std::string> servers = { cleartext_addr };
     constexpr char host_name[] = "strictmode.notlsips.example.com.";
@@ -1736,8 +1572,8 @@ TEST_F(ResolverTest, StrictMode_NoTlsServers) {
     test::DNSResponder dns(cleartext_addr);
     StartDns(dns, records);
 
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, {},
-                                               "", {base64Encode(NOOP_FINGERPRINT)}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
+                                               kDefaultIncorrectPrivateDnsHostName));
 
     addrinfo* ai_result = nullptr;
     EXPECT_NE(0, getaddrinfo(host_name, nullptr, nullptr, &ai_result));
@@ -2309,7 +2145,6 @@ TEST_F(ResolverTest, BrokenEdns) {
     const char STRICT[] = "strict";
     const char GETHOSTBYNAME[] = "gethostbyname";
     const char GETADDRINFO[] = "getaddrinfo";
-    const std::vector<uint8_t> NOOP_FINGERPRINT(android::netdutils::SHA256_SIZE, 0U);
     const char ADDR4[] = "192.0.2.1";
     const char CLEARTEXT_ADDR[] = "127.0.0.53";
     const char CLEARTEXT_PORT[] = "53";
@@ -2395,13 +2230,13 @@ TEST_F(ResolverTest, BrokenEdns) {
                 ASSERT_TRUE(tls.stopServer());
             }
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
-                                                       kDefaultParams, "", {}));
+                                                       kDefaultParams, ""));
         } else if (config.mode == OPPORTUNISTIC_TLS) {
             if (!tls.running()) {
                 ASSERT_TRUE(tls.startServer());
             }
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
-                                                       kDefaultParams, "", {}));
+                                                       kDefaultParams, ""));
             // Wait for validation to complete.
             EXPECT_TRUE(tls.waitForQueries(1, 5000));
         } else if (config.mode == STRICT) {
@@ -2409,8 +2244,7 @@ TEST_F(ResolverTest, BrokenEdns) {
                 ASSERT_TRUE(tls.startServer());
             }
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
-                                                       kDefaultParams, "",
-                                                       {base64Encode(tls.fingerprint())}));
+                                                       kDefaultParams, kDefaultPrivateDnsHostName));
             // Wait for validation to complete.
             EXPECT_TRUE(tls.waitForQueries(1, 5000));
         }
@@ -2468,8 +2302,7 @@ TEST_F(ResolverTest, UnstableTls) {
     dns.setEdns(test::DNSResponder::Edns::FORMERR_ON_EDNS);
     test::DnsTlsFrontend tls(CLEARTEXT_ADDR, TLS_PORT, CLEARTEXT_ADDR, CLEARTEXT_PORT);
     ASSERT_TRUE(tls.startServer());
-    ASSERT_TRUE(
-            mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "", {}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
     // Wait for validation complete.
     EXPECT_TRUE(tls.waitForQueries(1, 5000));
     // Shutdown TLS server to get an error. It's similar to no response case but without waiting.
@@ -2500,8 +2333,7 @@ TEST_F(ResolverTest, BogusDnsServer) {
     ASSERT_TRUE(dns.startServer());
     test::DnsTlsFrontend tls(CLEARTEXT_ADDR, TLS_PORT, CLEARTEXT_ADDR, CLEARTEXT_PORT);
     ASSERT_TRUE(tls.startServer());
-    ASSERT_TRUE(
-            mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "", {}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
     // Wait for validation complete.
     EXPECT_TRUE(tls.waitForQueries(1, 5000));
     // Shutdown TLS server to get an error. It's similar to no response case but without waiting.
@@ -3367,8 +3199,7 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     ASSERT_TRUE(tls.startServer());
 
     // Setup OPPORTUNISTIC mode and wait for the validation complete.
-    ASSERT_TRUE(
-            mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "", {}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
     EXPECT_TRUE(tls.waitForQueries(1, 5000));
     tls.clearQueries();
 
@@ -3386,8 +3217,8 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     dns.clearQueries();
 
     // Setup STRICT mode and wait for the validation complete.
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, "",
-                                               {base64Encode(tls.fingerprint())}));
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
+                                               kDefaultPrivateDnsHostName));
     EXPECT_TRUE(tls.waitForQueries(1, 5000));
     tls.clearQueries();
 
