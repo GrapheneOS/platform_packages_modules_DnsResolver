@@ -47,15 +47,13 @@ struct DnsTlsServer {
     // The server location, including IP and port.
     sockaddr_storage ss = {};
 
-    // A set of SHA256 public key fingerprints.  If this set is nonempty, the server
-    // must present a self-consistent certificate chain that contains a certificate
-    // whose public key matches one of these fingerprints.  Otherwise, the client will
-    // terminate the connection.
-    std::set<std::vector<uint8_t>> fingerprints;
-
     // The server's hostname.  If this string is nonempty, the server must present a
     // certificate that indicates this name and has a valid chain to a trusted root CA.
     std::string name;
+
+    // The certificate of the CA that signed the server's certificate.
+    // It is used to store temporary test CA certificate for internal tests.
+    std::string certificate;
 
     // Placeholder.  More protocols might be defined in the future.
     int protocol = IPPROTO_TCP;
