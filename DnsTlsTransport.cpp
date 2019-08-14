@@ -18,13 +18,15 @@
 
 #include "DnsTlsTransport.h"
 
+#include <Fwmark.h>
+#include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
+#include <netdutils/ThreadUtil.h>
 
 #include "DnsTlsSocketFactory.h"
 #include "IDnsTlsSocketFactory.h"
-
-#include <android-base/logging.h>
 
 namespace android {
 namespace net {
@@ -104,6 +106,9 @@ void DnsTlsTransport::onClosed() {
 
 void DnsTlsTransport::doReconnect() {
     std::lock_guard guard(mLock);
+    Fwmark mark;
+    mark.intValue = mMark;
+    netdutils::setThreadName(android::base::StringPrintf("TlsReconn_%u", mark.netId).c_str());
     if (mClosing) {
         return;
     }
