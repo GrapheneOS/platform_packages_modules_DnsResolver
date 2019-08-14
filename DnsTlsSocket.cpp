@@ -35,8 +35,9 @@
 #include <Fwmark.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <netdutils/SocketOption.h>
+#include <netdutils/ThreadUtil.h>
 
-#include "netdutils/SocketOption.h"
 #include "private/android_filesystem_config.h"  // AID_DNS
 
 // NOTE: Inject CA certificate for internal testing -- do NOT enable in production builds
@@ -311,8 +312,11 @@ bool DnsTlsSocket::sslWrite(const Slice buffer) {
 void DnsTlsSocket::loop() {
     std::lock_guard guard(mLock);
     std::deque<std::vector<uint8_t>> q;
-
     const int timeout_msecs = DnsTlsSocket::kIdleTimeout.count() * 1000;
+
+    Fwmark mark;
+    mark.intValue = mMark;
+    netdutils::setThreadName(android::base::StringPrintf("TlsListen_%u", mark.netId).c_str());
     while (true) {
         // poll() ignores negative fds
         struct pollfd fds[2] = { { .fd = -1 }, { .fd = -1 } };
