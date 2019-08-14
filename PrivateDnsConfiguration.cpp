@@ -19,7 +19,9 @@
 #include "PrivateDnsConfiguration.h"
 
 #include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 #include <netdb.h>
+#include <netdutils/ThreadUtil.h>
 #include <sys/socket.h>
 
 #include "DnsTlsTransport.h"
@@ -55,8 +57,8 @@ bool parseServer(const char* server, sockaddr_storage* parsed) {
 int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
                                  const std::vector<std::string>& servers, const std::string& name,
                                  const std::string& caCert) {
-    LOG(VERBOSE) << "PrivateDnsConfiguration::set(" << netId << ", " << mark << ", "
-                 << servers.size() << ", " << name << ")";
+    LOG(DEBUG) << "PrivateDnsConfiguration::set(" << netId << ", 0x" << std::hex << mark << std::dec
+               << ", " << servers.size() << ", " << name << ")";
 
     // Parse the list of servers that has been passed in
     std::set<DnsTlsServer> tlsServers;
@@ -165,14 +167,14 @@ void PrivateDnsConfiguration::clear(unsigned netId) {
 void PrivateDnsConfiguration::validatePrivateDnsProvider(const DnsTlsServer& server,
                                                          PrivateDnsTracker& tracker, unsigned netId,
                                                          uint32_t mark) REQUIRES(mPrivateDnsLock) {
-    LOG(VERBOSE) << "validatePrivateDnsProvider(" << addrToString(&server.ss) << ", " << netId
-                 << ")";
-
     tracker[server] = Validation::in_process;
-    LOG(VERBOSE) << "Server " << addrToString(&server.ss)
-                 << " marked as in_process.  Tracker now has size " << tracker.size();
+    LOG(DEBUG) << "Server " << addrToString(&server.ss) << " marked as in_process on netId "
+               << netId << ". Tracker now has size " << tracker.size();
+
     // Note that capturing |server| and |netId| in this lambda create copies.
     std::thread validate_thread([this, server, netId, mark] {
+        netdutils::setThreadName(android::base::StringPrintf("TlsVerify_%u", netId).c_str());
+
         // cat /proc/sys/net/ipv4/tcp_syn_retries yields "6".
         //
         // Start with a 1 minute delay and backoff to once per hour.
@@ -194,9 +196,10 @@ void PrivateDnsConfiguration::validatePrivateDnsProvider(const DnsTlsServer& ser
         while (true) {
             // ::validate() is a blocking call that performs network operations.
             // It can take milliseconds to minutes, up to the SYN retry limit.
+            LOG(WARNING) << "Validating DnsTlsServer on netId " << netId;
             const bool success = DnsTlsTransport::validate(server, netId, mark);
-            LOG(VERBOSE) << "validateDnsTlsServer returned " << success << " for "
-                         << addrToString(&server.ss);
+            LOG(DEBUG) << "validateDnsTlsServer returned " << success << " for "
+                       << addrToString(&server.ss);
 
             const bool needs_reeval = this->recordPrivateDnsValidation(server, netId, success);
             if (!needs_reeval) {
@@ -258,9 +261,9 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
         for (const auto& it : listeners) {
             it->onPrivateDnsValidationEvent(netId, addrToString(&server.ss), server.name, success);
         }
-        LOG(VERBOSE) << "Sent validation " << (success ? "success" : "failure")
-                     << " event on netId " << netId << " for " << addrToString(&server.ss)
-                     << " with hostname " << server.name;
+        LOG(DEBUG) << "Sent validation " << (success ? "success" : "failure") << " event on netId "
+                   << netId << " for " << addrToString(&server.ss) << " with hostname {"
+                   << server.name << "}";
     } else {
         LOG(ERROR)
                 << "Validation event not sent since no INetdEventListener receiver is available.";
@@ -268,16 +271,14 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
 
     if (success) {
         tracker[server] = Validation::success;
-        LOG(VERBOSE) << "Validation succeeded for " << addrToString(&server.ss)
-                     << "! Tracker now has " << tracker.size() << " entries.";
     } else {
         // Validation failure is expected if a user is on a captive portal.
         // TODO: Trigger a second validation attempt after captive portal login
         // succeeds.
         tracker[server] = (reevaluationStatus == NEEDS_REEVALUATION) ? Validation::in_process
                                                                      : Validation::fail;
-        LOG(VERBOSE) << "Validation failed for " << addrToString(&server.ss) << "!";
     }
+    LOG(WARNING) << "Validation " << (success ? "success" : "failed");
 
     return reevaluationStatus;
 }
