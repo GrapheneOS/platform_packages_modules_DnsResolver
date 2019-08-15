@@ -54,7 +54,7 @@ using android::net::metrics::TestOnDnsEvent;
 using android::netdutils::Stopwatch;
 
 // TODO: make this dynamic and stop depending on implementation details.
-// Sync from TEST_NETID in dns_responder_client.cpp as resolver_test.cpp does.
+// Sync from TEST_NETID in dns_responder_client.cpp as resolv_integration_test.cpp does.
 constexpr int TEST_NETID = 30;
 
 class DnsResolverBinderTest : public ::testing::Test {
@@ -158,7 +158,7 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_DuplicateSubscription) {
     ASSERT_EQ(EEXIST, status.serviceSpecificErrorCode());
 }
 
-// TODO: Move this test to resolver_test.cpp
+// TODO: Move this test to resolv_integration_test.cpp
 TEST_F(DnsResolverBinderTest, RegisterEventListener_onDnsEvent) {
     // The test configs are used to trigger expected events. The expected results are defined in
     // expectedResults.
