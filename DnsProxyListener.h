@@ -54,6 +54,7 @@ class DnsProxyListener : public FrameworkListener {
         ~GetAddrInfoHandler();
 
         void run();
+        std::string threadName();
 
       private:
         void doDns64Synthesis(int32_t* rv, addrinfo** res, NetworkDnsEventReported* event);
@@ -80,6 +81,7 @@ class DnsProxyListener : public FrameworkListener {
         ~GetHostByNameHandler();
 
         void run();
+        std::string threadName();
 
       private:
         void doDns64Synthesis(int32_t* rv, hostent** hpp, NetworkDnsEventReported* event);
@@ -105,6 +107,7 @@ class DnsProxyListener : public FrameworkListener {
         ~GetHostByAddrHandler();
 
         void run();
+        std::string threadName();
 
       private:
         void doDns64ReverseLookup(hostent** hpp, NetworkDnsEventReported* event);
@@ -131,6 +134,7 @@ class DnsProxyListener : public FrameworkListener {
         ~ResNSendHandler();
 
         void run();
+        std::string threadName();
 
       private:
         SocketClient* mClient;  // ref counted
