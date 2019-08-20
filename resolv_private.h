@@ -175,18 +175,10 @@ int dn_skipname(const u_char*, const u_char*);
 void putlong(uint32_t, u_char*);
 void putshort(uint16_t, u_char*);
 
-// Thread-unsafe functions returning pointers to static buffers :-(
-// TODO: switch all res_debug to std::string
-const char* p_class(int);
-const char* p_type(int);
-const char* p_rcode(int);
-const char* p_section(int, int);
-
 int res_nameinquery(const char*, int, int, const u_char*, const u_char*);
 int res_queriesmatch(const u_char*, const u_char*, const u_char*, const u_char*);
 /* Things involving a resolver context. */
 int res_ninit(res_state);
-void res_pquery(const u_char*, int);
 
 int res_nquery(res_state, const char*, int, int, u_char*, int, int*);
 int res_nsearch(res_state, const char*, int, int, u_char*, int, int*);

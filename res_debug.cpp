@@ -97,9 +97,10 @@
 
 #define LOG_TAG "resolv"
 
+#include "res_debug.h"
+
 #include <sys/param.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
@@ -112,6 +113,7 @@
 #include <errno.h>
 #include <math.h>
 #include <netdb.h>
+#include <netdutils/Slice.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -128,6 +130,7 @@
 #endif
 
 using android::base::StringAppendF;
+using android::netdutils::Slice;
 
 struct res_sym {
     int number;            /* Identifying number, like T_MX */
@@ -149,6 +152,10 @@ static void do_section(ns_msg* handle, ns_sect section) {
             if (errno != ENODEV) StringAppendF(&s, "ns_parserr: %s", strerror(errno));
             LOG(VERBOSE) << s;
             return;
+        }
+        if (rrnum == 0) {
+            int opcode = ns_msg_getflag(*handle, ns_f_opcode);
+            StringAppendF(&s, ";; %s SECTION:\n", p_section(section, opcode));
         }
         if (section == ns_s_qd)
             StringAppendF(&s, ";;\t%s, type = %s, class = %s\n", ns_rr_name(rr),
@@ -277,6 +284,9 @@ void res_pquery(const u_char* msg, int len) {
     do_section(&handle, ns_s_an);
     do_section(&handle, ns_s_ns);
     do_section(&handle, ns_s_ar);
+
+    LOG(VERBOSE) << "Hex dump:";
+    LOG(VERBOSE) << android::netdutils::toHex(Slice(const_cast<uint8_t*>(msg), len), 32);
 }
 
 /*
