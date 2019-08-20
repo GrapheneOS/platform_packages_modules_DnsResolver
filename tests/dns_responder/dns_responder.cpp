@@ -141,6 +141,17 @@ const char* dnsclass2str(unsigned dnsclass) {
     return it->second;
 }
 
+const char* dnsproto2str(int protocol) {
+    switch (protocol) {
+        case IPPROTO_TCP:
+            return "TCP";
+        case IPPROTO_UDP:
+            return "UDP";
+        default:
+            return "UNKNOWN";
+    }
+}
+
 const char* DNSName::read(const char* buffer, const char* buffer_end) {
     const char* cur = buffer;
     bool last = false;
@@ -507,7 +518,7 @@ void DNSResponder::setEdns(Edns edns) {
 }
 
 bool DNSResponder::running() const {
-    return socket_.get() != -1;
+    return (udp_socket_.ok()) && (tcp_socket_.ok());
 }
 
 bool DNSResponder::startServer() {
@@ -516,59 +527,51 @@ bool DNSResponder::startServer() {
         return false;
     }
 
-    // Set up UDP socket.
-    addrinfo ai_hints{
-            .ai_flags = AI_PASSIVE,
-            .ai_family = AF_UNSPEC,
-            .ai_socktype = SOCK_DGRAM,
-    };
-    addrinfo* ai_res = nullptr;
-    int rv = getaddrinfo(listen_address_.c_str(), listen_service_.c_str(), &ai_hints, &ai_res);
-    ScopedAddrinfo ai_res_cleanup(ai_res);
-    if (rv) {
-        LOG(ERROR) << "getaddrinfo(" << listen_address_ << ", " << listen_service_
-                   << ") failed: " << gai_strerror(rv);
+    // Create UDP, TCP socket
+    if (udp_socket_ = createListeningSocket(SOCK_DGRAM); udp_socket_.get() < 0) {
+        PLOG(ERROR) << "failed to create UDP socket";
         return false;
     }
-    for (const addrinfo* ai = ai_res; ai; ai = ai->ai_next) {
-        socket_.reset(socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol));
-        if (socket_.get() < 0) {
-            PLOG(INFO) << "ignore creating socket " << socket_.get() << " failed";
-            continue;
-        }
-        enableSockopt(socket_.get(), SOL_SOCKET, SO_REUSEPORT).ignoreError();
-        enableSockopt(socket_.get(), SOL_SOCKET, SO_REUSEADDR).ignoreError();
-        std::string host_str = addr2str(ai->ai_addr, ai->ai_addrlen);
-        if (bind(socket_.get(), ai->ai_addr, ai->ai_addrlen)) {
-            LOG(INFO) << "failed to bind UDP " << host_str << ":" << listen_service_;
-            continue;
-        }
-        LOG(INFO) << "bound to UDP " << host_str << ":" << listen_service_;
-        break;
+
+    if (tcp_socket_ = createListeningSocket(SOCK_STREAM); tcp_socket_.get() < 0) {
+        PLOG(ERROR) << "failed to create TCP socket";
+        return false;
+    }
+
+    if (listen(tcp_socket_.get(), 1) < 0) {
+        PLOG(ERROR) << "failed to listen TCP socket";
+        return false;
     }
 
     // Set up eventfd socket.
     event_fd_.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
     if (event_fd_.get() == -1) {
-        PLOG(ERROR) << "failed to create eventfd " << event_fd_.get();
+        PLOG(ERROR) << "failed to create eventfd";
         return false;
     }
 
     // Set up epoll socket.
     epoll_fd_.reset(epoll_create1(EPOLL_CLOEXEC));
     if (epoll_fd_.get() < 0) {
-        PLOG(ERROR) << "epoll_create1() failed on fd " << epoll_fd_.get();
+        PLOG(ERROR) << "epoll_create1() failed on fd";
         return false;
     }
 
-    LOG(INFO) << "adding socket " << socket_.get() << " to epoll";
-    if (!addFd(socket_.get(), EPOLLIN)) {
-        LOG(ERROR) << "failed to add the socket " << socket_.get() << " to epoll";
+    LOG(INFO) << "adding UDP socket to epoll";
+    if (!addFd(udp_socket_.get(), EPOLLIN)) {
+        LOG(ERROR) << "failed to add the UDP socket to epoll";
         return false;
     }
-    LOG(INFO) << "adding eventfd " << event_fd_.get() << " to epoll";
+
+    LOG(INFO) << "adding TCP socket to epoll";
+    if (!addFd(tcp_socket_.get(), EPOLLIN)) {
+        LOG(ERROR) << "failed to add the TCP socket to epoll";
+        return false;
+    }
+
+    LOG(INFO) << "adding eventfd to epoll";
     if (!addFd(event_fd_.get(), EPOLLIN)) {
-        LOG(ERROR) << "failed to add the eventfd " << event_fd_.get() << " to epoll";
+        LOG(ERROR) << "failed to add the eventfd to epoll";
         return false;
     }
 
@@ -592,12 +595,14 @@ bool DNSResponder::stopServer() {
     }
     handler_thread_.join();
     epoll_fd_.reset();
-    socket_.reset();
+    event_fd_.reset();
+    udp_socket_.reset();
+    tcp_socket_.reset();
     LOG(INFO) << "server stopped successfully";
     return true;
 }
 
-std::vector<std::pair<std::string, ns_type>> DNSResponder::queries() const {
+std::vector<DNSResponder::QueryInfo> DNSResponder::queries() const {
     std::lock_guard lock(queries_mutex_);
     return queries_;
 }
@@ -605,8 +610,10 @@ std::vector<std::pair<std::string, ns_type>> DNSResponder::queries() const {
 std::string DNSResponder::dumpQueries() const {
     std::lock_guard lock(queries_mutex_);
     std::string out;
+
     for (const auto& q : queries_) {
-        out += "{\"" + q.first + "\", " + std::to_string(q.second) + "} ";
+        out += "{\"" + q.name + "\", " + std::to_string(q.type) + "\", " +
+               dnsproto2str(q.protocol) + "} ";
     }
     return out;
 }
@@ -631,8 +638,10 @@ void DNSResponder::requestHandler() {
             if (fd == event_fd_.get() && (events & (EPOLLIN | EPOLLERR))) {
                 handleEventFd();
                 return;
-            } else if (fd == socket_.get() && (events & (EPOLLIN | EPOLLERR))) {
-                handleQuery();
+            } else if (fd == udp_socket_.get() && (events & (EPOLLIN | EPOLLERR))) {
+                handleQuery(IPPROTO_UDP);
+            } else if (fd == tcp_socket_.get() && (events & (EPOLLIN | EPOLLERR))) {
+                handleQuery(IPPROTO_TCP);
             } else {
                 LOG(WARNING) << "unexpected epoll events " << events << " on fd " << fd;
             }
@@ -640,9 +649,9 @@ void DNSResponder::requestHandler() {
     }
 }
 
-bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, char* response,
+bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, int protocol, char* response,
                                     size_t* response_len) const {
-    LOG(DEBUG) << "request: '" << str2hex(buffer, len) << "'";
+    LOG(DEBUG) << "request: '" << str2hex(buffer, len) << "', on " << dnsproto2str(protocol);
     const char* buffer_end = buffer + len;
     DNSHeader header;
     const char* cur = header.read(buffer, buffer_end);
@@ -686,10 +695,9 @@ bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, char* respo
     {
         std::lock_guard lock(queries_mutex_);
         for (const DNSQuestion& question : header.questions) {
-            queries_.push_back(make_pair(question.qname.name, ns_type(question.qtype)));
+            queries_.push_back({question.qname.name, ns_type(question.qtype), protocol});
         }
     }
-
     // Ignore requests with the preset probability.
     auto constexpr bound = std::numeric_limits<unsigned>::max();
     if (arc4random_uniform(bound) > bound * response_probability_) {
@@ -951,36 +959,94 @@ bool DNSResponder::addFd(int fd, uint32_t events) {
     return true;
 }
 
-void DNSResponder::handleQuery() {
+void DNSResponder::handleQuery(int protocol) {
     char buffer[4096];
     sockaddr_storage sa;
     socklen_t sa_len = sizeof(sa);
-    ssize_t len;
-    do {
-        len = recvfrom(socket_.get(), buffer, sizeof(buffer), 0, (sockaddr*)&sa, &sa_len);
-    } while (len < 0 && (errno == EAGAIN || errno == EINTR));
-    if (len <= 0) {
-        PLOG(INFO) << "recvfrom() failed, len=" << len;
-        return;
+    ssize_t len = 0;
+    android::base::unique_fd tcpFd;
+    switch (protocol) {
+        case IPPROTO_UDP:
+            do {
+                len = recvfrom(udp_socket_.get(), buffer, sizeof(buffer), 0, (sockaddr*)&sa,
+                               &sa_len);
+            } while (len < 0 && (errno == EAGAIN || errno == EINTR));
+            if (len <= 0) {
+                PLOG(ERROR) << "recvfrom() failed, len=" << len;
+                return;
+            }
+            break;
+        case IPPROTO_TCP:
+            tcpFd.reset(accept4(tcp_socket_.get(), reinterpret_cast<sockaddr*>(&sa), &sa_len,
+                                SOCK_CLOEXEC));
+            if (tcpFd.get() < 0) {
+                PLOG(ERROR) << "failed to accept client socket";
+                return;
+            }
+            // Get the message length from two byte length field.
+            // See also RFC 1035, section 4.2.2 and RFC 7766, section 8
+            uint8_t queryMessageLengthField[2];
+            if (read(tcpFd.get(), &queryMessageLengthField, 2) != 2) {
+                PLOG(ERROR) << "Not enough length field bytes";
+                return;
+            }
+
+            const uint16_t qlen = (queryMessageLengthField[0] << 8) | queryMessageLengthField[1];
+            while (len < qlen) {
+                ssize_t ret = read(tcpFd.get(), buffer + len, qlen - len);
+                if (ret <= 0) {
+                    PLOG(ERROR) << "Error while reading query";
+                    return;
+                }
+                len += ret;
+            }
+            break;
     }
-    LOG(DEBUG) << "read " << len << " bytes";
+    LOG(DEBUG) << "read " << len << " bytes on " << dnsproto2str(protocol);
     std::lock_guard lock(cv_mutex_);
     char response[4096];
     size_t response_len = sizeof(response);
-    if (handleDNSRequest(buffer, len, response, &response_len) && response_len > 0) {
+    // TODO: check whether sending malformed packets to DnsResponder
+    if (handleDNSRequest(buffer, len, protocol, response, &response_len) && response_len > 0) {
         // place wait_for after handleDNSRequest() so we can check the number of queries in
         // test case before it got responded.
         std::unique_lock guard(cv_mutex_for_deferred_resp_);
         cv_for_deferred_resp_.wait(
                 guard, [this]() REQUIRES(cv_mutex_for_deferred_resp_) { return !deferred_resp_; });
+        len = 0;
 
-        len = sendto(socket_.get(), response, response_len, 0,
-                     reinterpret_cast<const sockaddr*>(&sa), sa_len);
-        std::string host_str = addr2str(reinterpret_cast<const sockaddr*>(&sa), sa_len);
+        switch (protocol) {
+            case IPPROTO_UDP:
+                len = sendto(udp_socket_.get(), response, response_len, 0,
+                             reinterpret_cast<const sockaddr*>(&sa), sa_len);
+                if (len < 0) {
+                    PLOG(ERROR) << "Failed to send response";
+                }
+                break;
+            case IPPROTO_TCP:
+                // Get the message length from two byte length field.
+                // See also RFC 1035, section 4.2.2 and RFC 7766, section 8
+                uint8_t responseMessageLengthField[2];
+                responseMessageLengthField[0] = response_len >> 8;
+                responseMessageLengthField[1] = response_len;
+                if (write(tcpFd.get(), responseMessageLengthField, 2) != 2) {
+                    PLOG(ERROR) << "Failed to write response length field";
+                    break;
+                }
+                if (write(tcpFd.get(), response, response_len) !=
+                    static_cast<ssize_t>(response_len)) {
+                    PLOG(ERROR) << "Failed to write response";
+                    break;
+                }
+                len = response_len;
+                break;
+        }
+        const std::string host_str = addr2str(reinterpret_cast<const sockaddr*>(&sa), sa_len);
         if (len > 0) {
             LOG(DEBUG) << "sent " << len << " bytes to " << host_str;
         } else {
-            PLOG(INFO) << "sendto() failed for " << host_str;
+            const char* method_str = (protocol == IPPROTO_TCP) ? "write()" : "sendto()";
+            LOG(ERROR) << method_str << " failed for " << host_str;
         }
         // Test that the response is actually a correct DNS message.
         // TODO: Make DNS message test to support name compression. Or it throws a warning for
@@ -1010,6 +1076,44 @@ void DNSResponder::handleEventFd() {
     if (const ssize_t rt = read(event_fd_.get(), &data, sizeof(data)); rt != sizeof(data)) {
         PLOG(INFO) << "ignore reading eventfd failed, rt=" << rt;
     }
+}
+
+android::base::unique_fd DNSResponder::createListeningSocket(int socket_type) {
+    addrinfo ai_hints{
+            .ai_flags = AI_PASSIVE,
+            .ai_family = AF_UNSPEC,
+            .ai_socktype = socket_type,
+    };
+    addrinfo* ai_res = nullptr;
+    const int rv =
+            getaddrinfo(listen_address_.c_str(), listen_service_.c_str(), &ai_hints, &ai_res);
+    ScopedAddrinfo ai_res_cleanup(ai_res);
+    if (rv) {
+        LOG(ERROR) << "getaddrinfo(" << listen_address_ << ", " << listen_service_
+                   << ") failed: " << gai_strerror(rv);
+        return {};
+    }
+    for (const addrinfo* ai = ai_res; ai; ai = ai->ai_next) {
+        android::base::unique_fd fd(
+                socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol));
+        if (fd.get() < 0) {
+            PLOG(ERROR) << "ignore creating socket failed";
+            continue;
+        }
+        enableSockopt(fd.get(), SOL_SOCKET, SO_REUSEPORT).ignoreError();
+        enableSockopt(fd.get(), SOL_SOCKET, SO_REUSEADDR).ignoreError();
+        const std::string host_str = addr2str(ai->ai_addr, ai->ai_addrlen);
+        const char* socket_str = (socket_type == SOCK_STREAM) ? "TCP" : "UDP";
+
+        if (bind(fd.get(), ai->ai_addr, ai->ai_addrlen)) {
+            PLOG(ERROR) << "failed to bind " << socket_str << " " << host_str << ":"
+                        << listen_service_;
+            continue;
+        }
+        LOG(INFO) << "bound to " << socket_str << " " << host_str << ":" << listen_service_;
+        return fd;
+    }
+    return {};
 }
 
 }  // namespace test
