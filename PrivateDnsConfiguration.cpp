@@ -126,35 +126,11 @@ PrivateDnsStatus PrivateDnsConfiguration::getStatus(unsigned netId) {
     const auto netPair = mPrivateDnsTransports.find(netId);
     if (netPair != mPrivateDnsTransports.end()) {
         for (const auto& serverPair : netPair->second) {
-            if (serverPair.second == Validation::success) {
-                status.validatedServers.push_back(serverPair.first);
-            }
+            status.serversMap.emplace(serverPair.first, serverPair.second);
         }
     }
 
     return status;
-}
-
-void PrivateDnsConfiguration::getStatus(unsigned netId, ExternalPrivateDnsStatus* status) {
-    std::lock_guard guard(mPrivateDnsLock);
-
-    const auto mode = mPrivateDnsModes.find(netId);
-    if (mode == mPrivateDnsModes.end()) return;
-    status->mode = mode->second;
-
-    const auto netPair = mPrivateDnsTransports.find(netId);
-    if (netPair != mPrivateDnsTransports.end()) {
-        int count = 0;
-        for (const auto& serverPair : netPair->second) {
-            status->serverStatus[count].ss = serverPair.first.ss;
-            status->serverStatus[count].hostname =
-                    serverPair.first.name.empty() ? "" : serverPair.first.name.c_str();
-            status->serverStatus[count].validation = serverPair.second;
-            count++;
-            if (count >= MAXNS) break;  // Lose the rest
-        }
-        status->numServers = count;
-    }
 }
 
 void PrivateDnsConfiguration::clear(unsigned netId) {
@@ -242,6 +218,9 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
     auto& tracker = netPair->second;
     auto serverPair = tracker.find(server);
     if (serverPair == tracker.end()) {
+        // TODO: Consider not adding this server to the tracker since this server is not expected
+        // to be one of the private DNS servers for this network now. This could prevent this
+        // server from being included when dumping status.
         LOG(WARNING) << "Server " << addrToString(&server.ss)
                      << " was removed during private DNS validation";
         success = false;
