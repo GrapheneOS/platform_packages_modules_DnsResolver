@@ -581,98 +581,6 @@ static int _dnsPacket_checkQuery(DnsPacket* packet) {
     return 1;
 }
 
-/** QUERY DEBUGGING **/
-static char* dnsPacket_bprintQName(DnsPacket* packet, char* bp, char* bend) {
-    const uint8_t* p = packet->cursor;
-    const uint8_t* end = packet->end;
-    int first = 1;
-
-    for (;;) {
-        int c;
-
-        if (p >= end) break;
-
-        c = *p++;
-
-        if (c == 0) {
-            packet->cursor = p;
-            return bp;
-        }
-
-        /* we don't expect label compression in QNAMEs */
-        if (c >= 64) break;
-
-        if (first)
-            first = 0;
-        else
-            bp = bprint_c(bp, bend, '.');
-
-        bp = bprint_b(bp, bend, (const char*) p, c);
-
-        p += c;
-        /* we rely on the bound check at the start
-         * of the loop here */
-    }
-    /* malformed data */
-    bp = bprint_s(bp, bend, "<MALFORMED>");
-    return bp;
-}
-
-static char* dnsPacket_bprintQR(DnsPacket* packet, char* p, char* end) {
-#define QQ(x) \
-    { DNS_TYPE_##x, #x }
-    static const struct {
-        const char* typeBytes;
-        const char* typeString;
-    } qTypes[] = {QQ(A), QQ(PTR), QQ(MX), QQ(AAAA), QQ(ALL), {NULL, NULL}};
-    int nn;
-    const char* typeString = NULL;
-
-    /* dump QNAME */
-    p = dnsPacket_bprintQName(packet, p, end);
-
-    /* dump TYPE */
-    p = bprint_s(p, end, " (");
-
-    for (nn = 0; qTypes[nn].typeBytes != NULL; nn++) {
-        if (_dnsPacket_checkBytes(packet, 2, qTypes[nn].typeBytes)) {
-            typeString = qTypes[nn].typeString;
-            break;
-        }
-    }
-
-    if (typeString != NULL)
-        p = bprint_s(p, end, typeString);
-    else {
-        int typeCode = _dnsPacket_readInt16(packet);
-        p = bprint(p, end, "UNKNOWN-%d", typeCode);
-    }
-
-    p = bprint_c(p, end, ')');
-
-    /* skip CLASS */
-    _dnsPacket_skip(packet, 2);
-    return p;
-}
-
-/* this function assumes the packet has already been checked */
-static char* dnsPacket_bprintQuery(DnsPacket* packet, char* p, char* end) {
-    int qdCount;
-
-    if (packet->base[2] & 0x1) {
-        p = bprint_s(p, end, "RECURSIVE ");
-    }
-
-    _dnsPacket_skip(packet, 4);
-    qdCount = _dnsPacket_readInt16(packet);
-    _dnsPacket_skip(packet, 6);
-
-    for (; qdCount > 0; qdCount--) {
-        p = dnsPacket_bprintQR(packet, p, end);
-    }
-    return p;
-}
-
 /** QUERY HASHING SUPPORT
  **
  ** THE FOLLOWING CODE ASSUMES THAT THE INPUT PACKET HAS ALREADY
@@ -1292,17 +1200,6 @@ static resolv_cache* resolv_cache_create() {
     return cache;
 }
 
-static void dump_query(const uint8_t* query, int querylen) {
-    if (!WOULD_LOG(VERBOSE)) return;
-
-    char temp[256], *p = temp, *end = p + sizeof(temp);
-    DnsPacket pack[1];
-
-    _dnsPacket_init(pack, query, querylen);
-    p = dnsPacket_bprintQuery(pack, p, end);
-    LOG(VERBOSE) << __func__ << ": " << temp;
-}
-
 static void cache_dump_mru(Cache* cache) {
     char temp[512], *p = temp, *end = p + sizeof(temp);
     Entry* e;
@@ -1385,7 +1282,7 @@ static void _cache_remove_oldest(Cache* cache) {
         return;
     }
     LOG(INFO) << __func__ << ": Cache full - removing oldest";
-    dump_query(oldest->query, oldest->querylen);
+    res_pquery(oldest->query, oldest->querylen);
     _cache_remove_p(cache, lookup);
 }
 
@@ -1430,7 +1327,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     Cache* cache;
 
     LOG(INFO) << __func__ << ": lookup";
-    dump_query((u_char*) query, querylen);
+    res_pquery(reinterpret_cast<const u_char*>(query), querylen);
 
     /* we don't cache malformed queries */
     if (!entry_init_key(&key, query, querylen)) {
@@ -1494,7 +1391,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     /* remove stale entries here */
     if (now >= e->expires) {
         LOG(INFO) << __func__ << ": NOT IN CACHE (STALE ENTRY " << *lookup << "DISCARDED)";
-        dump_query(e->query, e->querylen);
+        res_pquery(e->query, e->querylen);
         _cache_remove_p(cache, lookup);
         return RESOLV_CACHE_NOTFOUND;
     }
@@ -1541,10 +1438,10 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
     }
 
     LOG(INFO) << __func__ << ": query:";
-    dump_query((u_char*)query, querylen);
-    res_pquery((u_char*)answer, answerlen);
+    res_pquery(reinterpret_cast<const u_char*>(query), querylen);
+    LOG(INFO) << __func__ << ": answer:";
+    res_pquery(reinterpret_cast<const u_char*>(answer), answerlen);
     if (kDumpData) {
-        LOG(INFO) << __func__ << ": answer:";
         dump_bytes((u_char*)answer, answerlen);
     }
 
