@@ -1223,7 +1223,7 @@ static int res_tls_send(res_state statp, const Slice query, const Slice answer, 
         return -1;
     }
 
-    if (privateDnsStatus.validatedServers.empty()) {
+    if (privateDnsStatus.validatedServers().empty()) {
         if (privateDnsStatus.mode == PrivateDnsMode::OPPORTUNISTIC) {
             *fallback = true;
             return -1;
@@ -1242,12 +1242,14 @@ static int res_tls_send(res_state statp, const Slice query, const Slice answer, 
             // network change.
             for (int i = 0; i < 42; i++) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (!gPrivateDnsConfiguration.getStatus(netId).validatedServers.empty()) {
+                // Calling getStatus() to merely check if there's any validated server seems
+                // wasteful. Consider adding a new method in PrivateDnsConfiguration for speed ups.
+                if (!gPrivateDnsConfiguration.getStatus(netId).validatedServers().empty()) {
                     privateDnsStatus = gPrivateDnsConfiguration.getStatus(netId);
                     break;
                 }
             }
-            if (privateDnsStatus.validatedServers.empty()) {
+            if (privateDnsStatus.validatedServers().empty()) {
                 return -1;
             }
         }
@@ -1255,7 +1257,7 @@ static int res_tls_send(res_state statp, const Slice query, const Slice answer, 
 
     LOG(INFO) << __func__ << ": performing query over TLS";
 
-    const auto response = sDnsTlsDispatcher.query(privateDnsStatus.validatedServers, statp, query,
+    const auto response = sDnsTlsDispatcher.query(privateDnsStatus.validatedServers(), statp, query,
                                                   answer, &resplen);
 
     LOG(INFO) << __func__ << ": TLS query result: " << static_cast<int>(response);
