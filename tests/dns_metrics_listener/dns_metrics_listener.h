@@ -16,6 +16,10 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <map>
+#include <utility>
+
 #include <android-base/thread_annotations.h>
 
 #include "base_metrics_listener.h"
@@ -42,18 +46,36 @@ class DnsMetricsListener : public BaseMetricsListener {
                                                const std::string& prefixString,
                                                int32_t /*prefixLength*/) override;
 
+    android::binder::Status onPrivateDnsValidationEvent(int32_t netId,
+                                                        const ::android::String16& ipAddress,
+                                                        const ::android::String16& /*hostname*/,
+                                                        bool validated) override;
+
     // Wait for expected NAT64 prefix status until timeout.
     bool waitForNat64Prefix(ExpectNat64PrefixStatus status,
                             std::chrono::milliseconds timeout) const;
 
+    // Wait for the expected private DNS validation result until timeout.
+    bool waitForPrivateDnsValidation(const std::string& serverAddr, const bool validated);
+
   private:
+    typedef std::pair<int32_t, std::string> ServerKey;
+
+    // Search mValidationRecords. Return true if |key| exists and its value is equal to
+    // |value|, and then remove it; otherwise, return false.
+    bool findAndRemoveValidationRecord(const ServerKey& key, const bool value) REQUIRES(mMutex);
+
     // Monitor the event which was fired on specific network id.
     const int32_t mNetId;
 
     // The NAT64 prefix of the network |mNetId|. It is updated by the event onNat64PrefixEvent().
     std::string mNat64Prefix GUARDED_BY(mMutex);
 
+    // Used to store the data from onPrivateDnsValidationEvent.
+    std::map<ServerKey, bool> mValidationRecords GUARDED_BY(mMutex);
+
     mutable std::mutex mMutex;
+    std::condition_variable mCv;
 };
 
 }  // namespace metrics
