@@ -171,6 +171,10 @@ class ResolverTest : public ::testing::Test {
         return sDnsMetricsListener->waitForNat64Prefix(status, timeout);
     }
 
+    bool WaitForPrivateDnsValidation(std::string serverAddr, bool validated) {
+        return sDnsMetricsListener->waitForPrivateDnsValidation(serverAddr, validated);
+    }
+
     DnsResponderClient mDnsClient;
 
     // Use a shared static DNS listener for all tests to avoid registering lots of listeners
@@ -1091,7 +1095,7 @@ TEST_F(ResolverTest, MaxServerPrune_Binder) {
     // So, wait for private DNS validation done before stopping backend DNS servers.
     for (int i = 0; i < MAXNS; i++) {
         LOG(INFO) << "Waiting for private DNS validation on " << tls[i]->listen_address() << ".";
-        EXPECT_TRUE(tls[i]->waitForQueries(1, 5000));
+        EXPECT_TRUE(WaitForPrivateDnsValidation(tls[i]->listen_address(), true));
         LOG(INFO) << "private DNS validation on " << tls[i]->listen_address() << " done.";
     }
 
@@ -1262,13 +1266,9 @@ TEST_F(ResolverTest, GetHostByName_Tls) {
     test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
     ASSERT_TRUE(tls.startServer());
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
 
-    const hostent* result;
-
-    // Wait for validation to complete.
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
-
-    result = gethostbyname("tls1");
+    const hostent* result = gethostbyname("tls1");
     ASSERT_FALSE(result == nullptr);
     EXPECT_EQ("1.2.3.1", ToString(result));
 
@@ -1326,14 +1326,10 @@ TEST_F(ResolverTest, GetHostByName_TlsFailover) {
     ASSERT_TRUE(tls2.startServer());
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
                                                kDefaultPrivateDnsHostName));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls1.listen_address(), true));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls2.listen_address(), true));
 
-    const hostent* result;
-
-    // Wait for validation to complete.
-    EXPECT_TRUE(tls1.waitForQueries(1, 5000));
-    EXPECT_TRUE(tls2.waitForQueries(1, 5000));
-
-    result = gethostbyname("tlsfailover1");
+    const hostent* result = gethostbyname("tlsfailover1");
     ASSERT_FALSE(result == nullptr);
     EXPECT_EQ("1.2.3.1", ToString(result));
 
@@ -1376,7 +1372,7 @@ TEST_F(ResolverTest, GetHostByName_BadTlsName) {
 
     // The TLS handshake would fail because the name of TLS server doesn't
     // match with TLS server's certificate.
-    EXPECT_FALSE(tls.waitForQueries(1, 500));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), false));
 
     // The query should fail hard, because a name was specified.
     EXPECT_EQ(nullptr, gethostbyname("badtlsname"));
@@ -1403,9 +1399,7 @@ TEST_F(ResolverTest, GetAddrInfo_Tls) {
     ASSERT_TRUE(tls.startServer());
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
                                                kDefaultPrivateDnsHostName));
-
-    // Wait for validation to complete.
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
 
     dns.clearQueries();
     ScopedAddrinfo result = safe_getaddrinfo("addrinfotls", nullptr, nullptr);
@@ -1505,13 +1499,16 @@ TEST_F(ResolverTest, TlsBypass) {
         } else if (config.mode == OPPORTUNISTIC) {
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
                                                        kDefaultParams, ""));
-            // Wait for validation to complete.
-            if (config.withWorkingTLS) EXPECT_TRUE(tls.waitForQueries(1, 5000));
+
+            // Wait for the validation event. If the server is running, the validation should
+            // be successful; otherwise, the validation should be failed.
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), config.withWorkingTLS));
         } else if (config.mode == STRICT) {
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
                                                        kDefaultParams, kDefaultPrivateDnsHostName));
-            // Wait for validation to complete.
-            if (config.withWorkingTLS) EXPECT_TRUE(tls.waitForQueries(1, 5000));
+
+            // Wait for the validation event.
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), config.withWorkingTLS));
         }
         tls.clearQueries();
 
@@ -2231,22 +2228,21 @@ TEST_F(ResolverTest, BrokenEdns) {
             }
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
                                                        kDefaultParams, ""));
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), false));
         } else if (config.mode == OPPORTUNISTIC_TLS) {
             if (!tls.running()) {
                 ASSERT_TRUE(tls.startServer());
             }
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
                                                        kDefaultParams, ""));
-            // Wait for validation to complete.
-            EXPECT_TRUE(tls.waitForQueries(1, 5000));
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
         } else if (config.mode == STRICT) {
             if (!tls.running()) {
                 ASSERT_TRUE(tls.startServer());
             }
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
                                                        kDefaultParams, kDefaultPrivateDnsHostName));
-            // Wait for validation to complete.
-            EXPECT_TRUE(tls.waitForQueries(1, 5000));
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
         }
 
         if (config.method == GETHOSTBYNAME) {
@@ -2303,8 +2299,8 @@ TEST_F(ResolverTest, UnstableTls) {
     test::DnsTlsFrontend tls(CLEARTEXT_ADDR, TLS_PORT, CLEARTEXT_ADDR, CLEARTEXT_PORT);
     ASSERT_TRUE(tls.startServer());
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
-    // Wait for validation complete.
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+
     // Shutdown TLS server to get an error. It's similar to no response case but without waiting.
     tls.stopServer();
 
@@ -2334,8 +2330,8 @@ TEST_F(ResolverTest, BogusDnsServer) {
     test::DnsTlsFrontend tls(CLEARTEXT_ADDR, TLS_PORT, CLEARTEXT_ADDR, CLEARTEXT_PORT);
     ASSERT_TRUE(tls.startServer());
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
-    // Wait for validation complete.
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+
     // Shutdown TLS server to get an error. It's similar to no response case but without waiting.
     tls.stopServer();
     dns.setEdns(test::DNSResponder::Edns::FORMERR_UNCOND);
@@ -3200,7 +3196,7 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
 
     // Setup OPPORTUNISTIC mode and wait for the validation complete.
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
     tls.clearQueries();
 
     // Start NAT64 prefix discovery and wait for it complete.
@@ -3219,7 +3215,7 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     // Setup STRICT mode and wait for the validation complete.
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
                                                kDefaultPrivateDnsHostName));
-    EXPECT_TRUE(tls.waitForQueries(1, 5000));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
     tls.clearQueries();
 
     // Start NAT64 prefix discovery and wait for it to complete.

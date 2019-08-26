@@ -23,15 +23,31 @@ namespace android {
 namespace net {
 namespace metrics {
 
+using android::base::ScopedLockAssertion;
 using std::chrono::milliseconds;
 
 constexpr milliseconds kRetryIntervalMs{20};
+constexpr milliseconds kEventTimeoutMs{5000};
 
 android::binder::Status DnsMetricsListener::onNat64PrefixEvent(int32_t netId, bool added,
                                                                const std::string& prefixString,
                                                                int32_t /*prefixLength*/) {
     std::lock_guard lock(mMutex);
     if (netId == mNetId) mNat64Prefix = added ? prefixString : "";
+    return android::binder::Status::ok();
+}
+
+android::binder::Status DnsMetricsListener::onPrivateDnsValidationEvent(
+        int32_t netId, const ::android::String16& ipAddress,
+        const ::android::String16& /*hostname*/, bool validated) {
+    {
+        std::lock_guard lock(mMutex);
+        std::string serverAddr(String8(ipAddress.string()));
+
+        // keep updating the server to have latest validation status.
+        mValidationRecords.insert_or_assign({netId, serverAddr}, validated);
+    }
+    mCv.notify_one();
     return android::binder::Status::ok();
 }
 
@@ -46,6 +62,31 @@ bool DnsMetricsListener::waitForNat64Prefix(ExpectNat64PrefixStatus status,
                 return true;
         }
         std::this_thread::sleep_for(kRetryIntervalMs);
+    }
+    return false;
+}
+
+bool DnsMetricsListener::waitForPrivateDnsValidation(const std::string& serverAddr,
+                                                     const bool validated) {
+    const auto now = std::chrono::steady_clock::now();
+
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
+
+    // onPrivateDnsValidationEvent() might already be invoked. Search for the record first.
+    do {
+        if (findAndRemoveValidationRecord({mNetId, serverAddr}, validated)) return true;
+    } while (mCv.wait_until(lock, now + kEventTimeoutMs) != std::cv_status::timeout);
+
+    // Timeout.
+    return false;
+}
+
+bool DnsMetricsListener::findAndRemoveValidationRecord(const ServerKey& key, const bool value) {
+    auto it = mValidationRecords.find(key);
+    if (it != mValidationRecords.end() && it->second == value) {
+        mValidationRecords.erase(it);
+        return true;
     }
     return false;
 }
