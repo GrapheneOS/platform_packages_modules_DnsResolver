@@ -164,15 +164,16 @@ cc_test {
     ],
     shared_libs: [
         "libbpf_android",
-        "libbase",
         "libbinder",
         "libcrypto",
+        "liblog",
         "libnetd_client",
         "libssl",
         "libutils",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-cpp",
+        "libbase",
         "libgmock",
         "libnetd_test_dnsresponder",
         "libnetd_test_metrics_listener",
