@@ -81,6 +81,7 @@ typedef bool (*check_calling_permission_callback)(const char* permission);
 typedef void (*get_network_context_callback)(unsigned netid, uid_t uid,
                                              android_net_context* netcontext);
 typedef void (*log_callback)(const char* msg);
+typedef int (*tagSocketCallback)(int sockFd, uint32_t tag, uid_t uid);
 
 /*
  * Some functions needed by the resolver (e.g. checkCallingPermission()) live in
@@ -92,7 +93,10 @@ struct ResolverNetdCallbacks {
     check_calling_permission_callback check_calling_permission;
     get_network_context_callback get_network_context;
     log_callback log;
+    tagSocketCallback tagSocket;
 };
+
+#define TAG_SYSTEM_DNS 0xFFFFFF82
 
 LIBNETD_RESOLV_PUBLIC bool resolv_has_nameservers(unsigned netid);
 
