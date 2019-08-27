@@ -157,7 +157,7 @@ cc_test {
     srcs: [
         "tests/dns_responder/dns_responder.cpp",
         "dnsresolver_binder_test.cpp",
-        "resolver_test.cpp",
+        "resolv_integration_test.cpp",
     ],
     header_libs: [
         "libnetd_resolv_headers",
@@ -198,9 +198,9 @@ cc_test {
     //TODO:  drop root privileges and make it be an real unit test.
     defaults: ["netd_defaults"],
     srcs: [
-        "dns_tls_test.cpp",
-        "libnetd_resolv_test.cpp",
-        "res_cache_test.cpp",
+        "resolv_cache_unit_test.cpp",
+        "resolv_tls_unit_test.cpp",
+        "resolv_unit_test.cpp",
     ],
     shared_libs: [
         "libbase",
