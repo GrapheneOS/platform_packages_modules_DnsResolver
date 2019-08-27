@@ -44,6 +44,7 @@ class DnsResolver {
 extern DnsResolver* gDnsResolv;
 extern ResolverNetdCallbacks gResNetdCallbacks;
 extern netdutils::Log gDnsResolverLog;
+extern uint64_t gApiLevel;
 
 }  // namespace net
 }  // namespace android

@@ -30,7 +30,15 @@ bool resolv_init(const ResolverNetdCallbacks* callbacks) {
     LOG(INFO) << __func__ << ": Initializing resolver";
     resolv_set_log_severity(android::base::WARNING);
 
-    android::net::gResNetdCallbacks = *callbacks;
+    using android::net::gApiLevel;
+    gApiLevel = android::base::GetUintProperty<uint64_t>("ro.build.version.sdk", 0);
+    using android::net::gResNetdCallbacks;
+    gResNetdCallbacks.check_calling_permission = callbacks->check_calling_permission;
+    gResNetdCallbacks.get_network_context = callbacks->get_network_context;
+    gResNetdCallbacks.log = callbacks->log;
+    if (gApiLevel >= 30) {
+        gResNetdCallbacks.tagSocket = callbacks->tagSocket;
+    }
     android::net::gDnsResolv = android::net::DnsResolver::getInstance();
     return android::net::gDnsResolv->start();
 }
@@ -41,8 +49,14 @@ namespace net {
 namespace {
 
 bool verifyCallbacks() {
-    return gResNetdCallbacks.check_calling_permission && gResNetdCallbacks.get_network_context &&
-           gResNetdCallbacks.log;
+    if (!(gResNetdCallbacks.check_calling_permission && gResNetdCallbacks.get_network_context &&
+          gResNetdCallbacks.log)) {
+        return false;
+    }
+    if (gApiLevel >= 30) {
+        return gResNetdCallbacks.tagSocket != nullptr;
+    }
+    return true;
 }
 
 }  // namespace
@@ -50,6 +64,7 @@ bool verifyCallbacks() {
 DnsResolver* gDnsResolv = nullptr;
 ResolverNetdCallbacks gResNetdCallbacks;
 netdutils::Log gDnsResolverLog("dnsResolver");
+uint64_t gApiLevel = 0;
 
 DnsResolver* DnsResolver::getInstance() {
     // Instantiated on first use.
