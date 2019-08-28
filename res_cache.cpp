@@ -58,12 +58,11 @@
 
 #include <server_configurable_flags/get_flags.h>
 
+#include "res_debug.h"
 #include "res_state_ext.h"
 #include "resolv_private.h"
 
-// NOTE: verbose logging MUST NOT be left enabled in production binaries.
-// It floods logs at high rate, and can leak privacy-sensitive information.
-constexpr bool kDumpData = false;
+using android::base::StringAppendF;
 
 /* This code implements a small and *simple* DNS resolver cache.
  *
@@ -147,171 +146,12 @@ constexpr bool kDumpData = false;
  */
 #define CONFIG_MAX_ENTRIES (64 * 2 * 5)
 
-/** BOUNDED BUFFER FORMATTING **/
-
-/* technical note:
- *
- *   the following debugging routines are used to append data to a bounded
- *   buffer they take two parameters that are:
- *
- *   - p : a pointer to the current cursor position in the buffer
- *         this value is initially set to the buffer's address.
- *
- *   - end : the address of the buffer's limit, i.e. of the first byte
- *           after the buffer. this address should never be touched.
- *
- *           IMPORTANT: it is assumed that end > buffer_address, i.e.
- *                      that the buffer is at least one byte.
- *
- *   the bprint_x() functions return the new value of 'p' after the data
- *   has been appended, and also ensure the following:
- *
- *   - the returned value will never be strictly greater than 'end'
- *
- *   - a return value equal to 'end' means that truncation occurred
- *     (in which case, end[-1] will be set to 0)
- *
- *   - after returning from a bprint_x() function, the content of the buffer
- *     is always 0-terminated, even in the event of truncation.
- *
- *  these conventions allow you to call bprint_x() functions multiple times and
- *  only check for truncation at the end of the sequence, as in:
- *
- *     char  buff[1000], *p = buff, *end = p + sizeof(buff);
- *
- *     p = bprint_c(p, end, '"');
- *     p = bprint_s(p, end, my_string);
- *     p = bprint_c(p, end, '"');
- *
- *     if (p >= end) {
- *        // buffer was too small
- *     }
- *
- *     printf( "%s", buff );
- */
-
 /* Defaults used for initializing res_params */
 
 // If successes * 100 / total_samples is less than this value, the server is considered failing
 #define SUCCESS_THRESHOLD 75
 // Sample validity in seconds. Set to -1 to disable skipping failing servers.
 #define NSSAMPLE_VALIDITY 1800
-
-/* add a char to a bounded buffer */
-static char* bprint_c(char* p, char* end, int c) {
-    if (p < end) {
-        if (p + 1 == end)
-            *p++ = 0;
-        else {
-            *p++ = (char) c;
-            *p = 0;
-        }
-    }
-    return p;
-}
-
-/* add a sequence of bytes to a bounded buffer */
-static char* bprint_b(char* p, char* end, const char* buf, int len) {
-    int avail = end - p;
-
-    if (avail <= 0 || len <= 0) return p;
-
-    if (avail > len) avail = len;
-
-    memcpy(p, buf, avail);
-    p += avail;
-
-    if (p < end)
-        p[0] = 0;
-    else
-        end[-1] = 0;
-
-    return p;
-}
-
-/* add a string to a bounded buffer */
-static char* bprint_s(char* p, char* end, const char* str) {
-    return bprint_b(p, end, str, strlen(str));
-}
-
-/* add a formatted string to a bounded buffer */
-static char* bprint(char* p, char* end, const char* format, ...) {
-    int avail, n;
-    va_list args;
-
-    avail = end - p;
-
-    if (avail <= 0) return p;
-
-    va_start(args, format);
-    n = vsnprintf(p, avail, format, args);
-    va_end(args);
-
-    /* certain C libraries return -1 in case of truncation */
-    if (n < 0 || n > avail) n = avail;
-
-    p += n;
-    /* certain C libraries do not zero-terminate in case of truncation */
-    if (p == end) p[-1] = 0;
-
-    return p;
-}
-
-/* add a hex value to a bounded buffer, up to 8 digits */
-static char* bprint_hex(char* p, char* end, unsigned value, int numDigits) {
-    char text[sizeof(unsigned) * 2];
-    int nn = 0;
-
-    while (numDigits-- > 0) {
-        text[nn++] = "0123456789abcdef"[(value >> (numDigits * 4)) & 15];
-    }
-    return bprint_b(p, end, text, nn);
-}
-
-/* add the hexadecimal dump of some memory area to a bounded buffer */
-static char* bprint_hexdump(char* p, char* end, const uint8_t* data, int datalen) {
-    int lineSize = 16;
-
-    while (datalen > 0) {
-        int avail = datalen;
-        int nn;
-
-        if (avail > lineSize) avail = lineSize;
-
-        for (nn = 0; nn < avail; nn++) {
-            if (nn > 0) p = bprint_c(p, end, ' ');
-            p = bprint_hex(p, end, data[nn], 2);
-        }
-        for (; nn < lineSize; nn++) {
-            p = bprint_s(p, end, "   ");
-        }
-        p = bprint_s(p, end, "  ");
-
-        for (nn = 0; nn < avail; nn++) {
-            int c = data[nn];
-
-            if (c < 32 || c > 127) c = '.';
-
-            p = bprint_c(p, end, c);
-        }
-        p = bprint_c(p, end, '\n');
-
-        data += avail;
-        datalen -= avail;
-    }
-    return p;
-}
-
-/* dump the content of a query of packet to the log */
-static void dump_bytes(const uint8_t* base, int len) {
-    if (!kDumpData) return;
-
-    char buff[1024];
-    char *p = buff, *end = p + sizeof(buff);
-
-    p = bprint_hexdump(p, end, base, len);
-    LOG(INFO) << __func__ << ": " << buff;
-}
 
 static time_t _time_now(void) {
     struct timeval tv;
@@ -1200,15 +1040,15 @@ static resolv_cache* resolv_cache_create() {
     return cache;
 }
 
-static void cache_dump_mru(Cache* cache) {
-    char temp[512], *p = temp, *end = p + sizeof(temp);
-    Entry* e;
+static void cache_dump_mru_locked(Cache* cache) {
+    std::string buf;
 
-    p = bprint(temp, end, "MRU LIST (%2d): ", cache->num_entries);
-    for (e = cache->mru_list.mru_next; e != &cache->mru_list; e = e->mru_next)
-        p = bprint(p, end, " %d", e->id);
+    StringAppendF(&buf, "MRU LIST (%2d): ", cache->num_entries);
+    for (Entry* e = cache->mru_list.mru_next; e != &cache->mru_list; e = e->mru_next) {
+        StringAppendF(&buf, " %d", e->id);
+    }
 
-    LOG(INFO) << __func__ << ": " << temp;
+    LOG(INFO) << __func__ << ": " << buf;
 }
 
 /* This function tries to find a key within the hash table
@@ -1327,7 +1167,6 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     Cache* cache;
 
     LOG(INFO) << __func__ << ": lookup";
-    res_pquery(reinterpret_cast<const u_char*>(query), querylen);
 
     /* we don't cache malformed queries */
     if (!entry_init_key(&key, query, querylen)) {
@@ -1437,14 +1276,6 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
         return -ENONET;
     }
 
-    LOG(INFO) << __func__ << ": query:";
-    res_pquery(reinterpret_cast<const u_char*>(query), querylen);
-    LOG(INFO) << __func__ << ": answer:";
-    res_pquery(reinterpret_cast<const u_char*>(answer), answerlen);
-    if (kDumpData) {
-        dump_bytes((u_char*)answer, answerlen);
-    }
-
     lookup = _cache_lookup_p(cache, key);
     e = *lookup;
 
@@ -1479,7 +1310,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
         }
     }
 
-    cache_dump_mru(cache);
+    cache_dump_mru_locked(cache);
     _cache_notify_waiting_tid_locked(cache, key);
 
     return 0;

@@ -86,6 +86,7 @@
 
 #include <android-base/logging.h>
 
+#include "res_debug.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
 
