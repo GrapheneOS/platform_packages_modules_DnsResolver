@@ -16,6 +16,16 @@
 
 #pragma once
 
-#include <cinttypes>
+#include <sys/types.h>
+
+// TODO: use netdutils::Slice for (msg, len).
+void res_pquery(const u_char* msg, int len);
+
+// Thread-unsafe functions returning pointers to static buffers :-(
+// TODO: switch all res_debug to std::string
+const char* p_type(int type);
+const char* p_section(int section, int opcode);
+const char* p_class(int cl);
+const char* p_rcode(int rcode);
 
 int resolv_set_log_severity(uint32_t logSeverity);

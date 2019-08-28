@@ -107,9 +107,9 @@
 #include "netd_resolv/resolv.h"
 #include "netd_resolv/stats.h"
 #include "private/android_filesystem_config.h"
+#include "res_debug.h"
 #include "res_state_ext.h"
 #include "resolv_cache.h"
-#include "resolv_private.h"
 #include "stats.pb.h"
 
 // TODO: use the namespace something like android::netd_resolv for libnetd_resolv
@@ -539,6 +539,8 @@ int res_nsend(res_state statp, const u_char* buf, int buflen, u_char* ans, int a
                 resplen = res_tls_send(statp, Slice(const_cast<u_char*>(buf), buflen),
                                        Slice(ans, anssiz), rcode, &fallback);
                 if (resplen > 0) {
+                    LOG(DEBUG) << __func__ << ": got answer from DoT";
+                    res_pquery(ans, resplen);
                     if (cache_status == RESOLV_CACHE_NOTFOUND) {
                         resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
                     }
