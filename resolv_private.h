@@ -61,6 +61,7 @@
 #include <string>
 #include <vector>
 
+#include "DnsResolver.h"
 #include "netd_resolv/params.h"
 #include "netd_resolv/resolv.h"
 #include "netd_resolv/stats.h"
@@ -224,5 +225,17 @@ Dest saturate_cast(int64_t x) {
 android::net::NsType getQueryType(const uint8_t* msg, size_t msgLen);
 
 android::net::IpVersion ipFamilyToIPVersion(int ipFamily);
+
+inline void resolv_tag_socket(int sock, uid_t uid) {
+    if (android::net::gResNetdCallbacks.tagSocket != nullptr) {
+        if (int err = android::net::gResNetdCallbacks.tagSocket(sock, TAG_SYSTEM_DNS, uid)) {
+            LOG(WARNING) << "Failed to tag socket: " << strerror(-err);
+        }
+    }
+
+    if (fchown(sock, uid, -1) == -1) {
+        LOG(WARNING) << "Failed to chown socket: " << strerror(errno);
+    }
+}
 
 #endif  // NETD_RESOLV_PRIVATE_H
