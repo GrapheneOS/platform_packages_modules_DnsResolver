@@ -1323,7 +1323,7 @@ static struct resolv_cache_info res_cache_list GUARDED_BY(cache_mutex);
 static void insert_cache_info_locked(resolv_cache_info* cache_info);
 // creates a resolv_cache_info
 static resolv_cache_info* create_cache_info();
-// empty the nameservers set for the named cache
+// Clears nameservers set for |cache_info| and clears the stats
 static void free_nameservers_locked(resolv_cache_info* cache_info);
 // Order-insensitive comparison for the two set of servers.
 static bool resolv_is_nameservers_equal(const std::vector<std::string>& oldServers,
@@ -1562,15 +1562,6 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
                       << ", addr = " << cache_info->nameservers[i];
         }
         cache_info->nscount = numservers;
-
-        // Clear the NS statistics because the mapping to nameservers might have changed.
-        res_cache_clear_stats_locked(cache_info);
-
-        // increment the revision id to ensure that sample state is not written back if the
-        // servers change; in theory it would suffice to do so only if the servers or
-        // max_samples actually change, in practice the overhead of checking is higher than the
-        // cost, and overflows are unlikely
-        ++cache_info->revision_id;
     } else {
         if (cache_info->params.max_samples != old_max_samples) {
             // If the maximum number of samples changes, the overhead of keeping the most recent
@@ -1579,7 +1570,6 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
             // not invalidate the samples, as they only affect aggregation and the conditions
             // under which servers are considered usable.
             res_cache_clear_stats_locked(cache_info);
-            ++cache_info->revision_id;
         }
         for (int j = 0; j < numservers; j++) {
             freeaddrinfo(nsaddrinfo[j]);
@@ -1610,15 +1600,13 @@ static void free_nameservers_locked(resolv_cache_info* cache_info) {
     int i;
     for (i = 0; i < cache_info->nscount; i++) {
         cache_info->nameservers.clear();
-        if (cache_info->nsaddrinfo[i] != NULL) {
+        if (cache_info->nsaddrinfo[i] != nullptr) {
             freeaddrinfo(cache_info->nsaddrinfo[i]);
-            cache_info->nsaddrinfo[i] = NULL;
+            cache_info->nsaddrinfo[i] = nullptr;
         }
-        cache_info->nsstats[i].sample_count = cache_info->nsstats[i].sample_next = 0;
     }
     cache_info->nscount = 0;
     res_cache_clear_stats_locked(cache_info);
-    ++cache_info->revision_id;
 }
 
 void _resolv_populate_res_for_net(res_state statp) {
@@ -1676,11 +1664,16 @@ static void _res_cache_add_stats_sample_locked(res_stats* stats, const res_sampl
 }
 
 static void res_cache_clear_stats_locked(resolv_cache_info* cache_info) {
-    if (cache_info) {
-        for (int i = 0; i < MAXNS; ++i) {
-            cache_info->nsstats->sample_count = cache_info->nsstats->sample_next = 0;
-        }
+    for (int i = 0; i < MAXNS; ++i) {
+        cache_info->nsstats[i].sample_count = 0;
+        cache_info->nsstats[i].sample_next = 0;
     }
+
+    // Increment the revision id to ensure that sample state is not written back if the
+    // servers change; in theory it would suffice to do so only if the servers or
+    // max_samples actually change, in practice the overhead of checking is higher than the
+    // cost, and overflows are unlikely.
+    ++cache_info->revision_id;
 }
 
 int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
