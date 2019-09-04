@@ -1283,6 +1283,85 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
     return 0;
 }
 
+bool resolv_gethostbyaddr_from_local_cache(unsigned netid, char domain_name[],
+                                           unsigned domain_name_size, char* ip_address) {
+    if (domain_name_size > NS_MAXDNAME) {
+        LOG(ERROR) << __func__ << ": invalid domain_name_size " << domain_name_size;
+        return false;
+    }
+
+    Cache* cache = nullptr;
+    Entry* node = nullptr;
+
+    ns_rr rr;
+    ns_msg handle;
+
+    int query_count;
+    ns_rr rr_query;
+
+    // For ntop.
+    char* resolved_ip = nullptr;
+    char buf4[INET_ADDRSTRLEN];
+    char buf6[INET6_ADDRSTRLEN];
+
+    std::lock_guard guard(cache_mutex);
+
+    cache = find_named_cache_locked(netid);
+    if (cache == nullptr) {
+        return false;
+    }
+
+    for (node = cache->mru_list.mru_next; node != nullptr && node != &cache->mru_list;
+         node = node->mru_next) {
+        if (node->answer == nullptr) {
+            continue;
+        }
+
+        memset(&handle, 0, sizeof(handle));
+
+        if (ns_initparse(node->answer, node->answerlen, &handle) < 0) {
+            continue;
+        }
+
+        for (int n = 0; n < ns_msg_count(handle, ns_s_an); n++) {
+            memset(&rr, 0, sizeof(rr));
+
+            if (ns_parserr(&handle, ns_s_an, n, &rr)) {
+                continue;
+            }
+
+            resolved_ip = nullptr;
+            if (ns_rr_type(rr) == ns_t_a) {
+                inet_ntop(AF_INET, ns_rr_rdata(rr), buf4, sizeof(buf4));
+                resolved_ip = buf4;
+            } else if (ns_rr_type(rr) == ns_t_aaaa) {
+                inet_ntop(AF_INET6, ns_rr_rdata(rr), buf6, sizeof(buf6));
+                resolved_ip = buf6;
+            } else {
+                continue;
+            }
+
+            if ((resolved_ip != nullptr) && (resolved_ip[0] != '\0')) {
+                if (strcmp(resolved_ip, ip_address) == 0) {
+                    query_count = ns_msg_count(handle, ns_s_qd);
+                    for (int i = 0; i < query_count; i++) {
+                        memset(&rr_query, 0, sizeof(rr_query));
+                        if (ns_parserr(&handle, ns_s_qd, i, &rr_query)) {
+                            continue;
+                        }
+                        strlcpy(domain_name, ns_rr_name(rr_query), domain_name_size);
+                        if (domain_name[0] != '\0') {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 // Head of the list of caches.
 static struct resolv_cache_info res_cache_list GUARDED_BY(cache_mutex);
 
