@@ -37,7 +37,6 @@
 #include "netd_resolv/stats.h"
 #include "resolv_cache.h"
 
-using namespace std::placeholders;
 using aidl::android::net::ResolverParamsParcel;
 
 namespace android {
@@ -179,7 +178,7 @@ ResolverController::ResolverController()
               [](uint32_t netId, uint32_t uid, android_net_context* netcontext) {
                   gResNetdCallbacks.get_network_context(netId, uid, netcontext);
               },
-              std::bind(sendNat64PrefixEvent, _1)) {}
+              std::bind(sendNat64PrefixEvent, std::placeholders::_1)) {}
 
 void ResolverController::destroyNetworkCache(unsigned netId) {
     LOG(VERBOSE) << __func__ << ": netId = " << netId;

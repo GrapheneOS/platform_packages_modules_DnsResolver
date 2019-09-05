@@ -94,8 +94,7 @@ cc_library {
         "libnetd_client_headers",
     ],
     export_include_dirs: ["include"],
-    // TODO: pie in the sky: make this code clang-tidy clean
-    tidy: false,
+
     product_variables: {
         debuggable: {
             cppflags: [
