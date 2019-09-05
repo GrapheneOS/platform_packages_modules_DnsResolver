@@ -434,10 +434,11 @@ const char* DNSHeader::readHeader(const char* buffer, const char* buffer_end, un
 /* DNS responder */
 
 DNSResponder::DNSResponder(std::string listen_address, std::string listen_service,
-                           ns_rcode error_rcode)
+                           ns_rcode error_rcode, MappingType mapping_type)
     : listen_address_(std::move(listen_address)),
       listen_service_(std::move(listen_service)),
-      error_rcode_(error_rcode) {}
+      error_rcode_(error_rcode),
+      mapping_type_(mapping_type) {}
 
 DNSResponder::~DNSResponder() {
     stopServer();
@@ -445,6 +446,7 @@ DNSResponder::~DNSResponder() {
 
 void DNSResponder::addMapping(const std::string& name, ns_type type, const std::string& addr) {
     std::lock_guard lock(mappings_mutex_);
+    // TODO: Consider using std::map::insert_or_assign().
     auto it = mappings_.find(QueryKey(name, type));
     if (it != mappings_.end()) {
         LOG(INFO) << "Overwriting mapping for (" << name << ", " << dnstype2str(type)
@@ -455,6 +457,23 @@ void DNSResponder::addMapping(const std::string& name, ns_type type, const std::
     mappings_.try_emplace({name, type}, addr);
 }
 
+void DNSResponder::addMappingDnsHeader(const std::string& name, ns_type type,
+                                       const DNSHeader& header) {
+    std::lock_guard lock(mappings_mutex_);
+    // TODO: Consider using std::map::insert_or_assign().
+    auto it = dnsheader_mappings_.find(QueryKey(name, type));
+    if (it != dnsheader_mappings_.end()) {
+        // TODO: Perhaps replace header pointer with header content once DNSHeader::toString() has
+        // been implemented.
+        LOG(INFO) << "Overwriting mapping for (" << name << ", " << dnstype2str(type)
+                  << "), previous header " << (void*)&it->second << " new header "
+                  << (void*)&header;
+        it->second = header;
+        return;
+    }
+    dnsheader_mappings_.try_emplace({name, type}, header);
+}
+
 void DNSResponder::removeMapping(const std::string& name, ns_type type) {
     std::lock_guard lock(mappings_mutex_);
     auto it = mappings_.find(QueryKey(name, type));
@@ -463,7 +482,18 @@ void DNSResponder::removeMapping(const std::string& name, ns_type type) {
         return;
     }
     LOG(ERROR) << "Cannot remove mapping from (" << name << ", " << dnstype2str(type)
-               << "), not present";
+               << "), not present in registered mappings";
+}
+
+void DNSResponder::removeMappingDnsHeader(const std::string& name, ns_type type) {
+    std::lock_guard lock(mappings_mutex_);
+    auto it = dnsheader_mappings_.find(QueryKey(name, type));
+    if (it != dnsheader_mappings_.end()) {
+        dnsheader_mappings_.erase(it);
+        return;
+    }
+    LOG(ERROR) << "Cannot remove mapping from (" << name << ", " << dnstype2str(type)
+               << "), not present in registered DnsHeader mappings";
 }
 
 void DNSResponder::setResponseProbability(double response_probability) {
@@ -669,7 +699,13 @@ bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, char* respo
 
     // Make the response. The query has been read into |header| which is used to build and return
     // the response as well.
-    return makeResponse(&header, response, response_len);
+    switch (mapping_type_) {
+        case MappingType::DNS_HEADER:
+            return makeResponseFromDnsHeader(&header, response, response_len);
+        case MappingType::ADDRESS_OR_HOSTNAME:
+        default:
+            return makeResponse(&header, response, response_len);
+    }
 }
 
 bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
@@ -700,7 +736,7 @@ bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
                     .name = {.name = it->first.name},
                     .rtype = it->first.type,
                     .rclass = ns_class::ns_c_in,
-                    .ttl = 5,  // seconds
+                    .ttl = kAnswerRecordTtlSec,  // seconds
             };
             if (!fillAnswerRdata(it->second, record)) return false;
             answers->push_back(std::move(record));
@@ -794,6 +830,58 @@ bool DNSResponder::makeResponse(DNSHeader* header, char* response, size_t* respo
     }
 
     header->qr = true;
+    char* response_cur = header->write(response, response + *response_len);
+    if (response_cur == nullptr) {
+        return false;
+    }
+    *response_len = response_cur - response;
+    return true;
+}
+
+bool DNSResponder::makeResponseFromDnsHeader(DNSHeader* header, char* response,
+                                             size_t* response_len) const {
+    std::lock_guard guard(mappings_mutex_);
+
+    // Support single question record only. It should be okay because res_mkquery() sets "qdcount"
+    // as one for the operation QUERY and handleDNSRequest() checks ns_opcode::ns_o_query before
+    // making a response. In other words, only need to handle the query which has single question
+    // section. See also res_mkquery() in system/netd/resolv/res_mkquery.cpp.
+    // TODO: Perhaps add support for multi-question records.
+    const std::vector<DNSQuestion>& questions = header->questions;
+    if (questions.size() != 1) {
+        LOG(INFO) << "unsupported question count " << questions.size();
+        return makeErrorResponse(header, ns_rcode::ns_r_notimpl, response, response_len);
+    }
+
+    if (questions[0].qclass != ns_class::ns_c_in && questions[0].qclass != ns_class::ns_c_any) {
+        LOG(INFO) << "unsupported question class " << questions[0].qclass;
+        return makeErrorResponse(header, ns_rcode::ns_r_notimpl, response, response_len);
+    }
+
+    const std::string name = questions[0].qname.name;
+    const int qtype = questions[0].qtype;
+    const auto it = dnsheader_mappings_.find(QueryKey(name, qtype));
+    if (it != dnsheader_mappings_.end()) {
+        // Store both "id" and "rd" which comes from query.
+        const unsigned id = header->id;
+        const bool rd = header->rd;
+
+        // Build a response from the registered DNSHeader mapping.
+        *header = it->second;
+        // Assign both "ID" and "RD" fields from query to response. See RFC 1035 section 4.1.1.
+        header->id = id;
+        header->rd = rd;
+    } else {
+        // TODO: handle correctly. See also TODO in addAnswerRecords().
+        LOG(INFO) << "no mapping found for " << name << " " << dnstype2str(qtype)
+                  << ", couldn't build a response from DNSHeader mapping";
+
+        // Note that do nothing as makeResponse() if no mapping is found. It just changes the QR
+        // flag from query (0) to response (1) in the query. Then, send the modified query back as
+        // a response.
+        header->qr = true;
+    }
+
     char* response_cur = header->write(response, response + *response_len);
     if (response_cur == nullptr) {
         return false;
