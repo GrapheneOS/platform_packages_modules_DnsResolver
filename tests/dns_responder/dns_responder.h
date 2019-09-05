@@ -31,6 +31,9 @@
 #include <android-base/thread_annotations.h>
 #include "android-base/unique_fd.h"
 
+// Default TTL of the DNS answer record.
+constexpr unsigned kAnswerRecordTtlSec = 5;
+
 namespace test {
 
 struct DNSName {
@@ -73,6 +76,8 @@ struct DNSRecord {
     char* writeIntFields(unsigned rdlen, char* buffer, const char* buffer_end) const;
 };
 
+// TODO: Perhaps rename to DNSMessage. Per RFC 1035 section 4.1, struct DNSHeader more likes a
+// message because it has not only header section but also question section and other RRs.
 struct DNSHeader {
     unsigned id;
     bool ra;
@@ -108,6 +113,7 @@ struct DNSHeader {
 
 inline const std::string kDefaultListenAddr = "127.0.0.3";
 inline const std::string kDefaultListenService = "53";
+inline const ns_rcode kDefaultErrorCode = ns_rcode::ns_r_servfail;
 
 /*
  * Simple DNS responder, which replies to queries with the registered response
@@ -122,18 +128,36 @@ class DNSResponder {
         FORMERR_UNCOND,   // DNS server reply FORMERR unconditionally
         DROP              // DNS server not supporting EDNS will not do any response.
     };
+    // Indicate which mapping the DNS server used to build the response.
+    // See also addMapping(), addMappingDnsHeader(), removeMapping(), removeMappingDnsHeader(),
+    // makeResponse(), makeResponseFromDnsHeader().
+    // TODO: Perhaps break class DNSResponder for each mapping.
+    // TODO: Add the mapping from (raw dns query) to (raw dns response).
+    enum class MappingType : uint8_t {
+        ADDRESS_OR_HOSTNAME,  // Use the mapping from (name, type) to (address or hostname)
+        DNS_HEADER,           // Use the mapping from (name, type) to (DNSHeader)
+    };
 
     DNSResponder(std::string listen_address = kDefaultListenAddr,
                  std::string listen_service = kDefaultListenService,
-                 ns_rcode error_rcode = ns_rcode::ns_r_servfail);
+                 ns_rcode error_rcode = kDefaultErrorCode,
+                 DNSResponder::MappingType mapping_type = MappingType::ADDRESS_OR_HOSTNAME);
 
     DNSResponder(ns_rcode error_rcode)
         : DNSResponder(kDefaultListenAddr, kDefaultListenService, error_rcode){};
 
+    DNSResponder(MappingType mapping_type)
+        : DNSResponder(kDefaultListenAddr, kDefaultListenService, kDefaultErrorCode,
+                       mapping_type){};
+
     ~DNSResponder();
 
+    // Functions used for accessing mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER}.
     void addMapping(const std::string& name, ns_type type, const std::string& addr);
+    void addMappingDnsHeader(const std::string& name, ns_type type, const DNSHeader& header);
     void removeMapping(const std::string& name, ns_type type);
+    void removeMappingDnsHeader(const std::string& name, ns_type type);
+
     void setResponseProbability(double response_probability);
     void setEdns(Edns edns);
     bool running() const;
@@ -182,9 +206,13 @@ class DNSResponder {
 
     bool generateErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                                size_t* response_len) const;
+    // TODO: Change makeErrorResponse and makeResponse{, FromDnsHeader} to use C++ containers
+    // instead of the unsafe pointer + length buffer.
     bool makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                            size_t* response_len) const;
+    // Build a response from mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER}.
     bool makeResponse(DNSHeader* header, char* response, size_t* response_len) const;
+    bool makeResponseFromDnsHeader(DNSHeader* header, char* response, size_t* response_len) const;
 
     // Add a new file descriptor to be polled by the handler thread.
     bool addFd(int fd, uint32_t events);
@@ -204,6 +232,8 @@ class DNSResponder {
     const std::string listen_service_;
     // Error code to return for requests for an unknown name.
     const ns_rcode error_rcode_;
+    // Mapping type the DNS server used to build the response.
+    const MappingType mapping_type_;
     // Probability that a valid response is being sent instead of being sent
     // instead of returning error_rcode_.
     std::atomic<double> response_probability_ = 1.0;
@@ -217,9 +247,14 @@ class DNSResponder {
     // ignoring the requests.
     std::atomic<Edns> edns_ = Edns::ON;
 
-    // Mappings from (name, type) to registered response and the
-    // mutex protecting them.
+    // Mappings used for building the DNS response by registered mapping items. |mapping_type_|
+    // decides which mapping is used. See also makeResponse{, FromDnsHeader}.
+    // - mappings_: Mapping from (name, type) to (address or hostname).
+    // - dnsheader_mappings_: Mapping from (name, type) to (DNSHeader).
     std::unordered_map<QueryKey, std::string, QueryKeyHash> mappings_ GUARDED_BY(mappings_mutex_);
+    std::unordered_map<QueryKey, DNSHeader, QueryKeyHash> dnsheader_mappings_
+            GUARDED_BY(mappings_mutex_);
+
     mutable std::mutex mappings_mutex_;
     // Query names received so far and the corresponding mutex.
     mutable std::vector<std::pair<std::string, ns_type>> queries_ GUARDED_BY(queries_mutex_);

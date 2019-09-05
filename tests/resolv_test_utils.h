@@ -50,6 +50,20 @@ static constexpr char kBadCharBeforePeriodHost[] = "hello.example^.com.";
 static constexpr char kBadCharAtTheEndHost[] = "hello.example.com^.";
 static constexpr char kBadCharInTheMiddleOfLabelHost[] = "hello.ex^ample.com.";
 
+static const test::DNSHeader kDefaultDnsHeader = {
+        // Don't need to initialize the flag "id" and "rd" because DNS responder assigns them from
+        // query to response. See RFC 1035 section 4.1.1.
+        .id = 0,                // unused. should be assigned from query to response
+        .ra = false,            // recursive query support is not available
+        .rcode = ns_r_noerror,  // no error
+        .qr = true,             // message is a response
+        .opcode = QUERY,        // a standard query
+        .aa = false,            // answer/authority portion was not authenticated by the server
+        .tr = false,            // message is not truncated
+        .rd = false,            // unused. should be assigned from query to response
+        .ad = false,            // non-authenticated data is unacceptable
+};
+
 size_t GetNumQueries(const test::DNSResponder& dns, const char* name);
 size_t GetNumQueriesForType(const test::DNSResponder& dns, ns_type type, const char* name);
 std::string ToString(const hostent* he);
