@@ -16,10 +16,10 @@
 
 #define LOG_TAG "resolv"
 
-#include <gtest/gtest.h>
-
 #include <android-base/stringprintf.h>
 #include <arpa/inet.h>
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
 #include <netdb.h>
 #include <netdutils/InternetAddresses.h>
 
@@ -39,10 +39,14 @@ using android::base::StringPrintf;
 using android::net::NetworkDnsEventReported;
 using android::netdutils::ScopedAddrinfo;
 
-// Minimize class ResolverTest to be class TestBase because class TestBase doesn't need all member
-// functions of class ResolverTest and class DnsResponderClient.
 class TestBase : public ::testing::Test {
   protected:
+    struct DnsMessage {
+        std::string host_name;   // host name
+        ns_type type;            // record type
+        test::DNSHeader header;  // dns header
+    };
+
     void SetUp() override {
         // Create cache for test
         resolv_create_cache_for_net(TEST_NETID);
@@ -52,7 +56,64 @@ class TestBase : public ::testing::Test {
         resolv_delete_cache_for_net(TEST_NETID);
     }
 
-    int setResolvers() {
+    test::DNSRecord MakeAnswerRecord(const std::string& name, unsigned rclass, unsigned rtype,
+                                     const std::string& rdata, unsigned ttl = kAnswerRecordTtlSec) {
+        test::DNSRecord record{
+                .name = {.name = name},
+                .rtype = rtype,
+                .rclass = rclass,
+                .ttl = ttl,
+        };
+        EXPECT_TRUE(test::DNSResponder::fillAnswerRdata(rdata, record));
+        return record;
+    }
+
+    DnsMessage MakeDnsMessage(const std::string& qname, ns_type qtype,
+                              const std::vector<std::string>& rdata) {
+        const unsigned qclass = ns_c_in;
+        // Build a DNSHeader in the following format.
+        // Question
+        //   <qname>                IN      <qtype>
+        // Answer
+        //   <qname>                IN      <qtype>     <rdata[0]>
+        //   ..
+        //   <qname>                IN      <qtype>     <rdata[n]>
+        //
+        // Example:
+        // Question
+        //   hello.example.com.     IN      A
+        // Answer
+        //   hello.example.com.     IN      A           1.2.3.1
+        //   ..
+        //   hello.example.com.     IN      A           1.2.3.9
+        test::DNSHeader header(kDefaultDnsHeader);
+
+        // Question section
+        test::DNSQuestion question{
+                .qname = {.name = qname},
+                .qtype = qtype,
+                .qclass = qclass,
+        };
+        header.questions.push_back(std::move(question));
+
+        // Answer section
+        for (const auto& r : rdata) {
+            test::DNSRecord record = MakeAnswerRecord(qname, qclass, qtype, r);
+            header.answers.push_back(std::move(record));
+        }
+        // TODO: Perhaps add support for authority RRs and additional RRs.
+        return {qname, qtype, header};
+    }
+
+    void StartDns(test::DNSResponder& dns, const std::vector<DnsMessage>& messages) {
+        for (const auto& m : messages) {
+            dns.addMappingDnsHeader(m.host_name, m.type, m.header);
+        }
+        ASSERT_TRUE(dns.startServer());
+        dns.clearQueries();
+    }
+
+    int SetResolvers() {
         const std::vector<std::string> servers = {test::kDefaultListenAddr};
         const std::vector<std::string> domains = {"example.com"};
         const res_params params = {
@@ -326,7 +387,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
     test::DNSResponder dns;
     dns.addMapping(v4_host_name, ns_type::ns_t_a, "1.2.3.3");
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     // Want AAAA answer but DNS server has A answer only.
     addrinfo* result = nullptr;
@@ -348,7 +409,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
     dns.addMapping(host_name, ns_type::ns_t_a, v4addr);
     dns.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     static const struct TestConfig {
         int ai_family;
@@ -377,7 +438,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
 TEST_F(ResolvGetAddrInfoTest, IllegalHostname) {
     test::DNSResponder dns;
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     // Illegal hostname is verified by res_hnok() in system/netd/resolv/res_comp.cpp.
     static constexpr char const* illegalHostnames[] = {
@@ -440,7 +501,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerResponseError) {
         dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
         dns.setResponseProbability(0.0);  // always ignore requests and response preset rcode
         ASSERT_TRUE(dns.startServer());
-        ASSERT_EQ(0, setResolvers());
+        ASSERT_EQ(0, SetResolvers());
 
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = AF_UNSPEC};
@@ -457,7 +518,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
     dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
     dns.setResponseProbability(0.0);  // always ignore requests and don't response
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     addrinfo* result = nullptr;
     const addrinfo hints = {.ai_family = AF_UNSPEC};
@@ -474,7 +535,7 @@ TEST_F(ResolvGetAddrInfoTest, CnamesNoIpAddress) {
     dns.addMapping("cnames.example.com.", ns_type::ns_t_cname, "acname.example.com.");
     dns.addMapping("acname.example.com.", ns_type::ns_t_cname, "hello.example.com.");
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     static const struct TestConfig {
         const char* name;
@@ -507,7 +568,7 @@ TEST_F(ResolvGetAddrInfoTest, CnamesNoIpAddress) {
 TEST_F(ResolvGetAddrInfoTest, CnamesBrokenChainByIllegalCname) {
     test::DNSResponder dns;
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     static const struct TestConfig {
         const char* name;
@@ -561,7 +622,7 @@ TEST_F(ResolvGetAddrInfoTest, CnamesInfiniteLoop) {
     dns.addMapping("hello.example.com.", ns_type::ns_t_cname, "a.example.com.");
     dns.addMapping("a.example.com.", ns_type::ns_t_cname, "hello.example.com.");
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
         SCOPED_TRACE(StringPrintf("family: %d", family));
@@ -576,6 +637,52 @@ TEST_F(ResolvGetAddrInfoTest, CnamesInfiniteLoop) {
     }
 }
 
+TEST_F(ResolvGetAddrInfoTest, MultiAnswerSections) {
+    test::DNSResponder dns(test::DNSResponder::MappingType::DNS_HEADER);
+    // Answer section for query type {A, AAAA}
+    // Type A:
+    //   hello.example.com.   IN    A       1.2.3.1
+    //   hello.example.com.   IN    A       1.2.3.2
+    // Type AAAA:
+    //   hello.example.com.   IN    AAAA    2001:db8::41
+    //   hello.example.com.   IN    AAAA    2001:db8::42
+    StartDns(dns, {MakeDnsMessage(kHelloExampleCom, ns_type::ns_t_a, {"1.2.3.1", "1.2.3.2"}),
+                   MakeDnsMessage(kHelloExampleCom, ns_type::ns_t_aaaa,
+                                  {"2001:db8::41", "2001:db8::42"})});
+    ASSERT_EQ(0, SetResolvers());
+
+    for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
+        SCOPED_TRACE(StringPrintf("family: %d", family));
+
+        addrinfo* res = nullptr;
+        // If the socket type is not specified, every address will appear twice, once for
+        // SOCK_STREAM and one for SOCK_DGRAM. Just pick one because the addresses for
+        // the second query of different socket type are responded by the cache.
+        const addrinfo hints = {.ai_family = family, .ai_socktype = SOCK_STREAM};
+        NetworkDnsEventReported event;
+        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &res, &event);
+        ScopedAddrinfo result(res);
+        ASSERT_NE(nullptr, result);
+        ASSERT_EQ(0, rv);
+
+        const std::vector<std::string> result_strs = ToStrings(result);
+        if (family == AF_INET) {
+            EXPECT_EQ(1U, GetNumQueries(dns, kHelloExampleCom));
+            EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray({"1.2.3.1", "1.2.3.2"}));
+        } else if (family == AF_INET6) {
+            EXPECT_EQ(1U, GetNumQueries(dns, kHelloExampleCom));
+            EXPECT_THAT(result_strs,
+                        testing::UnorderedElementsAreArray({"2001:db8::41", "2001:db8::42"}));
+        } else if (family == AF_UNSPEC) {
+            EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));  // no query because of the cache
+            EXPECT_THAT(result_strs,
+                        testing::UnorderedElementsAreArray(
+                                {"1.2.3.1", "1.2.3.2", "2001:db8::41", "2001:db8::42"}));
+        }
+        dns.clearQueries();
+    }
+}
+
 TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
     constexpr char host_name[] = "jiababuei.example.com.";
     constexpr char v4addr[] = "1.2.3.4";
@@ -585,7 +692,7 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
     dns.addMapping(host_name, ns_type::ns_t_a, v4addr);
     dns.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     static const struct TestConfig {
         int ai_family;
@@ -613,7 +720,7 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
 TEST_F(GetHostByNameForNetContextTest, IllegalHostname) {
     test::DNSResponder dns;
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     // Illegal hostname is verified by res_hnok() in system/netd/resolv/res_comp.cpp.
     static constexpr char const* illegalHostnames[] = {
@@ -655,7 +762,7 @@ TEST_F(GetHostByNameForNetContextTest, NoData) {
     test::DNSResponder dns;
     dns.addMapping(v4_host_name, ns_type::ns_t_a, "1.2.3.3");
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
     dns.clearQueries();
 
     // Want AAAA answer but DNS server has A answer only.
@@ -695,7 +802,7 @@ TEST_F(GetHostByNameForNetContextTest, ServerResponseError) {
         dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
         dns.setResponseProbability(0.0);  // always ignore requests and response preset rcode
         ASSERT_TRUE(dns.startServer());
-        ASSERT_EQ(0, setResolvers());
+        ASSERT_EQ(0, SetResolvers());
 
         hostent* hp = nullptr;
         NetworkDnsEventReported event;
@@ -712,7 +819,7 @@ TEST_F(GetHostByNameForNetContextTest, ServerTimeout) {
     dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
     dns.setResponseProbability(0.0);  // always ignore requests and don't response
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     hostent* hp = nullptr;
     NetworkDnsEventReported event;
@@ -728,7 +835,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesNoIpAddress) {
     dns.addMapping("cnames.example.com.", ns_type::ns_t_cname, "acname.example.com.");
     dns.addMapping("acname.example.com.", ns_type::ns_t_cname, "hello.example.com.");
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     static const struct TestConfig {
         const char* name;
@@ -756,7 +863,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesNoIpAddress) {
 TEST_F(GetHostByNameForNetContextTest, CnamesBrokenChainByIllegalCname) {
     test::DNSResponder dns;
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     static const struct TestConfig {
         const char* name;
@@ -809,7 +916,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
     dns.addMapping("hello.example.com.", ns_type::ns_t_cname, "a.example.com.");
     dns.addMapping("a.example.com.", ns_type::ns_t_cname, "hello.example.com.");
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, setResolvers());
+    ASSERT_EQ(0, SetResolvers());
 
     for (const auto& family : {AF_INET, AF_INET6}) {
         SCOPED_TRACE(StringPrintf("family: %d", family));
@@ -825,8 +932,6 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
 // Note that local host file function, files_getaddrinfo(), of resolv_getaddrinfo()
 // is not tested because it only returns a boolean (success or failure) without any error number.
 
-// TODO: Simplify the DNS server configuration, DNSResponder and resolv_set_nameservers, as
-//       ResolverTest does.
 // TODO: Add test for resolv_getaddrinfo().
 //       - DNS response message parsing.
 //           - Unexpected type of resource record (RR).
