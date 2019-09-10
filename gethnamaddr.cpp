@@ -110,8 +110,8 @@ typedef union {
 static struct hostent* getanswer(const querybuf*, int, const char*, int, res_state, struct hostent*,
                                  char*, size_t, int*);
 static void convert_v4v6_hostent(struct hostent* hp, char** bpp, char* ep,
-                                 std::function<void(struct hostent* hp)> mapping_param,
-                                 std::function<void(char* src, char* dst)> mapping_addr);
+                                 const std::function<void(struct hostent* hp)>& mapping_param,
+                                 const std::function<void(char* src, char* dst)>& mapping_addr);
 static void pad_v4v6_hostent(struct hostent* hp, char** bpp, char* ep);
 static void addrsort(char**, int, res_state);
 
@@ -656,10 +656,9 @@ nospc:
     return NULL;
 }
 
-
 static void convert_v4v6_hostent(struct hostent* hp, char** bpp, char* ep,
-                                 std::function<void(struct hostent* hp)> map_param,
-                                 std::function<void(char* src, char* dst)> map_addr) {
+                                 const std::function<void(struct hostent* hp)>& map_param,
+                                 const std::function<void(char* src, char* dst)>& map_addr) {
     _DIAGASSERT(hp != NULL);
     _DIAGASSERT(bpp != NULL);
     _DIAGASSERT(ep != NULL);
