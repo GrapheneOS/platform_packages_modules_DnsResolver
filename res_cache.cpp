@@ -906,7 +906,7 @@ struct resolv_cache_info {
 // std::unique_lock.
 class SCOPED_CAPABILITY ScopedAssumeLocked {
   public:
-    ScopedAssumeLocked(std::mutex& mutex) ACQUIRE(mutex) {}
+    explicit ScopedAssumeLocked(std::mutex& mutex) ACQUIRE(mutex) {}
     ~ScopedAssumeLocked() RELEASE() {}
 };
 
