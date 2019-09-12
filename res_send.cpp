@@ -113,8 +113,24 @@
 #include "stats.pb.h"
 
 // TODO: use the namespace something like android::netd_resolv for libnetd_resolv
-using namespace android::net;
+using android::net::CacheStatus;
+using android::net::DnsQueryEvent;
+using android::net::DnsTlsDispatcher;
+using android::net::DnsTlsTransport;
+using android::net::gPrivateDnsConfiguration;
+using android::net::IpVersion;
+using android::net::IV_IPV4;
+using android::net::IV_IPV6;
+using android::net::IV_UNKNOWN;
 using android::net::NetworkDnsEventReported;
+using android::net::NS_T_INVALID;
+using android::net::NsRcode;
+using android::net::NsType;
+using android::net::PrivateDnsMode;
+using android::net::PrivateDnsModes;
+using android::net::PrivateDnsStatus;
+using android::net::PROTO_TCP;
+using android::net::PROTO_UDP;
 using android::netdutils::Slice;
 using android::netdutils::Stopwatch;
 
@@ -285,7 +301,7 @@ static void res_set_usable_server(int selectedServer, int nscount, bool usable_s
  * author:
  *	paul vixie, 29may94
  */
-static int res_ourserver_p(const res_state statp, const sockaddr* sa) {
+static int res_ourserver_p(res_state statp, const sockaddr* sa) {
     const sockaddr_in *inp, *srv;
     const sockaddr_in6 *in6p, *srv6;
     int ns;
@@ -698,7 +714,7 @@ static struct sockaddr* get_nsaddr(res_state statp, size_t n) {
     }
 }
 
-static struct timespec get_timeout(const res_state statp, const res_params* params, const int ns) {
+static struct timespec get_timeout(res_state statp, const res_params* params, const int ns) {
     int msec;
     // Legacy algorithm which scales the timeout by nameserver number.
     // For instance, with 4 nameservers: 5s, 2.5s, 5s, 10s
