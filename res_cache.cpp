@@ -902,14 +902,6 @@ struct resolv_cache_info {
     std::unordered_map<int, uint32_t> dns_event_subsampling_map;
 };
 
-// A helper class for the Clang Thread Safety Analysis to deal with
-// std::unique_lock.
-class SCOPED_CAPABILITY ScopedAssumeLocked {
-  public:
-    explicit ScopedAssumeLocked(std::mutex& mutex) ACQUIRE(mutex) {}
-    ~ScopedAssumeLocked() RELEASE() {}
-};
-
 // lock protecting everything in the resolve_cache_info structs (next ptr, etc)
 static std::mutex cache_mutex;
 static std::condition_variable cv;
@@ -1175,7 +1167,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     }
     /* lookup cache */
     std::unique_lock lock(cache_mutex);
-    ScopedAssumeLocked assume_lock(cache_mutex);
+    android::base::ScopedLockAssertion assume_lock(cache_mutex);
     cache = find_named_cache_locked(netid);
     if (cache == nullptr) {
         return RESOLV_CACHE_UNSUPPORTED;
