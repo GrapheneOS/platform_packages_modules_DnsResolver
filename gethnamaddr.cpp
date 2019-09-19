@@ -67,7 +67,6 @@
 #include <string.h>
 #include <sys/param.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <functional>
@@ -99,7 +98,7 @@ using android::net::NetworkDnsEventReported;
 
 typedef union {
     HEADER hdr;
-    u_char buf[MAXPACKET];
+    uint8_t buf[MAXPACKET];
 } querybuf;
 
 typedef union {
@@ -149,10 +148,10 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
                                  res_state res, struct hostent* hent, char* buf, size_t buflen,
                                  int* he) {
     const HEADER* hp;
-    const u_char* cp;
+    const uint8_t* cp;
     int n;
     size_t qlen;
-    const u_char *eom, *erdata;
+    const uint8_t *eom, *erdata;
     char *bp, **hap, *ep;
     int ancount, qdcount;
     int haveanswer, had_error;
@@ -344,7 +343,7 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
                     bp += nn;
                 }
 
-                bp += sizeof(align) - (size_t)((u_long) bp % sizeof(align));
+                bp += sizeof(align) - (size_t)((uintptr_t)bp % sizeof(align));
 
                 if (bp + n >= ep) {
                     LOG(DEBUG) << __func__ << ": size (" << n << ") too big";
@@ -437,7 +436,7 @@ static int gethostbyname_internal_real(const char* name, int af, hostent* hp, ch
      * disallow names consisting only of digits/dots, unless
      * they end in a dot.
      */
-    if (isdigit((u_char) name[0])) {
+    if (isdigit((uint8_t)name[0])) {
         for (const char* cp = name;; ++cp) {
             if (!*cp) {
                 if (*--cp == '.') break;
@@ -448,10 +447,10 @@ static int gethostbyname_internal_real(const char* name, int af, hostent* hp, ch
                  */
                 goto fake;
             }
-            if (!isdigit((u_char) *cp) && *cp != '.') break;
+            if (!isdigit((uint8_t)*cp) && *cp != '.') break;
         }
     }
-    if ((isxdigit((u_char) name[0]) && strchr(name, ':') != NULL) || name[0] == ':') {
+    if ((isxdigit((uint8_t)name[0]) && strchr(name, ':') != NULL) || name[0] == ':') {
         for (const char* cp = name;; ++cp) {
             if (!*cp) {
                 if (*--cp == '.') break;
@@ -462,7 +461,7 @@ static int gethostbyname_internal_real(const char* name, int af, hostent* hp, ch
                  */
                 goto fake;
             }
-            if (!isxdigit((u_char) *cp) && *cp != ':' && *cp != '.') break;
+            if (!isxdigit((uint8_t)*cp) && *cp != ':' && *cp != '.') break;
         }
     }
 
@@ -506,7 +505,7 @@ static int android_gethostbyaddrfornetcontext_real(const void* addr, socklen_t l
                                                    struct hostent* hp, char* buf, size_t buflen,
                                                    const struct android_net_context* netcontext,
                                                    NetworkDnsEventReported* event) {
-    const u_char* uaddr = (const u_char*) addr;
+    const uint8_t* uaddr = (const uint8_t*)addr;
     socklen_t size;
     struct getnamaddr info;
 
@@ -666,7 +665,7 @@ static void convert_v4v6_hostent(struct hostent* hp, char** bpp, char* ep,
     if (hp->h_addrtype != AF_INET || hp->h_length != NS_INADDRSZ) return;
     map_param(hp);
     for (char** ap = hp->h_addr_list; *ap; ap++) {
-        int i = (int) (sizeof(align) - (size_t)((u_long) *bpp % sizeof(align)));
+        int i = (int)(sizeof(align) - (size_t)((uintptr_t)*bpp % sizeof(align)));
 
         if (ep - *bpp < (i + NS_IN6ADDRSZ)) {
             /* Out of memory.  Truncate address list here.  XXX */

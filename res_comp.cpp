@@ -73,8 +73,6 @@
 #include <arpa/nameser.h>
 #include <ctype.h>
 #include <netinet/in.h>
-#include <sys/param.h>
-#include <sys/types.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -87,7 +85,7 @@
  * 'dst' is a pointer to a buffer of size 'dstsiz' for the result.
  * Return size of compressed name or -1 if there was an error.
  */
-int dn_expand(const u_char* msg, const u_char* eom, const u_char* src, char* dst, int dstsiz) {
+int dn_expand(const uint8_t* msg, const uint8_t* eom, const uint8_t* src, char* dst, int dstsiz) {
     int n = ns_name_uncompress(msg, eom, src, dst, (size_t) dstsiz);
 
     if (n > 0 && dst[0] == '.') dst[0] = '\0';
@@ -99,16 +97,16 @@ int dn_expand(const u_char* msg, const u_char* eom, const u_char* src, char* dst
  * Return the size of the compressed name or -1.
  * 'length' is the size of the array pointed to by 'comp_dn'.
  */
-int dn_comp(const char* src, u_char* dst, int dstsiz, u_char** dnptrs, u_char** lastdnptr) {
-    return (ns_name_compress(src, dst, (size_t) dstsiz, (const u_char**) dnptrs,
-                             (const u_char**) lastdnptr));
+int dn_comp(const char* src, uint8_t* dst, int dstsiz, uint8_t** dnptrs, uint8_t** lastdnptr) {
+    return (ns_name_compress(src, dst, (size_t)dstsiz, (const uint8_t**)dnptrs,
+                             (const uint8_t**)lastdnptr));
 }
 
 /*
  * Skip over a compressed domain name. Return the size or -1.
  */
-int dn_skipname(const u_char* ptr, const u_char* eom) {
-    const u_char* saveptr = ptr;
+int dn_skipname(const uint8_t* ptr, const uint8_t* eom) {
+    const uint8_t* saveptr = ptr;
 
     if (ns_name_skip(&ptr, eom) == -1) return (-1);
     return (ptr - saveptr);

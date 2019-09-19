@@ -16,10 +16,10 @@
 
 #pragma once
 
-#include <sys/types.h>
+#include <stdint.h>
 
 // TODO: use netdutils::Slice for (msg, len).
-void res_pquery(const u_char* msg, int len);
+void res_pquery(const uint8_t* msg, int len);
 
 // Thread-unsafe functions returning pointers to static buffers :-(
 // TODO: switch all res_debug to std::string

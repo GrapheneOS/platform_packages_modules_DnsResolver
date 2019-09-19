@@ -19,7 +19,7 @@ struct res_static {
     char* h_addr_ptrs[MAXADDRS + 1];
     char* host_aliases[MAXALIASES];
     char hostbuf[8 * 1024];
-    u_int32_t host_addr[16 / sizeof(u_int32_t)]; /* IPv4 or IPv6 */
+    uint32_t host_addr[16 / sizeof(uint32_t)]; /* IPv4 or IPv6 */
     FILE* hostf;
     int stayopen;
     const char* servent_ptr;
