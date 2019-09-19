@@ -34,7 +34,6 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 #include <unistd.h> /* for gettid() */
 
 #include <android-base/logging.h>
@@ -99,8 +98,7 @@ static _res_thread* res_thread_get(void) {
     }
     pthread_setspecific(_res_key, rt);
 
-    LOG(VERBOSE) << __func__ << ": tid=" << gettid() << ", rt=" << rt
-                 << " setting DNS state (options=" << rt->_nres->options << ")";
+    LOG(VERBOSE) << __func__ << ": tid=" << gettid() << ", rt=" << rt;
     if (res_ninit(rt->_nres) < 0) {
         /* This should not happen */
         LOG(VERBOSE) << __func__ << ": tid=" << gettid() << " rt=" << rt
