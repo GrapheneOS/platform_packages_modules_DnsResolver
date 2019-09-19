@@ -697,18 +697,18 @@ typedef struct Entry {
  *
  * Return 0 if not found.
  */
-static u_long answer_getNegativeTTL(ns_msg handle) {
+static uint32_t answer_getNegativeTTL(ns_msg handle) {
     int n, nscount;
-    u_long result = 0;
+    uint32_t result = 0;
     ns_rr rr;
 
     nscount = ns_msg_count(handle, ns_s_ns);
     for (n = 0; n < nscount; n++) {
         if ((ns_parserr(&handle, ns_s_ns, n, &rr) == 0) && (ns_rr_type(rr) == ns_t_soa)) {
-            const u_char* rdata = ns_rr_rdata(rr);          // find the data
-            const u_char* edata = rdata + ns_rr_rdlen(rr);  // add the len to find the end
+            const uint8_t* rdata = ns_rr_rdata(rr);          // find the data
+            const uint8_t* edata = rdata + ns_rr_rdlen(rr);  // add the len to find the end
             int len;
-            u_long ttl, rec_result = ns_rr_ttl(rr);
+            uint32_t ttl, rec_result = rr.ttl;
 
             // find the MINIMUM-TTL field from the blob of binary data for this record
             // skip the server name
@@ -750,10 +750,10 @@ static u_long answer_getNegativeTTL(ns_msg handle) {
  * In case of parse error zero (0) is returned which
  * indicates that the answer shall not be cached.
  */
-static u_long answer_getTTL(const void* answer, int answerlen) {
+static uint32_t answer_getTTL(const void* answer, int answerlen) {
     ns_msg handle;
     int ancount, n;
-    u_long result, ttl;
+    uint32_t result, ttl;
     ns_rr rr;
 
     result = 0;
@@ -767,7 +767,7 @@ static u_long answer_getTTL(const void* answer, int answerlen) {
         } else {
             for (n = 0; n < ancount; n++) {
                 if (ns_parserr(&handle, ns_s_an, n, &rr) == 0) {
-                    ttl = ns_rr_ttl(rr);
+                    ttl = rr.ttl;
                     if (n == 0 || ttl < result) {
                         result = ttl;
                     }
@@ -1251,7 +1251,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
     Entry key[1];
     Entry* e;
     Entry** lookup;
-    u_long ttl;
+    uint32_t ttl;
     Cache* cache = NULL;
 
     /* don't assume that the query has already been cached

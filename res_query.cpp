@@ -79,7 +79,6 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/param.h>
-#include <sys/types.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -108,12 +107,12 @@
  */
 int res_nquery(res_state statp, const char* name,  // domain name
                int cl, int type,                   // class and type of query
-               u_char* answer,                     // buffer to put answer
+               uint8_t* answer,                    // buffer to put answer
                int anslen,                         // size of answer buffer
                int* herrno)                        // legacy and extended h_errno
                                                    // NETD_RESOLV_H_ERRNO_EXT_*
 {
-    u_char buf[MAXPACKET];
+    uint8_t buf[MAXPACKET];
     HEADER* hp = (HEADER*) (void*) answer;
     int n;
     int rcode = NOERROR;
@@ -209,14 +208,14 @@ again:
  */
 int res_nsearch(res_state statp, const char* name, /* domain name */
                 int cl, int type,                  /* class and type of query */
-                u_char* answer,                    /* buffer to put answer */
+                uint8_t* answer,                   /* buffer to put answer */
                 int anslen,                        /* size of answer */
                 int* herrno)                       /* legacy and extended
                                                       h_errno NETD_RESOLV_H_ERRNO_EXT_* */
 {
     const char* cp;
     HEADER* hp = (HEADER*) (void*) answer;
-    u_int dots;
+    uint32_t dots;
     int ret, saved_herrno;
     int got_nodata = 0, got_servfail = 0, root_on_list = 0;
     int tried_as_is = 0;
@@ -332,10 +331,10 @@ int res_nsearch(res_state statp, const char* name, /* domain name */
  * removing a trailing dot from name if domain is NULL.
  */
 int res_nquerydomain(res_state statp, const char* name, const char* domain, int cl,
-                     int type,       /* class and type of query */
-                     u_char* answer, /* buffer to put answer */
-                     int anslen,     /* size of answer */
-                     int* herrno)    /* legacy and extended h_errno NETD_RESOLV_H_ERRNO_EXT_* */
+                     int type,        /* class and type of query */
+                     uint8_t* answer, /* buffer to put answer */
+                     int anslen,      /* size of answer */
+                     int* herrno)     /* legacy and extended h_errno NETD_RESOLV_H_ERRNO_EXT_* */
 {
     char nbuf[MAXDNAME];
     const char* longname = nbuf;
