@@ -19,11 +19,24 @@ cc_test_library {
     ],
 }
 
+cc_library_static {
+    name: "golddata_proto",
+    defaults: ["netd_defaults"],
+    proto: {
+        export_proto_headers: true,
+        type: "full",
+    },
+    srcs: [
+        "golddata.proto",
+    ],
+}
+
 cc_test {
     name: "resolv_gold_test",
     test_suites: ["device-tests"],
     require_root: true,
     defaults: ["netd_defaults"],
+    data: ["testdata/*.pbtxt"],
     srcs: [
         "resolv_gold_test.cpp",
     ],
@@ -32,11 +45,12 @@ cc_test {
     ],
     shared_libs: [
         "libcrypto",
-        "libprotobuf-cpp-lite",
+        "libprotobuf-cpp-full",
         "libssl",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-cpp",
+        "golddata_proto",
         "libbase",
         "libgmock",
         "liblog",
