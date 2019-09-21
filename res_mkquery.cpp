@@ -78,7 +78,6 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <string.h>
-#include <sys/types.h>
 
 #include <android-base/logging.h>
 
@@ -98,19 +97,19 @@ extern const char* const _res_opcodes[] = {
  * Form all types of queries.
  * Returns the size of the result or -1.
  */
-int res_nmkquery(res_state statp, int op,    /* opcode of query */
-                 const char* dname,          /* domain name */
-                 int cl, int type,           /* class and type of query */
-                 const u_char* data,         /* resource record data */
-                 int datalen,                /* length of data */
-                 const u_char* /*newrr_in*/, /* new rr for modify or append */
-                 u_char* buf,                /* buffer to put query */
-                 int buflen)                 /* size of buffer */
+int res_nmkquery(res_state statp, int op,     /* opcode of query */
+                 const char* dname,           /* domain name */
+                 int cl, int type,            /* class and type of query */
+                 const uint8_t* data,         /* resource record data */
+                 int datalen,                 /* length of data */
+                 const uint8_t* /*newrr_in*/, /* new rr for modify or append */
+                 uint8_t* buf,                /* buffer to put query */
+                 int buflen)                  /* size of buffer */
 {
     HEADER* hp;
-    u_char *cp, *ep;
+    uint8_t *cp, *ep;
     int n;
-    u_char *dnptrs[20], **dpp, **lastdnptr;
+    uint8_t *dnptrs[20], **dpp, **lastdnptr;
 
     LOG(DEBUG) << __func__ << ": (" << _res_opcodes[op] << ", " << p_class(cl) << ", "
                << p_type(type) << ")";
@@ -194,13 +193,13 @@ int res_nmkquery(res_state statp, int op,    /* opcode of query */
 }
 
 int res_nopt(res_state statp, int n0, /* current offset in buffer */
-             u_char* buf,             /* buffer to put query */
+             uint8_t* buf,            /* buffer to put query */
              int buflen,              /* size of buffer */
              int anslen)              /* UDP answer buffer size */
 {
     HEADER* hp;
-    u_char *cp, *ep;
-    u_int16_t flags = 0;
+    uint8_t *cp, *ep;
+    uint16_t flags = 0;
 
     LOG(DEBUG) << __func__;
 

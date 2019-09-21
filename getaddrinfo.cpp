@@ -50,7 +50,6 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -112,14 +111,14 @@ const Explore explore_options[] = {
 
 typedef union {
     HEADER hdr;
-    u_char buf[MAXPACKET];
+    uint8_t buf[MAXPACKET];
 } querybuf;
 
 struct res_target {
     struct res_target* next;
     const char* name;  /* domain name */
     int qclass, qtype; /* class and type of query */
-    u_char* answer;    /* buffer to put answer */
+    uint8_t* answer;   /* buffer to put answer */
     int anslen;        /* size of answer buffer */
     int n;             /* result length */
 };
@@ -137,7 +136,7 @@ static struct addrinfo* get_ai(const struct addrinfo*, const struct afd*, const 
 static int get_portmatch(const struct addrinfo*, const char*);
 static int get_port(const struct addrinfo*, const char*, int);
 static const struct afd* find_afd(int);
-static int ip6_str2scopeid(const char*, struct sockaddr_in6*, u_int32_t*);
+static int ip6_str2scopeid(const char*, struct sockaddr_in6*, uint32_t*);
 
 static struct addrinfo* getanswer(const querybuf*, int, const char*, int, const struct addrinfo*,
                                   int* herrno);
@@ -646,7 +645,7 @@ static int explore_numeric_scope(const struct addrinfo* pai, const char* hostnam
 
     error = explore_numeric(pai, addr, servname, res, hostname);
     if (error == 0) {
-        u_int32_t scopeid;
+        uint32_t scopeid;
 
         for (cur = *res; cur; cur = cur->ai_next) {
             if (cur->ai_family != AF_INET6) continue;
@@ -787,8 +786,8 @@ static const struct afd* find_afd(int af) {
 }
 
 // Convert a string to a scope identifier.
-static int ip6_str2scopeid(const char* scope, struct sockaddr_in6* sin6, u_int32_t* scopeid) {
-    u_long lscopeid;
+static int ip6_str2scopeid(const char* scope, struct sockaddr_in6* sin6, uint32_t* scopeid) {
+    uint64_t lscopeid;
     struct in6_addr* a6;
     char* ep;
 
@@ -814,7 +813,7 @@ static int ip6_str2scopeid(const char* scope, struct sockaddr_in6* sin6, u_int32
     // try to convert to a numeric id as a last resort
     errno = 0;
     lscopeid = strtoul(scope, &ep, 10);
-    *scopeid = (u_int32_t)(lscopeid & 0xffffffffUL);
+    *scopeid = (uint32_t)(lscopeid & 0xffffffffUL);
     if (errno == 0 && ep && *ep == '\0' && *scopeid == lscopeid)
         return 0;
     else
@@ -845,9 +844,9 @@ static struct addrinfo* getanswer(const querybuf* answer, int anslen, const char
     const struct afd* afd;
     char* canonname;
     const HEADER* hp;
-    const u_char* cp;
+    const uint8_t* cp;
     int n;
-    const u_char* eom;
+    const uint8_t* eom;
     char *bp, *ep;
     int type, ancount, qdcount;
     int haveanswer, had_error;
@@ -1583,7 +1582,7 @@ static bool files_getaddrinfo(const char* name, const addrinfo* pai, addrinfo** 
  * Caller must parse answer and determine whether it answers the question.
  */
 static int res_queryN(const char* name, res_target* target, res_state res, int* herrno) {
-    u_char buf[MAXPACKET];
+    uint8_t buf[MAXPACKET];
     HEADER* hp;
     int n;
     struct res_target* t;
@@ -1597,7 +1596,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
     ancount = 0;
 
     for (t = target; t; t = t->next) {
-        u_char* answer;
+        uint8_t* answer;
         int anslen;
 
         hp = (HEADER*) (void*) t->answer;
@@ -1687,7 +1686,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
 static int res_searchN(const char* name, res_target* target, res_state res, int* herrno) {
     const char* cp;
     HEADER* hp;
-    u_int dots;
+    uint32_t dots;
     int ret, saved_herrno;
     int got_nodata = 0, got_servfail = 0, tried_as_is = 0;
 

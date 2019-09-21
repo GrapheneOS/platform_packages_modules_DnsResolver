@@ -79,7 +79,6 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <sys/types.h>
 #include <sys/uio.h>
 
 #include <arpa/inet.h>
@@ -138,10 +137,10 @@ static DnsTlsDispatcher sDnsTlsDispatcher;
 
 static int get_salen(const struct sockaddr*);
 static struct sockaddr* get_nsaddr(res_state, size_t);
-static int send_vc(res_state, res_params* params, const u_char*, int, u_char*, int, int*, int,
+static int send_vc(res_state, res_params* params, const uint8_t*, int, uint8_t*, int, int*, int,
                    time_t*, int*, int*);
-static int send_dg(res_state, res_params* params, const u_char*, int, u_char*, int, int*, int, int*,
-                   int*, time_t*, int*, int*);
+static int send_dg(res_state, res_params* params, const uint8_t*, int, uint8_t*, int, int*, int,
+                   int*, int*, time_t*, int*, int*);
 static void dump_error(const char*, const struct sockaddr*, int);
 
 static int sock_eq(struct sockaddr*, struct sockaddr*);
@@ -349,8 +348,8 @@ static int res_ourserver_p(res_state statp, const sockaddr* sa) {
  * author:
  *	paul vixie, 29may94
  */
-int res_nameinquery(const char* name, int type, int cl, const u_char* buf, const u_char* eom) {
-    const u_char* cp = buf + HFIXEDSZ;
+int res_nameinquery(const char* name, int type, int cl, const uint8_t* buf, const uint8_t* eom) {
+    const uint8_t* cp = buf + HFIXEDSZ;
     int qdcount = ntohs(((const HEADER*) (const void*) buf)->qdcount);
 
     while (qdcount-- > 0) {
@@ -379,9 +378,9 @@ int res_nameinquery(const char* name, int type, int cl, const u_char* buf, const
  * author:
  *	paul vixie, 29may94
  */
-int res_queriesmatch(const u_char* buf1, const u_char* eom1, const u_char* buf2,
-                     const u_char* eom2) {
-    const u_char* cp = buf1 + HFIXEDSZ;
+int res_queriesmatch(const uint8_t* buf1, const uint8_t* eom1, const uint8_t* buf2,
+                     const uint8_t* eom2) {
+    const uint8_t* cp = buf1 + HFIXEDSZ;
     int qdcount = ntohs(((const HEADER*) (const void*) buf1)->qdcount);
 
     if (buf1 + HFIXEDSZ > eom1 || buf2 + HFIXEDSZ > eom2) return (-1);
@@ -414,7 +413,7 @@ static DnsQueryEvent* addDnsQueryEvent(NetworkDnsEventReported* event) {
     return event->mutable_dns_query_events()->add_dns_query_event();
 }
 
-int res_nsend(res_state statp, const u_char* buf, int buflen, u_char* ans, int anssiz, int* rcode,
+int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
               uint32_t flags) {
     int gotsomewhere, terrno, v_circuit, resplen, n;
     ResolvCacheStatus cache_status = RESOLV_CACHE_UNSUPPORTED;
@@ -552,7 +551,7 @@ int res_nsend(res_state statp, const u_char* buf, int buflen, u_char* ans, int a
             // reasonable place. In addition, maybe add stats for private DNS.
             if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
                 bool fallback = false;
-                resplen = res_tls_send(statp, Slice(const_cast<u_char*>(buf), buflen),
+                resplen = res_tls_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
                                        Slice(ans, anssiz), rcode, &fallback);
                 if (resplen > 0) {
                     LOG(DEBUG) << __func__ << ": got answer from DoT";
@@ -735,8 +734,9 @@ static struct timespec get_timeout(res_state statp, const res_params* params, co
     return result;
 }
 
-static int send_vc(res_state statp, res_params* params, const u_char* buf, int buflen, u_char* ans,
-                   int anssiz, int* terrno, int ns, time_t* at, int* rcode, int* delay) {
+static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+                   uint8_t* ans, int anssiz, int* terrno, int ns, time_t* at, int* rcode,
+                   int* delay) {
     *at = time(NULL);
     *delay = 0;
     const HEADER* hp = (const HEADER*) (const void*) buf;
@@ -745,7 +745,7 @@ static int send_vc(res_state statp, res_params* params, const u_char* buf, int b
     int nsaplen;
     int truncating, connreset, n;
     struct iovec iov[2];
-    u_char* cp;
+    uint8_t* cp;
 
     LOG(INFO) << __func__ << ": using send_vc";
 
@@ -1001,9 +1001,9 @@ retry:
     return n;
 }
 
-static int send_dg(res_state statp, res_params* params, const u_char* buf, int buflen, u_char* ans,
-                   int anssiz, int* terrno, int ns, int* v_circuit, int* gotsomewhere, time_t* at,
-                   int* rcode, int* delay) {
+static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+                   uint8_t* ans, int anssiz, int* terrno, int ns, int* v_circuit, int* gotsomewhere,
+                   time_t* at, int* rcode, int* delay) {
     *at = time(NULL);
     *delay = 0;
     const HEADER* hp = (const HEADER*) (const void*) buf;
