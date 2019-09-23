@@ -3439,3 +3439,50 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
                         .isOk());
     EXPECT_TRUE(netdService->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, false).isOk());
 }
+
+TEST_F(ResolverTest, ConnectTlsServerTimeout) {
+    constexpr char listen_addr[] = "127.0.0.3";
+    constexpr char listen_udp[] = "53";
+    constexpr char listen_tls[] = "853";
+    constexpr char host_name[] = "tls.example.com.";
+    const std::vector<std::string> servers = {listen_addr};
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+    };
+
+    test::DNSResponder dns;
+    StartDns(dns, records);
+
+    test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
+    ASSERT_TRUE(tls.startServer());
+
+    // Opportunistic mode.
+    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, {}));
+
+    // Wait for the server being marked as validated so that PrivateDnsStatus::validatedServers()
+    // won't return empty list.
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+    dns.clearQueries();
+    tls.clearQueries();
+
+    // The server becomes unresponsive to the handshake request.
+    tls.setHangOnHandshakeForTesting(true);
+
+    // Expect the things happening in getaddrinfo():
+    //   1. Connect to the private DNS server.
+    //   2. SSL handshake times out.
+    //   3. Fallback to UDP transport, and then get the answer.
+    const auto start = std::chrono::steady_clock::now();
+    addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+    ScopedAddrinfo result = safe_getaddrinfo("tls", nullptr, &hints);
+    const auto end = std::chrono::steady_clock::now();
+
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(0, tls.queries());
+    EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+    EXPECT_EQ("1.2.3.4", ToString(result));
+
+    // 3000ms is a loose upper bound. Theoretically, it takes a bit more than 1000ms.
+    EXPECT_GE(3000, std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    EXPECT_LE(1000, std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+}
