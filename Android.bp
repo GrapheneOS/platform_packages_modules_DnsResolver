@@ -66,19 +66,16 @@ cc_library {
         "ResolverController.cpp",
         "ResolverEventReporter.cpp",
     ],
-    // Link everything statically (except for libc) to minimize our dependence
-    // on system ABIs
+    // Link most things statically to minimize our dependence on system ABIs.
     stl: "libc++_static",
     static_libs: [
         "dnsresolver_aidl_interface-ndk_platform",
         "libbase",
-        "libcrypto",
         "libcutils",
         "libjsoncpp",
         "liblog", //Used by libstatslog_resolv
         "libnetdutils",
         "libprotobuf-cpp-lite",
-        "libssl",
         "libstatslog_resolv",
         "libstatssocket",
         "libsysutils",
@@ -87,8 +84,14 @@ cc_library {
         "server_configurable_flags",
         "stats_proto",
     ],
+    // libcrypto needs to be used as a shared library because it performs an
+    // integrity check (against a checksum) that is not supported for static
+    // libs. See http://b/141248879
+    // We're also adding libssl here to treat it consistently.
     shared_libs: [
         "libbinder_ndk",
+        "libcrypto",
+        "libssl",
     ],
     header_libs: [
         "libnetd_client_headers",
