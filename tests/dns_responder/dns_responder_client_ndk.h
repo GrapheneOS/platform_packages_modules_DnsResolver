@@ -25,6 +25,7 @@
 #include <aidl/android/net/INetd.h>
 #include "ResolverStats.h"
 #include "dns_responder.h"
+#include "dns_tls_certificate.h"
 #include "params.h"
 
 inline const std::vector<std::string> kDefaultServers = {"127.0.0.3"};
