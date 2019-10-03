@@ -93,27 +93,23 @@ using android::base::StringAppendF;
  *
  * The API is also very simple:
  *
- *   - the client calls _resolv_cache_get() to obtain a handle to the cache.
- *     this will initialize the cache on first usage. the result can be NULL
- *     if the cache is disabled.
- *
  *   - the client calls resolv_cache_lookup() before performing a query
  *
- *     if the function returns RESOLV_CACHE_FOUND, a copy of the answer data
+ *     If the function returns RESOLV_CACHE_FOUND, a copy of the answer data
  *     has been copied into the client-provided answer buffer.
  *
- *     if the function returns RESOLV_CACHE_NOTFOUND, the client should perform
+ *     If the function returns RESOLV_CACHE_NOTFOUND, the client should perform
  *     a request normally, *then* call resolv_cache_add() to add the received
  *     answer to the cache.
  *
- *     if the function returns RESOLV_CACHE_UNSUPPORTED, the client should
+ *     If the function returns RESOLV_CACHE_UNSUPPORTED, the client should
  *     perform a request normally, and *not* call resolv_cache_add()
  *
- *     note that RESOLV_CACHE_UNSUPPORTED is also returned if the answer buffer
+ *     Note that RESOLV_CACHE_UNSUPPORTED is also returned if the answer buffer
  *     is too short to accomodate the cached result.
  */
 
-/* default number of entries kept in the cache. This value has been
+/* Default number of entries kept in the cache. This value has been
  * determined by browsing through various sites and counting the number
  * of corresponding requests. Keep in mind that our framework is currently
  * performing two requests per name lookup (one for IPv4, the other for IPv6)
@@ -255,11 +251,11 @@ static time_t _time_now(void) {
 
 #define DNS_CLASS_IN "\00\01" /* big-endian decimal 1 */
 
-typedef struct {
+struct DnsPacket {
     const uint8_t* base;
     const uint8_t* end;
     const uint8_t* cursor;
-} DnsPacket;
+};
 
 static void _dnsPacket_init(DnsPacket* packet, const uint8_t* buff, int bufflen) {
     packet->base = buff;
@@ -677,7 +673,7 @@ static int _dnsPacket_isEqualQuery(DnsPacket* pack1, DnsPacket* pack2) {
  *
  * similarly, mru_next and mru_prev are part of the global MRU list
  */
-typedef struct Entry {
+struct Entry {
     unsigned int hash;   /* hash value */
     struct Entry* hlink; /* next in collision chain */
     struct Entry* mru_prev;
@@ -689,7 +685,7 @@ typedef struct Entry {
     int answerlen;
     time_t expires; /* time_t when the entry isn't valid any more */
     int id;         /* for debugging purpose */
-} Entry;
+};
 
 /*
  * Find the TTL for a negative DNS result.  This is defined as the minimum
@@ -874,7 +870,7 @@ static int entry_equals(const Entry* e1, const Entry* e2) {
 /* Maximum time for a thread to wait for an pending request */
 constexpr int PENDING_REQUEST_TIMEOUT = 20;
 
-typedef struct resolv_cache {
+struct Cache {
     int max_entries;
     int num_entries;
     Entry mru_list;
@@ -884,7 +880,7 @@ typedef struct resolv_cache {
         unsigned int hash;
         struct pending_req_info* next;
     } pending_requests;
-} Cache;
+};
 
 struct resolv_cache_info {
     unsigned netid;
@@ -907,11 +903,11 @@ static std::mutex cache_mutex;
 static std::condition_variable cv;
 
 /* gets cache associated with a network, or NULL if none exists */
-static resolv_cache* find_named_cache_locked(unsigned netid) REQUIRES(cache_mutex);
+static Cache* find_named_cache_locked(unsigned netid) REQUIRES(cache_mutex);
 static int resolv_create_cache_for_net_locked(unsigned netid) REQUIRES(cache_mutex);
 
-static void cache_flush_pending_requests_locked(struct resolv_cache* cache) {
-    resolv_cache::pending_req_info *ri, *tmp;
+static void cache_flush_pending_requests_locked(struct Cache* cache) {
+    Cache::pending_req_info *ri, *tmp;
     if (!cache) return;
 
     ri = cache->pending_requests.next;
@@ -929,12 +925,12 @@ static void cache_flush_pending_requests_locked(struct resolv_cache* cache) {
 // Return true - if there is a pending request in |cache| matching |key|.
 // Return false - if no pending request is found matching the key. Optionally
 //                link a new one if parameter append_if_not_found is true.
-static bool cache_has_pending_request_locked(resolv_cache* cache, const Entry* key,
+static bool cache_has_pending_request_locked(Cache* cache, const Entry* key,
                                              bool append_if_not_found) {
     if (!cache || !key) return false;
 
-    resolv_cache::pending_req_info* ri = cache->pending_requests.next;
-    resolv_cache::pending_req_info* prev = &cache->pending_requests;
+    Cache::pending_req_info* ri = cache->pending_requests.next;
+    Cache::pending_req_info* prev = &cache->pending_requests;
     while (ri) {
         if (ri->hash == key->hash) {
             return true;
@@ -944,7 +940,7 @@ static bool cache_has_pending_request_locked(resolv_cache* cache, const Entry* k
     }
 
     if (append_if_not_found) {
-        ri = (resolv_cache::pending_req_info*)calloc(1, sizeof(resolv_cache::pending_req_info));
+        ri = (Cache::pending_req_info*)calloc(1, sizeof(Cache::pending_req_info));
         if (ri) {
             ri->hash = key->hash;
             prev->next = ri;
@@ -954,11 +950,11 @@ static bool cache_has_pending_request_locked(resolv_cache* cache, const Entry* k
 }
 
 // Notify all threads that the cache entry |key| has become available
-static void _cache_notify_waiting_tid_locked(struct resolv_cache* cache, const Entry* key) {
+static void cache_notify_waiting_tid_locked(struct Cache* cache, const Entry* key) {
     if (!cache || !key) return;
 
-    resolv_cache::pending_req_info* ri = cache->pending_requests.next;
-    resolv_cache::pending_req_info* prev = &cache->pending_requests;
+    Cache::pending_req_info* ri = cache->pending_requests.next;
+    Cache::pending_req_info* prev = &cache->pending_requests;
     while (ri) {
         if (ri->hash == key->hash) {
             // remove item from list and destroy
@@ -978,16 +974,15 @@ void _resolv_cache_query_failed(unsigned netid, const void* query, int querylen,
         return;
     }
     Entry key[1];
-    Cache* cache;
 
     if (!entry_init_key(key, query, querylen)) return;
 
     std::lock_guard guard(cache_mutex);
 
-    cache = find_named_cache_locked(netid);
+    Cache* cache = find_named_cache_locked(netid);
 
     if (cache) {
-        _cache_notify_waiting_tid_locked(cache, key);
+        cache_notify_waiting_tid_locked(cache, key);
     }
 }
 
@@ -1014,10 +1009,8 @@ static void cache_flush_locked(Cache* cache) {
     LOG(INFO) << __func__ << ": *** DNS CACHE FLUSHED ***";
 }
 
-static resolv_cache* resolv_cache_create() {
-    struct resolv_cache* cache;
-
-    cache = (struct resolv_cache*) calloc(sizeof(*cache), 1);
+static Cache* resolv_cache_create() {
+    Cache* cache = (Cache*)calloc(sizeof(*cache), 1);
     if (cache) {
         cache->max_entries = CONFIG_MAX_ENTRIES;
         cache->entries = (Entry*) calloc(sizeof(*cache->entries), cache->max_entries);
@@ -1156,7 +1149,6 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     Entry** lookup;
     Entry* e;
     time_t now;
-    Cache* cache;
 
     LOG(INFO) << __func__ << ": lookup";
 
@@ -1168,7 +1160,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     /* lookup cache */
     std::unique_lock lock(cache_mutex);
     android::base::ScopedLockAssertion assume_lock(cache_mutex);
-    cache = find_named_cache_locked(netid);
+    Cache* cache = find_named_cache_locked(netid);
     if (cache == nullptr) {
         return RESOLV_CACHE_UNSUPPORTED;
     }
@@ -1274,7 +1266,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
     // Should only happen on ANDROID_RESOLV_NO_CACHE_LOOKUP
     if (e != NULL) {
         LOG(INFO) << __func__ << ": ALREADY IN CACHE (" << e << ") ? IGNORING ADD";
-        _cache_notify_waiting_tid_locked(cache, key);
+        cache_notify_waiting_tid_locked(cache, key);
         return -EEXIST;
     }
 
@@ -1288,7 +1280,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
         e = *lookup;
         if (e != NULL) {
             LOG(INFO) << __func__ << ": ALREADY IN CACHE (" << e << ") ? IGNORING ADD";
-            _cache_notify_waiting_tid_locked(cache, key);
+            cache_notify_waiting_tid_locked(cache, key);
             return -EEXIST;
         }
     }
@@ -1303,7 +1295,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
     }
 
     cache_dump_mru_locked(cache);
-    _cache_notify_waiting_tid_locked(cache, key);
+    cache_notify_waiting_tid_locked(cache, key);
 
     return 0;
 }
@@ -1374,7 +1366,7 @@ std::unordered_map<int, uint32_t> resolv_get_dns_event_subsampling_map() {
 }  // namespace
 
 static int resolv_create_cache_for_net_locked(unsigned netid) {
-    resolv_cache* cache = find_named_cache_locked(netid);
+    Cache* cache = find_named_cache_locked(netid);
     // Should not happen
     if (cache) {
         LOG(ERROR) << __func__ << ": Cache is already created, netId: " << netid;
@@ -1445,7 +1437,7 @@ static void insert_cache_info_locked(struct resolv_cache_info* cache_info) {
     last->next = cache_info;
 }
 
-static resolv_cache* find_named_cache_locked(unsigned netid) {
+static Cache* find_named_cache_locked(unsigned netid) {
     resolv_cache_info* info = find_cache_info_locked(netid);
     if (info != nullptr) return info->cache;
     return nullptr;
