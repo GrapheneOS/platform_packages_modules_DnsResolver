@@ -41,6 +41,7 @@ static constexpr char kIp6LocalHost[] = "ip6-localhost";
 static constexpr char kIp6LocalHostAddr[] = "::1";
 static constexpr char kHelloExampleCom[] = "hello.example.com.";
 static constexpr char kHelloExampleComAddrV4[] = "1.2.3.4";
+static constexpr char kHelloExampleComAddrV6[] = "::1.2.3.4";
 
 static const std::vector<uint8_t> kHelloExampleComQueryV4 = {
         /* Header */
