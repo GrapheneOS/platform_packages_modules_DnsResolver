@@ -93,27 +93,23 @@ using android::base::StringAppendF;
  *
  * The API is also very simple:
  *
- *   - the client calls _resolv_cache_get() to obtain a handle to the cache.
- *     this will initialize the cache on first usage. the result can be NULL
- *     if the cache is disabled.
- *
  *   - the client calls resolv_cache_lookup() before performing a query
  *
- *     if the function returns RESOLV_CACHE_FOUND, a copy of the answer data
+ *     If the function returns RESOLV_CACHE_FOUND, a copy of the answer data
  *     has been copied into the client-provided answer buffer.
  *
- *     if the function returns RESOLV_CACHE_NOTFOUND, the client should perform
+ *     If the function returns RESOLV_CACHE_NOTFOUND, the client should perform
  *     a request normally, *then* call resolv_cache_add() to add the received
  *     answer to the cache.
  *
- *     if the function returns RESOLV_CACHE_UNSUPPORTED, the client should
+ *     If the function returns RESOLV_CACHE_UNSUPPORTED, the client should
  *     perform a request normally, and *not* call resolv_cache_add()
  *
- *     note that RESOLV_CACHE_UNSUPPORTED is also returned if the answer buffer
+ *     Note that RESOLV_CACHE_UNSUPPORTED is also returned if the answer buffer
  *     is too short to accomodate the cached result.
  */
 
-/* default number of entries kept in the cache. This value has been
+/* Default number of entries kept in the cache. This value has been
  * determined by browsing through various sites and counting the number
  * of corresponding requests. Keep in mind that our framework is currently
  * performing two requests per name lookup (one for IPv4, the other for IPv6)
@@ -144,14 +140,7 @@ using android::base::StringAppendF;
  * * Upping by another 5x for the centralized nature
  * *****************************************
  */
-#define CONFIG_MAX_ENTRIES (64 * 2 * 5)
-
-/* Defaults used for initializing res_params */
-
-// If successes * 100 / total_samples is less than this value, the server is considered failing
-#define SUCCESS_THRESHOLD 75
-// Sample validity in seconds. Set to -1 to disable skipping failing servers.
-#define NSSAMPLE_VALIDITY 1800
+const int CONFIG_MAX_ENTRIES = 64 * 2 * 5;
 
 static time_t _time_now(void) {
     struct timeval tv;
@@ -255,11 +244,11 @@ static time_t _time_now(void) {
 
 #define DNS_CLASS_IN "\00\01" /* big-endian decimal 1 */
 
-typedef struct {
+struct DnsPacket {
     const uint8_t* base;
     const uint8_t* end;
     const uint8_t* cursor;
-} DnsPacket;
+};
 
 static void _dnsPacket_init(DnsPacket* packet, const uint8_t* buff, int bufflen) {
     packet->base = buff;
@@ -677,7 +666,7 @@ static int _dnsPacket_isEqualQuery(DnsPacket* pack1, DnsPacket* pack2) {
  *
  * similarly, mru_next and mru_prev are part of the global MRU list
  */
-typedef struct Entry {
+struct Entry {
     unsigned int hash;   /* hash value */
     struct Entry* hlink; /* next in collision chain */
     struct Entry* mru_prev;
@@ -689,7 +678,7 @@ typedef struct Entry {
     int answerlen;
     time_t expires; /* time_t when the entry isn't valid any more */
     int id;         /* for debugging purpose */
-} Entry;
+};
 
 /*
  * Find the TTL for a negative DNS result.  This is defined as the minimum
@@ -874,21 +863,71 @@ static int entry_equals(const Entry* e1, const Entry* e2) {
 /* Maximum time for a thread to wait for an pending request */
 constexpr int PENDING_REQUEST_TIMEOUT = 20;
 
-typedef struct resolv_cache {
-    int max_entries;
-    int num_entries;
+// lock protecting everything in the resolve_cache_info structs (next ptr, etc)
+static std::mutex cache_mutex;
+static std::condition_variable cv;
+
+// Note that Cache is not thread-safe per se, access to its members must be protected
+// by an external mutex.
+//
+// TODO: move all cache manipulation code here and make data members private.
+struct Cache {
+    Cache() {
+        entries.resize(CONFIG_MAX_ENTRIES);
+        mru_list.mru_prev = mru_list.mru_next = &mru_list;
+    }
+    ~Cache() { flush(); }
+
+    void flush() {
+        for (int nn = 0; nn < CONFIG_MAX_ENTRIES; nn++) {
+            Entry** pnode = (Entry**)&entries[nn];
+
+            while (*pnode) {
+                Entry* node = *pnode;
+                *pnode = node->hlink;
+                entry_free(node);
+            }
+        }
+
+        flushPendingRequests();
+
+        mru_list.mru_next = mru_list.mru_prev = &mru_list;
+        num_entries = 0;
+        last_id = 0;
+
+        LOG(INFO) << "DNS cache flushed";
+    }
+
+    void flushPendingRequests() {
+        pending_req_info* ri = pending_requests.next;
+        while (ri) {
+            pending_req_info* tmp = ri;
+            ri = ri->next;
+            free(tmp);
+        }
+
+        pending_requests.next = nullptr;
+        cv.notify_all();
+    }
+
+    int num_entries = 0;
+
+    // TODO: convert to std::list
     Entry mru_list;
-    int last_id;
-    Entry* entries;
+    int last_id = 0;
+    std::vector<Entry> entries;
+
+    // TODO: convert to std::vector
     struct pending_req_info {
         unsigned int hash;
         struct pending_req_info* next;
-    } pending_requests;
-} Cache;
+    } pending_requests{};
+};
 
+// TODO: allocate with new
 struct resolv_cache_info {
     unsigned netid;
-    Cache* cache;
+    Cache* cache;  // TODO: use unique_ptr or embed
     struct resolv_cache_info* next;
     int nscount;
     std::vector<std::string> nameservers;
@@ -902,39 +941,18 @@ struct resolv_cache_info {
     std::unordered_map<int, uint32_t> dns_event_subsampling_map;
 };
 
-// lock protecting everything in the resolve_cache_info structs (next ptr, etc)
-static std::mutex cache_mutex;
-static std::condition_variable cv;
-
 /* gets cache associated with a network, or NULL if none exists */
-static resolv_cache* find_named_cache_locked(unsigned netid) REQUIRES(cache_mutex);
-static int resolv_create_cache_for_net_locked(unsigned netid) REQUIRES(cache_mutex);
-
-static void cache_flush_pending_requests_locked(struct resolv_cache* cache) {
-    resolv_cache::pending_req_info *ri, *tmp;
-    if (!cache) return;
-
-    ri = cache->pending_requests.next;
-
-    while (ri) {
-        tmp = ri;
-        ri = ri->next;
-        free(tmp);
-    }
-
-    cache->pending_requests.next = NULL;
-    cv.notify_all();
-}
+static Cache* find_named_cache_locked(unsigned netid) REQUIRES(cache_mutex);
 
 // Return true - if there is a pending request in |cache| matching |key|.
 // Return false - if no pending request is found matching the key. Optionally
 //                link a new one if parameter append_if_not_found is true.
-static bool cache_has_pending_request_locked(resolv_cache* cache, const Entry* key,
+static bool cache_has_pending_request_locked(Cache* cache, const Entry* key,
                                              bool append_if_not_found) {
     if (!cache || !key) return false;
 
-    resolv_cache::pending_req_info* ri = cache->pending_requests.next;
-    resolv_cache::pending_req_info* prev = &cache->pending_requests;
+    Cache::pending_req_info* ri = cache->pending_requests.next;
+    Cache::pending_req_info* prev = &cache->pending_requests;
     while (ri) {
         if (ri->hash == key->hash) {
             return true;
@@ -944,7 +962,7 @@ static bool cache_has_pending_request_locked(resolv_cache* cache, const Entry* k
     }
 
     if (append_if_not_found) {
-        ri = (resolv_cache::pending_req_info*)calloc(1, sizeof(resolv_cache::pending_req_info));
+        ri = (Cache::pending_req_info*)calloc(1, sizeof(Cache::pending_req_info));
         if (ri) {
             ri->hash = key->hash;
             prev->next = ri;
@@ -954,11 +972,11 @@ static bool cache_has_pending_request_locked(resolv_cache* cache, const Entry* k
 }
 
 // Notify all threads that the cache entry |key| has become available
-static void _cache_notify_waiting_tid_locked(struct resolv_cache* cache, const Entry* key) {
+static void cache_notify_waiting_tid_locked(struct Cache* cache, const Entry* key) {
     if (!cache || !key) return;
 
-    resolv_cache::pending_req_info* ri = cache->pending_requests.next;
-    resolv_cache::pending_req_info* prev = &cache->pending_requests;
+    Cache::pending_req_info* ri = cache->pending_requests.next;
+    Cache::pending_req_info* prev = &cache->pending_requests;
     while (ri) {
         if (ri->hash == key->hash) {
             // remove item from list and destroy
@@ -978,58 +996,16 @@ void _resolv_cache_query_failed(unsigned netid, const void* query, int querylen,
         return;
     }
     Entry key[1];
-    Cache* cache;
 
     if (!entry_init_key(key, query, querylen)) return;
 
     std::lock_guard guard(cache_mutex);
 
-    cache = find_named_cache_locked(netid);
+    Cache* cache = find_named_cache_locked(netid);
 
     if (cache) {
-        _cache_notify_waiting_tid_locked(cache, key);
+        cache_notify_waiting_tid_locked(cache, key);
     }
-}
-
-static void cache_flush_locked(Cache* cache) {
-    int nn;
-
-    for (nn = 0; nn < cache->max_entries; nn++) {
-        Entry** pnode = (Entry**) &cache->entries[nn];
-
-        while (*pnode != NULL) {
-            Entry* node = *pnode;
-            *pnode = node->hlink;
-            entry_free(node);
-        }
-    }
-
-    // flush pending request
-    cache_flush_pending_requests_locked(cache);
-
-    cache->mru_list.mru_next = cache->mru_list.mru_prev = &cache->mru_list;
-    cache->num_entries = 0;
-    cache->last_id = 0;
-
-    LOG(INFO) << __func__ << ": *** DNS CACHE FLUSHED ***";
-}
-
-static resolv_cache* resolv_cache_create() {
-    struct resolv_cache* cache;
-
-    cache = (struct resolv_cache*) calloc(sizeof(*cache), 1);
-    if (cache) {
-        cache->max_entries = CONFIG_MAX_ENTRIES;
-        cache->entries = (Entry*) calloc(sizeof(*cache->entries), cache->max_entries);
-        if (cache->entries) {
-            cache->mru_list.mru_prev = cache->mru_list.mru_next = &cache->mru_list;
-            LOG(INFO) << __func__ << ": cache created";
-        } else {
-            free(cache);
-            cache = NULL;
-        }
-    }
-    return cache;
 }
 
 static void cache_dump_mru_locked(Cache* cache) {
@@ -1058,7 +1034,7 @@ static void cache_dump_mru_locked(Cache* cache) {
  * table.
  */
 static Entry** _cache_lookup_p(Cache* cache, Entry* key) {
-    int index = key->hash % cache->max_entries;
+    int index = key->hash % CONFIG_MAX_ENTRIES;
     Entry** pnode = (Entry**) &cache->entries[index];
 
     while (*pnode != NULL) {
@@ -1156,7 +1132,6 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     Entry** lookup;
     Entry* e;
     time_t now;
-    Cache* cache;
 
     LOG(INFO) << __func__ << ": lookup";
 
@@ -1168,7 +1143,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     /* lookup cache */
     std::unique_lock lock(cache_mutex);
     android::base::ScopedLockAssertion assume_lock(cache_mutex);
-    cache = find_named_cache_locked(netid);
+    Cache* cache = find_named_cache_locked(netid);
     if (cache == nullptr) {
         return RESOLV_CACHE_UNSUPPORTED;
     }
@@ -1274,13 +1249,13 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
     // Should only happen on ANDROID_RESOLV_NO_CACHE_LOOKUP
     if (e != NULL) {
         LOG(INFO) << __func__ << ": ALREADY IN CACHE (" << e << ") ? IGNORING ADD";
-        _cache_notify_waiting_tid_locked(cache, key);
+        cache_notify_waiting_tid_locked(cache, key);
         return -EEXIST;
     }
 
-    if (cache->num_entries >= cache->max_entries) {
+    if (cache->num_entries >= CONFIG_MAX_ENTRIES) {
         _cache_remove_expired(cache);
-        if (cache->num_entries >= cache->max_entries) {
+        if (cache->num_entries >= CONFIG_MAX_ENTRIES) {
             _cache_remove_oldest(cache);
         }
         // TODO: It looks useless, remove below code after having test to prove it.
@@ -1288,7 +1263,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
         e = *lookup;
         if (e != NULL) {
             LOG(INFO) << __func__ << ": ALREADY IN CACHE (" << e << ") ? IGNORING ADD";
-            _cache_notify_waiting_tid_locked(cache, key);
+            cache_notify_waiting_tid_locked(cache, key);
             return -EEXIST;
         }
     }
@@ -1303,7 +1278,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
     }
 
     cache_dump_mru_locked(cache);
-    _cache_notify_waiting_tid_locked(cache, key);
+    cache_notify_waiting_tid_locked(cache, key);
 
     return 0;
 }
@@ -1315,7 +1290,7 @@ static struct resolv_cache_info res_cache_list GUARDED_BY(cache_mutex);
 static void insert_cache_info_locked(resolv_cache_info* cache_info);
 // creates a resolv_cache_info
 static resolv_cache_info* create_cache_info();
-// empty the nameservers set for the named cache
+// Clears nameservers set for |cache_info| and clears the stats
 static void free_nameservers_locked(resolv_cache_info* cache_info);
 // Order-insensitive comparison for the two set of servers.
 static bool resolv_is_nameservers_equal(const std::vector<std::string>& oldServers,
@@ -1373,8 +1348,9 @@ std::unordered_map<int, uint32_t> resolv_get_dns_event_subsampling_map() {
 
 }  // namespace
 
-static int resolv_create_cache_for_net_locked(unsigned netid) {
-    resolv_cache* cache = find_named_cache_locked(netid);
+int resolv_create_cache_for_net(unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    Cache* cache = find_named_cache_locked(netid);
     // Should not happen
     if (cache) {
         LOG(ERROR) << __func__ << ": Cache is already created, netId: " << netid;
@@ -1383,22 +1359,12 @@ static int resolv_create_cache_for_net_locked(unsigned netid) {
 
     resolv_cache_info* cache_info = create_cache_info();
     if (!cache_info) return -ENOMEM;
-    cache = resolv_cache_create();
-    if (!cache) {
-        free(cache_info);
-        return -ENOMEM;
-    }
-    cache_info->cache = cache;
     cache_info->netid = netid;
+    cache_info->cache = new Cache;
     cache_info->dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
     insert_cache_info_locked(cache_info);
 
     return 0;
-}
-
-int resolv_create_cache_for_net(unsigned netid) {
-    std::lock_guard guard(cache_mutex);
-    return resolv_create_cache_for_net_locked(netid);
 }
 
 void resolv_delete_cache_for_net(unsigned netid) {
@@ -1411,9 +1377,7 @@ void resolv_delete_cache_for_net(unsigned netid) {
 
         if (cache_info->netid == netid) {
             prev_cache_info->next = cache_info->next;
-            cache_flush_locked(cache_info->cache);
-            free(cache_info->cache->entries);
-            free(cache_info->cache);
+            delete cache_info->cache;
             free_nameservers_locked(cache_info);
             free(cache_info);
             break;
@@ -1445,7 +1409,7 @@ static void insert_cache_info_locked(struct resolv_cache_info* cache_info) {
     last->next = cache_info;
 }
 
-static resolv_cache* find_named_cache_locked(unsigned netid) {
+static Cache* find_named_cache_locked(unsigned netid) {
     resolv_cache_info* info = find_cache_info_locked(netid);
     if (info != nullptr) return info->cache;
     return nullptr;
@@ -1554,15 +1518,6 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
                       << ", addr = " << cache_info->nameservers[i];
         }
         cache_info->nscount = numservers;
-
-        // Clear the NS statistics because the mapping to nameservers might have changed.
-        res_cache_clear_stats_locked(cache_info);
-
-        // increment the revision id to ensure that sample state is not written back if the
-        // servers change; in theory it would suffice to do so only if the servers or
-        // max_samples actually change, in practice the overhead of checking is higher than the
-        // cost, and overflows are unlikely
-        ++cache_info->revision_id;
     } else {
         if (cache_info->params.max_samples != old_max_samples) {
             // If the maximum number of samples changes, the overhead of keeping the most recent
@@ -1571,7 +1526,6 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
             // not invalidate the samples, as they only affect aggregation and the conditions
             // under which servers are considered usable.
             res_cache_clear_stats_locked(cache_info);
-            ++cache_info->revision_id;
         }
         for (int j = 0; j < numservers; j++) {
             freeaddrinfo(nsaddrinfo[j]);
@@ -1602,15 +1556,13 @@ static void free_nameservers_locked(resolv_cache_info* cache_info) {
     int i;
     for (i = 0; i < cache_info->nscount; i++) {
         cache_info->nameservers.clear();
-        if (cache_info->nsaddrinfo[i] != NULL) {
+        if (cache_info->nsaddrinfo[i] != nullptr) {
             freeaddrinfo(cache_info->nsaddrinfo[i]);
-            cache_info->nsaddrinfo[i] = NULL;
+            cache_info->nsaddrinfo[i] = nullptr;
         }
-        cache_info->nsstats[i].sample_count = cache_info->nsstats[i].sample_next = 0;
     }
     cache_info->nscount = 0;
     res_cache_clear_stats_locked(cache_info);
-    ++cache_info->revision_id;
 }
 
 void _resolv_populate_res_for_net(res_state statp) {
@@ -1668,11 +1620,16 @@ static void _res_cache_add_stats_sample_locked(res_stats* stats, const res_sampl
 }
 
 static void res_cache_clear_stats_locked(resolv_cache_info* cache_info) {
-    if (cache_info) {
-        for (int i = 0; i < MAXNS; ++i) {
-            cache_info->nsstats->sample_count = cache_info->nsstats->sample_next = 0;
-        }
+    for (int i = 0; i < MAXNS; ++i) {
+        cache_info->nsstats[i].sample_count = 0;
+        cache_info->nsstats[i].sample_next = 0;
     }
+
+    // Increment the revision id to ensure that sample state is not written back if the
+    // servers change; in theory it would suffice to do so only if the servers or
+    // max_samples actually change, in practice the overhead of checking is higher than the
+    // cost, and overflows are unlikely.
+    ++cache_info->revision_id;
 }
 
 int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
