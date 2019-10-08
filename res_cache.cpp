@@ -1614,13 +1614,13 @@ void resolv_populate_res_for_net(ResState* statp) {
 
 /* Resolver reachability statistics. */
 
-static void _res_cache_add_stats_sample_locked(res_stats* stats, const res_sample* sample,
-                                               int max_samples) {
+static void res_cache_add_stats_sample_locked(res_stats* stats, const res_sample& sample,
+                                              int max_samples) {
     // Note: This function expects max_samples > 0, otherwise a (harmless) modification of the
     // allocated but supposedly unused memory for samples[0] will happen
     LOG(INFO) << __func__ << ": adding sample to stats, next = " << unsigned(stats->sample_next)
               << ", count = " << unsigned(stats->sample_count);
-    stats->samples[stats->sample_next] = *sample;
+    stats->samples[stats->sample_next] = sample;
     if (stats->sample_count < max_samples) {
         ++stats->sample_count;
     }
@@ -1733,15 +1733,22 @@ int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stat
     return -1;
 }
 
-void _resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, int ns,
-                                             const res_sample* sample, int max_samples) {
-    if (max_samples <= 0) return;
+void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, const sockaddr* sa,
+                                            const res_sample& sample, int max_samples) {
+    if (max_samples <= 0 || sa == nullptr) return;
 
     std::lock_guard guard(cache_mutex);
     resolv_cache_info* info = find_cache_info_locked(netid);
 
     if (info && info->revision_id == revision_id) {
-        _res_cache_add_stats_sample_locked(&info->nsstats[ns], sample, max_samples);
+        const int serverNum = std::min(MAXNS, static_cast<int>(info->nameserverSockAddrs.size()));
+        const IPSockAddr ipsa = IPSockAddr::toIPSockAddr(*sa);
+        for (int ns = 0; ns < serverNum; ns++) {
+            if (ipsa == info->nameserverSockAddrs.at(ns)) {
+                res_cache_add_stats_sample_locked(&info->nsstats[ns], sample, max_samples);
+                return;
+            }
+        }
     }
 }
 

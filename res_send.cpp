@@ -542,8 +542,8 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                 if (shouldRecordStats) {
                     res_sample sample;
                     _res_stats_set_sample(&sample, now, *rcode, delay);
-                    _resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, ns, &sample,
-                                                            params.max_samples);
+                    resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, nsap, sample,
+                                                           params.max_samples);
                     resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(*nsap), dnsQueryEvent);
                 }
 
@@ -576,8 +576,8 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                 if (attempt == 0) {
                     res_sample sample;
                     _res_stats_set_sample(&sample, now, *rcode, delay);
-                    _resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, ns, &sample,
-                                                            params.max_samples);
+                    resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, nsap, sample,
+                                                           params.max_samples);
                     resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(*nsap), dnsQueryEvent);
                 }
 
