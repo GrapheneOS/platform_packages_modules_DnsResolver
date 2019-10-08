@@ -42,7 +42,7 @@ class ResolverController {
     int getPrefix64(unsigned netId, netdutils::IPPrefix* prefix);
 
     // Binder specific functions, which convert between the ResolverParamsParcel and the
-    // actual data structures, and call setDnsServer() / getDnsInfo() for the actual processing.
+    // actual data structures.
     int setResolverConfiguration(const aidl::android::net::ResolverParamsParcel& resolverParams);
 
     int getResolverInfo(int32_t netId, std::vector<std::string>* servers,
