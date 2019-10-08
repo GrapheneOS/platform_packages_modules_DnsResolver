@@ -75,7 +75,7 @@ static void res_thread_free(void* _rt) {
     LOG(VERBOSE) << __func__ << ": rt=" << rt << " for thread=" << gettid();
 
     res_static_done(rt->_rstatic);
-    res_ndestroy(rt->_nres);
+    res_nclose(rt->_nres);
     free(rt);
 }
 

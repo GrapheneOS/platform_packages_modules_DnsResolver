@@ -107,7 +107,6 @@
 #include "netd_resolv/stats.h"
 #include "private/android_filesystem_config.h"
 #include "res_debug.h"
-#include "res_state_ext.h"
 #include "resolv_cache.h"
 #include "stats.pb.h"
 
@@ -317,7 +316,6 @@ static int res_ourserver_p(res_state statp, const sockaddr* sa) {
             }
             break;
         case AF_INET6:
-            if (statp->_u._ext.ext == NULL) break;
             in6p = (const struct sockaddr_in6*) (const void*) sa;
             for (ns = 0; ns < statp->nscount; ns++) {
                 srv6 = (struct sockaddr_in6*) (void*) get_nsaddr(statp, (size_t) ns);
@@ -494,7 +492,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
      */
     if (statp->_u._ext.nscount == 0) {
         for (int ns = 0; ns < statp->nscount; ns++) {
-            statp->_u._ext.nstimes[ns] = RES_MAXTIME;
             statp->_u._ext.nssocks[ns] = -1;
         }
         statp->_u._ext.nscount = statp->nscount;
@@ -684,7 +681,7 @@ static int get_salen(const struct sockaddr* sa) {
 }
 
 static struct sockaddr* get_nsaddr(res_state statp, size_t n) {
-    return (struct sockaddr*)(void*)&statp->_u._ext.ext->nsaddrs[n];
+    return (struct sockaddr*)(void*)&statp->nsaddrs[n];
 }
 
 static struct timespec get_timeout(res_state statp, const res_params* params, const int ns) {
