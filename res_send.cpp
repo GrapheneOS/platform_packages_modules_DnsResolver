@@ -456,38 +456,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     }
 
     /*
-     * If the ns_addr_list in the resolver context has changed, then
-     * invalidate our cached copy and the associated timing data.
-     */
-    if (statp->_u._ext.nscount != 0) {
-        int needclose = 0;
-        struct sockaddr_storage peer;
-        socklen_t peerlen;
-
-        if (statp->_u._ext.nscount != statp->nscount) {
-            needclose++;
-        } else {
-            for (int ns = 0; ns < statp->nscount; ns++) {
-                if (statp->_u._ext.nssocks[ns] == -1) continue;
-                peerlen = sizeof(peer);
-                if (getpeername(statp->_u._ext.nssocks[ns], (struct sockaddr*) (void*) &peer,
-                                &peerlen) < 0) {
-                    needclose++;
-                    break;
-                }
-                if (!sock_eq((struct sockaddr*) (void*) &peer, get_nsaddr(statp, (size_t) ns))) {
-                    needclose++;
-                    break;
-                }
-            }
-        }
-        if (needclose) {
-            res_nclose(statp);
-            statp->_u._ext.nscount = 0;
-        }
-    }
-
-    /*
      * Maybe initialize our private copy of the ns_addr_list.
      */
     if (statp->_u._ext.nscount == 0) {

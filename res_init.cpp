@@ -99,7 +99,6 @@ void res_init(res_state statp) {
     statp->id = arc4random_uniform(65536);
     statp->_mark = MARK_UNSET;
 
-    statp->nscount = 0;
     statp->ndots = 1;
     statp->_vcsock = -1;
     statp->_flags = 0;
