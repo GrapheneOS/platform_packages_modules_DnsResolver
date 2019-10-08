@@ -42,7 +42,7 @@
 // The name servers are retrieved from the cache which is associated
 // with the network to which ResState is associated.
 struct ResState;
-void _resolv_populate_res_for_net(ResState* statp);
+void resolv_populate_res_for_net(ResState* statp);
 
 std::vector<unsigned> resolv_list_caches();
 
