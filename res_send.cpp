@@ -470,13 +470,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             needclose++;
         } else {
             for (int ns = 0; ns < statp->nscount; ns++) {
-                if (statp->nsaddr_list[ns].sin_family &&
-                    !sock_eq((struct sockaddr*) (void*) &statp->nsaddr_list[ns],
-                             (struct sockaddr*) (void*) &statp->_u._ext.ext->nsaddrs[ns])) {
-                    needclose++;
-                    break;
-                }
-
                 if (statp->_u._ext.nssocks[ns] == -1) continue;
                 peerlen = sizeof(peer);
                 if (getpeername(statp->_u._ext.nssocks[ns], (struct sockaddr*) (void*) &peer,
@@ -503,8 +496,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         for (int ns = 0; ns < statp->nscount; ns++) {
             statp->_u._ext.nstimes[ns] = RES_MAXTIME;
             statp->_u._ext.nssocks[ns] = -1;
-            if (!statp->nsaddr_list[ns].sin_family) continue;
-            statp->_u._ext.ext->nsaddrs[ns].sin = statp->nsaddr_list[ns];
         }
         statp->_u._ext.nscount = statp->nscount;
     }
@@ -692,25 +683,8 @@ static int get_salen(const struct sockaddr* sa) {
         return (0); /* unknown, die on connect */
 }
 
-/*
- * pick appropriate nsaddr_list for use.  see res_init() for initialization.
- */
 static struct sockaddr* get_nsaddr(res_state statp, size_t n) {
-    if (!statp->nsaddr_list[n].sin_family && statp->_u._ext.ext) {
-        /*
-         * - statp->_u._ext.ext->nsaddrs[n] holds an address that is larger
-         *   than struct sockaddr, and
-         * - user code did not update statp->nsaddr_list[n].
-         */
-        return (struct sockaddr*) (void*) &statp->_u._ext.ext->nsaddrs[n];
-    } else {
-        /*
-         * - user code updated statp->nsaddr_list[n], or
-         * - statp->nsaddr_list[n] has the same content as
-         *   statp->_u._ext.ext->nsaddrs[n].
-         */
-        return (struct sockaddr*) (void*) &statp->nsaddr_list[n];
-    }
+    return (struct sockaddr*)(void*)&statp->_u._ext.ext->nsaddrs[n];
 }
 
 static struct timespec get_timeout(res_state statp, const res_params* params, const int ns) {
