@@ -455,16 +455,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         return -ESRCH;
     }
 
-    /*
-     * Maybe initialize our private copy of the ns_addr_list.
-     */
-    if (statp->_u._ext.nscount == 0) {
-        for (int ns = 0; ns < statp->nscount; ns++) {
-            statp->_u._ext.nssocks[ns] = -1;
-        }
-        statp->_u._ext.nscount = statp->nscount;
-    }
-
     res_stats stats[MAXNS];
     res_params params;
     int revision_id = resolv_cache_get_resolver_stats(statp->netid, &params, stats);
@@ -956,9 +946,9 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
 
     nsap = get_nsaddr(statp, (size_t) ns);
     nsaplen = get_salen(nsap);
-    if (statp->_u._ext.nssocks[ns] == -1) {
-        statp->_u._ext.nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
-        if (statp->_u._ext.nssocks[ns] < 0) {
+    if (statp->nssocks[ns] == -1) {
+        statp->nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        if (statp->nssocks[ns] < 0) {
             switch (errno) {
                 case EPROTONOSUPPORT:
                 case EPFNOSUPPORT:
@@ -972,9 +962,9 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
             }
         }
 
-        resolv_tag_socket(statp->_u._ext.nssocks[ns], statp->uid);
+        resolv_tag_socket(statp->nssocks[ns], statp->uid);
         if (statp->_mark != MARK_UNSET) {
-            if (setsockopt(statp->_u._ext.nssocks[ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
+            if (setsockopt(statp->nssocks[ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
                            sizeof(statp->_mark)) < 0) {
                 res_nclose(statp);
                 return -1;
@@ -984,19 +974,19 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         // on the next socket operation when the server responds with an
         // ICMP port-unreachable error. This way we can detect the absence of
         // a nameserver without timing out.
-        if (random_bind(statp->_u._ext.nssocks[ns], nsap->sa_family) < 0) {
+        if (random_bind(statp->nssocks[ns], nsap->sa_family) < 0) {
             dump_error("bind(dg)", nsap, nsaplen);
             res_nclose(statp);
             return (0);
         }
-        if (connect(statp->_u._ext.nssocks[ns], nsap, (socklen_t) nsaplen) < 0) {
+        if (connect(statp->nssocks[ns], nsap, (socklen_t)nsaplen) < 0) {
             dump_error("connect(dg)", nsap, nsaplen);
             res_nclose(statp);
             return (0);
         }
         LOG(DEBUG) << __func__ << ": new DG socket";
     }
-    s = statp->_u._ext.nssocks[ns];
+    s = statp->nssocks[ns];
     if (send(s, (const char*) buf, (size_t) buflen, 0) != buflen) {
         PLOG(DEBUG) << __func__ << ": send: ";
         res_nclose(statp);

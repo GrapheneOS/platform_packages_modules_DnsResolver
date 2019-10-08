@@ -95,16 +95,11 @@ struct __res_state {
     uint16_t id;                              // current message id
     std::vector<std::string> search_domains;  // domains to search
     sockaddr_union nsaddrs[MAXNS];
+    int nssocks[MAXNS];
     unsigned ndots : 4;                       // threshold for initial abs. query
     unsigned _mark;       /* If non-0 SET_MARK to _mark on all request sockets */
     int _vcsock;          /* PRIVATE: for res_send VC i/o */
     uint32_t _flags;      /* PRIVATE: see below */
-    union {
-        struct {
-            uint16_t nscount;
-            int nssocks[MAXNS];
-        } _ext;
-    } _u;
     struct res_static rstatic[1];
     android::net::NetworkDnsEventReported* event;
     uint32_t netcontext_flags;

@@ -102,8 +102,11 @@ void res_init(res_state statp) {
     statp->ndots = 1;
     statp->_vcsock = -1;
     statp->_flags = 0;
-    statp->_u._ext.nscount = 0;
     statp->netcontext_flags = 0;
+
+    for (int ns = 0; ns < MAXNS; ns++) {
+        statp->nssocks[ns] = -1;
+    }
 
     // The following dummy initialization is probably useless because
     // it's overwritten later by _resolv_populate_res_for_net().
@@ -132,10 +135,10 @@ void res_nclose(res_state statp) {
         statp->_vcsock = -1;
         statp->_flags &= ~RES_F_VC;
     }
-    for (ns = 0; ns < statp->_u._ext.nscount; ns++) {
-        if (statp->_u._ext.nssocks[ns] != -1) {
-            (void) close(statp->_u._ext.nssocks[ns]);
-            statp->_u._ext.nssocks[ns] = -1;
+    for (ns = 0; ns < MAXNS; ns++) {
+        if (statp->nssocks[ns] != -1) {
+            close(statp->nssocks[ns]);
+            statp->nssocks[ns] = -1;
         }
     }
 }
