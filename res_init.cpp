@@ -94,22 +94,12 @@
 #include "resolv_private.h"
 
 // Set up Resolver state default settings.
-// Note that res_ninit() is called with an initialized res_state,
-// the memories it allocated must be freed after the task is done.
-// Or memory leak will happen.
-int res_ninit(res_state statp) {
-    int nserv = 0;  // number of nameserver records
-    sockaddr_union u[2];
-
+// Note: this is called with statp zero-initialized
+void res_init(res_state statp) {
     statp->netid = NETID_UNSET;
     statp->id = arc4random_uniform(65536);
     statp->_mark = MARK_UNSET;
 
-    memset(u, 0, sizeof(u));
-    u[nserv].sin.sin_addr.s_addr = INADDR_ANY;
-    u[nserv].sin.sin_family = AF_INET;
-    u[nserv].sin.sin_port = htons(NAMESERVER_PORT);
-    nserv++;
     statp->nscount = 0;
     statp->ndots = 1;
     statp->_vcsock = -1;
@@ -119,16 +109,19 @@ int res_ninit(res_state statp) {
     statp->netcontext_flags = 0;
     if (statp->_u._ext.ext != NULL) {
         memset(statp->_u._ext.ext, 0, sizeof(*statp->_u._ext.ext));
-        statp->_u._ext.ext->nsaddrs[0].sin = statp->nsaddr;
     }
-    res_setservers(statp, u, nserv);
 
-    if (nserv > 0) {
-        statp->nscount = nserv;
-    }
-    return (0);
+    // The following dummy initialization is probably useless because
+    // it's overwritten later by _resolv_populate_res_for_net().
+    // TODO: check if it's safe to remove.
+    const sockaddr_union u{
+            .sin.sin_addr.s_addr = INADDR_ANY,
+            .sin.sin_family = AF_INET,
+            .sin.sin_port = htons(NAMESERVER_PORT),
+    };
+    memcpy(&statp->_u._ext.ext->nsaddrs[0], &u, sizeof(u));
+    statp->nscount = 1;
 }
-
 
 /*
  * This routine is for closing the socket if a virtual circuit is used and
@@ -157,90 +150,6 @@ void res_ndestroy(res_state statp) {
     res_nclose(statp);
     if (statp->_u._ext.ext != NULL) free(statp->_u._ext.ext);
     statp->_u._ext.ext = NULL;
-}
-
-void res_setservers(res_state statp, const sockaddr_union* set, int cnt) {
-    int i, nserv;
-    size_t size;
-
-    /* close open servers */
-    res_nclose(statp);
-
-    /* cause rtt times to be forgotten */
-    statp->_u._ext.nscount = 0;
-
-    nserv = 0;
-    for (i = 0; i < cnt && nserv < MAXNS; i++) {
-        switch (set->sin.sin_family) {
-            case AF_INET:
-                size = sizeof(set->sin);
-                if (statp->_u._ext.ext)
-                    memcpy(&statp->_u._ext.ext->nsaddrs[nserv], &set->sin, size);
-                if (size <= sizeof(statp->nsaddr_list[nserv]))
-                    memcpy(&statp->nsaddr_list[nserv], &set->sin, size);
-                else
-                    statp->nsaddr_list[nserv].sin_family = 0;
-                nserv++;
-                break;
-
-#ifdef HAS_INET6_STRUCTS
-            case AF_INET6:
-                size = sizeof(set->sin6);
-                if (statp->_u._ext.ext)
-                    memcpy(&statp->_u._ext.ext->nsaddrs[nserv], &set->sin6, size);
-                if (size <= sizeof(statp->nsaddr_list[nserv]))
-                    memcpy(&statp->nsaddr_list[nserv], &set->sin6, size);
-                else
-                    statp->nsaddr_list[nserv].sin_family = 0;
-                nserv++;
-                break;
-#endif
-
-            default:
-                break;
-        }
-        set++;
-    }
-    statp->nscount = nserv;
-}
-
-int res_getservers(res_state statp, sockaddr_union* set, int cnt) {
-    int i;
-    size_t size;
-    uint16_t family;
-
-    for (i = 0; i < statp->nscount && i < cnt; i++) {
-        if (statp->_u._ext.ext)
-            family = statp->_u._ext.ext->nsaddrs[i].sin.sin_family;
-        else
-            family = statp->nsaddr_list[i].sin_family;
-
-        switch (family) {
-            case AF_INET:
-                size = sizeof(set->sin);
-                if (statp->_u._ext.ext)
-                    memcpy(&set->sin, &statp->_u._ext.ext->nsaddrs[i], size);
-                else
-                    memcpy(&set->sin, &statp->nsaddr_list[i], size);
-                break;
-
-#ifdef HAS_INET6_STRUCTS
-            case AF_INET6:
-                size = sizeof(set->sin6);
-                if (statp->_u._ext.ext)
-                    memcpy(&set->sin6, &statp->_u._ext.ext->nsaddrs[i], size);
-                else
-                    memcpy(&set->sin6, &statp->nsaddr_list[i], size);
-                break;
-#endif
-
-            default:
-                set->sin.sin_family = 0;
-                break;
-        }
-        set++;
-    }
-    return (statp->nscount);
 }
 
 void res_setnetcontext(res_state statp, const struct android_net_context* netcontext,

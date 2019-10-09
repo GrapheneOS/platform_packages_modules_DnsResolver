@@ -38,6 +38,7 @@
 
 #include <android-base/logging.h>
 
+#include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
 
@@ -99,14 +100,7 @@ static _res_thread* res_thread_get(void) {
     pthread_setspecific(_res_key, rt);
 
     LOG(VERBOSE) << __func__ << ": tid=" << gettid() << ", rt=" << rt;
-    if (res_ninit(rt->_nres) < 0) {
-        /* This should not happen */
-        LOG(VERBOSE) << __func__ << ": tid=" << gettid() << " rt=" << rt
-                     << ", res_ninit() returned < 0";
-        res_thread_free(rt);
-        pthread_setspecific(_res_key, NULL);
-        return NULL;
-    }
+    res_init(rt->_nres);
     return rt;
 }
 
