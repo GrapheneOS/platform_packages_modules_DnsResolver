@@ -89,8 +89,6 @@ struct __res_state {
     unsigned netid;                           // NetId: cache key and socket mark
     uid_t uid;                                // uid of the app that sent the DNS lookup
     int nscount;                              // number of name srvers
-    struct sockaddr_in nsaddr_list[MAXNS];    // address of name server
-#define nsaddr nsaddr_list[0]                 // for backward compatibility
     uint16_t id;                              // current message id
     std::vector<std::string> search_domains;  // domains to search
     unsigned ndots : 4;                       // threshold for initial abs. query
@@ -167,8 +165,6 @@ void putshort(uint16_t, uint8_t*);
 
 int res_nameinquery(const char*, int, int, const uint8_t*, const uint8_t*);
 int res_queriesmatch(const uint8_t*, const uint8_t*, const uint8_t*, const uint8_t*);
-/* Things involving a resolver context. */
-int res_ninit(res_state);
 
 int res_nquery(res_state, const char*, int, int, uint8_t*, int, int*);
 int res_nsearch(res_state, const char*, int, int, uint8_t*, int, int*);
