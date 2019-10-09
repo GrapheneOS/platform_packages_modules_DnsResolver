@@ -120,10 +120,7 @@ int res_ninit(res_state statp) {
     if (statp->_u._ext.ext != NULL) {
         memset(statp->_u._ext.ext, 0, sizeof(*statp->_u._ext.ext));
         statp->_u._ext.ext->nsaddrs[0].sin = statp->nsaddr;
-        strcpy(statp->_u._ext.ext->nsuffix, "ip6.arpa");
-        strcpy(statp->_u._ext.ext->nsuffix2, "ip6.int");
     }
-    statp->nsort = 0;
     res_setservers(statp, u, nserv);
 
     if (nserv > 0) {

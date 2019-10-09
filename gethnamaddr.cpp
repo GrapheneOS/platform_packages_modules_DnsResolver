@@ -106,13 +106,10 @@ typedef union {
     char ac;
 } align;
 
-static struct hostent* getanswer(const querybuf*, int, const char*, int, res_state, struct hostent*,
-                                 char*, size_t, int*);
 static void convert_v4v6_hostent(struct hostent* hp, char** bpp, char* ep,
                                  const std::function<void(struct hostent* hp)>& mapping_param,
                                  const std::function<void(char* src, char* dst)>& mapping_addr);
 static void pad_v4v6_hostent(struct hostent* hp, char** bpp, char* ep);
-static void addrsort(char**, int, res_state);
 
 static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
                            const android_net_context* netcontext, getnamaddr* info,
@@ -145,8 +142,7 @@ static int android_gethostbyaddrfornetcontext_proxy(const void* addr, socklen_t 
     } while (0)
 
 static struct hostent* getanswer(const querybuf* answer, int anslen, const char* qname, int qtype,
-                                 res_state res, struct hostent* hent, char* buf, size_t buflen,
-                                 int* he) {
+                                 struct hostent* hent, char* buf, size_t buflen, int* he) {
     const HEADER* hp;
     const uint8_t* cp;
     int n;
@@ -369,12 +365,6 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
     }
     if (haveanswer) {
         *hap = NULL;
-        /*
-         * Note: we sort even if host can take only one address
-         * in its return structures - should give it the "best"
-         * address in that case, not some random one
-         */
-        if (res->nsort && haveanswer > 1 && qtype == T_A) addrsort(addr_ptrs, haveanswer, res);
         if (!hent->h_name) {
             n = (int) strlen(qname) + 1; /* for the \0 */
             if (n > ep - bp || n >= MAXHOSTNAMELEN) goto no_recovery;
@@ -691,44 +681,6 @@ static void pad_v4v6_hostent(struct hostent* hp, char** bpp, char* ep) {
                          });
 }
 
-static void addrsort(char** ap, int num, res_state res) {
-    int i, j;
-    char** p;
-    short aval[MAXADDRS];
-    int needsort = 0;
-
-    _DIAGASSERT(ap != NULL);
-
-    p = ap;
-    for (i = 0; i < num; i++, p++) {
-        for (j = 0; (unsigned) j < res->nsort; j++)
-            if (res->sort_list[j].addr.s_addr ==
-                (((struct in_addr*) (void*) (*p))->s_addr & res->sort_list[j].mask))
-                break;
-        aval[i] = j;
-        if (needsort == 0 && i > 0 && j < aval[i - 1]) needsort = i;
-    }
-    if (!needsort) return;
-
-    while (needsort < num) {
-        for (j = needsort - 1; j >= 0; j--) {
-            if (aval[j] > aval[j + 1]) {
-                char* hp;
-
-                i = aval[j];
-                aval[j] = aval[j + 1];
-                aval[j + 1] = i;
-
-                hp = ap[j];
-                ap[j] = ap[j + 1];
-                ap[j + 1] = hp;
-            } else
-                break;
-        }
-        needsort++;
-    }
-}
-
 static int dns_gethtbyname(const char* name, int addr_type, getnamaddr* info) {
     int n, type;
     info->hp->h_addrtype = addr_type;
@@ -759,7 +711,7 @@ static int dns_gethtbyname(const char* name, int addr_type, getnamaddr* info) {
         // See also herrnoToAiErrno().
         return herrnoToAiErrno(he);
     }
-    hostent* hp = getanswer(buf.get(), n, name, type, res, info->hp, info->buf, info->buflen, &he);
+    hostent* hp = getanswer(buf.get(), n, name, type, info->hp, info->buf, info->buflen, &he);
     if (hp == NULL) return herrnoToAiErrno(he);
 
     return 0;
@@ -824,7 +776,7 @@ static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
         // See also herrnoToAiErrno().
         return herrnoToAiErrno(he);
     }
-    hostent* hp = getanswer(buf.get(), n, qbuf, T_PTR, res, info->hp, info->buf, info->buflen, &he);
+    hostent* hp = getanswer(buf.get(), n, qbuf, T_PTR, info->hp, info->buf, info->buflen, &he);
     if (hp == NULL) return herrnoToAiErrno(he);
 
     char* bf = (char*) (hp->h_addr_list + 2);
