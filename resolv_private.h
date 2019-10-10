@@ -79,7 +79,6 @@
  * Global defines and variables for resolver stub.
  */
 #define RES_TIMEOUT 5000 /* min. milliseconds between retries */
-#define MAXRESOLVSORT 10  /* number of net to sort on */
 #define RES_MAXNDOTS 15   /* should reflect bit field size */
 #define RES_DFLRETRY 2    /* Default #/tries. */
 #define RES_MAXTIME 65535 /* Infinity, in milliseconds. */
@@ -90,24 +89,13 @@ struct __res_state {
     unsigned netid;                           // NetId: cache key and socket mark
     uid_t uid;                                // uid of the app that sent the DNS lookup
     int nscount;                              // number of name srvers
-    struct sockaddr_in nsaddr_list[MAXNS];    // address of name server
-#define nsaddr nsaddr_list[0]                 // for backward compatibility
     uint16_t id;                              // current message id
     std::vector<std::string> search_domains;  // domains to search
     unsigned ndots : 4;                       // threshold for initial abs. query
-    unsigned nsort : 4;                       // number of elements in sort_list[]
-    char unused[3];
-    struct {
-        struct in_addr addr;
-        uint32_t mask;
-    } sort_list[MAXRESOLVSORT];
     unsigned _mark;       /* If non-0 SET_MARK to _mark on all request sockets */
     int _vcsock;          /* PRIVATE: for res_send VC i/o */
     uint32_t _flags;      /* PRIVATE: see below */
-    uint32_t _pad;        /* make _u 64 bit aligned */
     union {
-        /* On an 32-bit arch this means 512b total. */
-        char pad[72 - 4 * sizeof(int) - 2 * sizeof(void*)];
         struct {
             uint16_t nscount;
             uint16_t nstimes[MAXNS]; /* ms. */
@@ -177,8 +165,6 @@ void putshort(uint16_t, uint8_t*);
 
 int res_nameinquery(const char*, int, int, const uint8_t*, const uint8_t*);
 int res_queriesmatch(const uint8_t*, const uint8_t*, const uint8_t*, const uint8_t*);
-/* Things involving a resolver context. */
-int res_ninit(res_state);
 
 int res_nquery(res_state, const char*, int, int, uint8_t*, int, int*);
 int res_nsearch(res_state, const char*, int, int, uint8_t*, int, int*);
