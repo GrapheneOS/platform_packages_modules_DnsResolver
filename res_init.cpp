@@ -90,7 +90,6 @@
 #include <unistd.h>
 
 #include "netd_resolv/resolv.h"
-#include "res_state_ext.h"
 #include "resolv_private.h"
 
 // Set up Resolver state default settings.
@@ -100,15 +99,13 @@ void res_init(res_state statp) {
     statp->id = arc4random_uniform(65536);
     statp->_mark = MARK_UNSET;
 
-    statp->nscount = 0;
     statp->ndots = 1;
     statp->_vcsock = -1;
     statp->_flags = 0;
-    statp->_u._ext.nscount = 0;
-    statp->_u._ext.ext = (res_state_ext*) malloc(sizeof(*statp->_u._ext.ext));
     statp->netcontext_flags = 0;
-    if (statp->_u._ext.ext != NULL) {
-        memset(statp->_u._ext.ext, 0, sizeof(*statp->_u._ext.ext));
+
+    for (int ns = 0; ns < MAXNS; ns++) {
+        statp->nssocks[ns] = -1;
     }
 
     // The following dummy initialization is probably useless because
@@ -119,7 +116,7 @@ void res_init(res_state statp) {
             .sin.sin_family = AF_INET,
             .sin.sin_port = htons(NAMESERVER_PORT),
     };
-    memcpy(&statp->_u._ext.ext->nsaddrs[0], &u, sizeof(u));
+    memcpy(&statp->nsaddrs, &u, sizeof(u));
     statp->nscount = 1;
 }
 
@@ -138,18 +135,12 @@ void res_nclose(res_state statp) {
         statp->_vcsock = -1;
         statp->_flags &= ~RES_F_VC;
     }
-    for (ns = 0; ns < statp->_u._ext.nscount; ns++) {
-        if (statp->_u._ext.nssocks[ns] != -1) {
-            (void) close(statp->_u._ext.nssocks[ns]);
-            statp->_u._ext.nssocks[ns] = -1;
+    for (ns = 0; ns < MAXNS; ns++) {
+        if (statp->nssocks[ns] != -1) {
+            close(statp->nssocks[ns]);
+            statp->nssocks[ns] = -1;
         }
     }
-}
-
-void res_ndestroy(res_state statp) {
-    res_nclose(statp);
-    if (statp->_u._ext.ext != NULL) free(statp->_u._ext.ext);
-    statp->_u._ext.ext = NULL;
 }
 
 void res_setnetcontext(res_state statp, const struct android_net_context* netcontext,

@@ -59,7 +59,6 @@
 #include <server_configurable_flags/get_flags.h>
 
 #include "res_debug.h"
-#include "res_state_ext.h"
 #include "resolv_private.h"
 
 using android::base::StringAppendF;
@@ -1582,8 +1581,8 @@ void _resolv_populate_res_for_net(res_state statp) {
                 break;
             }
 
-            if ((size_t) ai->ai_addrlen <= sizeof(statp->_u._ext.ext->nsaddrs[0])) {
-                memcpy(&statp->_u._ext.ext->nsaddrs[nserv], ai->ai_addr, ai->ai_addrlen);
+            if ((size_t)ai->ai_addrlen <= sizeof(statp->nsaddrs[0])) {
+                memcpy(&statp->nsaddrs[nserv], ai->ai_addr, ai->ai_addrlen);
             } else {
                 LOG(INFO) << __func__ << ": found too long addrlen";
             }
