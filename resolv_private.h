@@ -65,7 +65,6 @@
 #include "netd_resolv/params.h"
 #include "netd_resolv/resolv.h"
 #include "netd_resolv/stats.h"
-#include "resolv_static.h"
 #include "stats.pb.h"
 
 // Linux defines MAXHOSTNAMELEN as 64, while the domain name limit in
@@ -82,11 +81,11 @@
 #define RES_DFLRETRY 2    /* Default #/tries. */
 
 // Holds either a sockaddr_in or a sockaddr_in6.
-typedef union sockaddr_union {
+union sockaddr_union {
     struct sockaddr sa;
     struct sockaddr_in sin;
     struct sockaddr_in6 sin6;
-} sockaddr_union;
+};
 
 struct __res_state {
     unsigned netid;                           // NetId: cache key and socket mark
@@ -95,12 +94,11 @@ struct __res_state {
     uint16_t id;                              // current message id
     std::vector<std::string> search_domains;  // domains to search
     sockaddr_union nsaddrs[MAXNS];
-    int nssocks[MAXNS];
+    int nssocks[MAXNS];                       // UDP sockets to nameservers
     unsigned ndots : 4;                       // threshold for initial abs. query
-    unsigned _mark;       /* If non-0 SET_MARK to _mark on all request sockets */
-    int _vcsock;          /* PRIVATE: for res_send VC i/o */
-    uint32_t _flags;      /* PRIVATE: see below */
-    struct res_static rstatic[1];
+    unsigned _mark;                           // If non-0 SET_MARK to _mark on all request sockets
+    int _vcsock;                              // TCP socket (but why not one per nameserver?)
+    uint32_t _flags;                          // See RES_F_* defines below
     android::net::NetworkDnsEventReported* event;
     uint32_t netcontext_flags;
 };
