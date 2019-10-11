@@ -76,7 +76,6 @@
 #include "netd_resolv/resolv.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
-#include "resolv_static.h"
 #include "stats.pb.h"
 
 using android::net::NetworkDnsEventReported;
@@ -96,6 +95,8 @@ using android::net::NetworkDnsEventReported;
 #define maybe_dnok(res, dn) maybe_ok((res), (dn), res_dnok)
 
 #define MAXPACKET (8 * 1024)
+
+constexpr int MAXADDRS = 35;
 
 typedef union {
     HEADER hdr;
