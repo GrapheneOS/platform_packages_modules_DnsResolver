@@ -39,6 +39,9 @@ using android::base::StringPrintf;
 using android::net::NetworkDnsEventReported;
 using android::netdutils::ScopedAddrinfo;
 
+// The buffer size of resolv_gethostbyname().
+constexpr unsigned int MAXPACKET = 8 * 1024;
+
 class TestBase : public ::testing::Test {
   protected:
     struct DnsMessage {
@@ -707,9 +710,11 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
         dns.clearQueries();
 
         hostent* hp = nullptr;
+        hostent hbuf;
+        char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
-        int rv = android_gethostbynamefornetcontext("jiababuei", config.ai_family, &mNetcontext,
-                                                    &hp, &event);
+        int rv = resolv_gethostbyname("jiababuei", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
+                                      &mNetcontext, &hp, &event);
         EXPECT_EQ(0, rv);
         EXPECT_TRUE(hp != nullptr);
         EXPECT_EQ(1U, GetNumQueries(dns, host_name));
@@ -747,9 +752,11 @@ TEST_F(GetHostByNameForNetContextTest, IllegalHostname) {
             SCOPED_TRACE(StringPrintf("family: %d, config.name: %s", family, hostname));
 
             struct hostent* hp = nullptr;
+            hostent hbuf;
+            char tmpbuf[MAXPACKET];
             NetworkDnsEventReported event;
-            int rv =
-                    android_gethostbynamefornetcontext(hostname, family, &mNetcontext, &hp, &event);
+            int rv = resolv_gethostbyname(hostname, family, &hbuf, tmpbuf, sizeof(tmpbuf),
+                                          &mNetcontext, &hp, &event);
             EXPECT_EQ(nullptr, hp);
             EXPECT_EQ(EAI_FAIL, rv);
         }
@@ -767,8 +774,11 @@ TEST_F(GetHostByNameForNetContextTest, NoData) {
 
     // Want AAAA answer but DNS server has A answer only.
     hostent* hp = nullptr;
+    hostent hbuf;
+    char tmpbuf[MAXPACKET];
     NetworkDnsEventReported event;
-    int rv = android_gethostbynamefornetcontext("v4only", AF_INET6, &mNetcontext, &hp, &event);
+    int rv = resolv_gethostbyname("v4only", AF_INET6, &hbuf, tmpbuf, sizeof tmpbuf, &mNetcontext,
+                                  &hp, &event);
     EXPECT_LE(1U, GetNumQueries(dns, v4_host_name));
     EXPECT_EQ(nullptr, hp);
     EXPECT_EQ(EAI_NODATA, rv);
@@ -805,8 +815,11 @@ TEST_F(GetHostByNameForNetContextTest, ServerResponseError) {
         ASSERT_EQ(0, SetResolvers());
 
         hostent* hp = nullptr;
+        hostent hbuf;
+        char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
-        int rv = android_gethostbynamefornetcontext(host_name, AF_INET, &mNetcontext, &hp, &event);
+        int rv = resolv_gethostbyname(host_name, AF_INET, &hbuf, tmpbuf, sizeof tmpbuf,
+                                      &mNetcontext, &hp, &event);
         EXPECT_EQ(nullptr, hp);
         EXPECT_EQ(config.expected_eai_error, rv);
     }
@@ -822,8 +835,11 @@ TEST_F(GetHostByNameForNetContextTest, ServerTimeout) {
     ASSERT_EQ(0, SetResolvers());
 
     hostent* hp = nullptr;
+    hostent hbuf;
+    char tmpbuf[MAXPACKET];
     NetworkDnsEventReported event;
-    int rv = android_gethostbynamefornetcontext(host_name, AF_INET, &mNetcontext, &hp, &event);
+    int rv = resolv_gethostbyname(host_name, AF_INET, &hbuf, tmpbuf, sizeof tmpbuf, &mNetcontext,
+                                  &hp, &event);
     EXPECT_EQ(NETD_RESOLV_TIMEOUT, rv);
 }
 
@@ -852,9 +868,11 @@ TEST_F(GetHostByNameForNetContextTest, CnamesNoIpAddress) {
                 StringPrintf("config.family: %d, config.name: %s", config.family, config.name));
 
         struct hostent* hp = nullptr;
+        hostent hbuf;
+        char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
-        int rv = android_gethostbynamefornetcontext(config.name, config.family, &mNetcontext, &hp,
-                                                    &event);
+        int rv = resolv_gethostbyname(config.name, config.family, &hbuf, tmpbuf, sizeof tmpbuf,
+                                      &mNetcontext, &hp, &event);
         EXPECT_EQ(nullptr, hp);
         EXPECT_EQ(EAI_FAIL, rv);
     }
@@ -902,9 +920,11 @@ TEST_F(GetHostByNameForNetContextTest, CnamesBrokenChainByIllegalCname) {
                     StringPrintf("family: %d, testHostName: %s", family, testHostName.c_str()));
 
             struct hostent* hp = nullptr;
+            hostent hbuf;
+            char tmpbuf[MAXPACKET];
             NetworkDnsEventReported event;
-            int rv = android_gethostbynamefornetcontext(config.name, family, &mNetcontext, &hp,
-                                                        &event);
+            int rv = resolv_gethostbyname(config.name, family, &hbuf, tmpbuf, sizeof tmpbuf,
+                                          &mNetcontext, &hp, &event);
             EXPECT_EQ(nullptr, hp);
             EXPECT_EQ(EAI_FAIL, rv);
         }
@@ -922,8 +942,11 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
         SCOPED_TRACE(StringPrintf("family: %d", family));
 
         struct hostent* hp = nullptr;
+        hostent hbuf;
+        char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
-        int rv = android_gethostbynamefornetcontext("hello", family, &mNetcontext, &hp, &event);
+        int rv = resolv_gethostbyname("hello", family, &hbuf, tmpbuf, sizeof tmpbuf, &mNetcontext,
+                                      &hp, &event);
         EXPECT_EQ(nullptr, hp);
         EXPECT_EQ(EAI_FAIL, rv);
     }
@@ -938,7 +961,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
 //           - Invalid length CNAME, or QNAME.
 //           - Unexpected amount of questions.
 //       - CNAME RDATA with the domain name which has null label(s).
-// TODO: Add test for android_gethostbynamefornetcontext().
+// TODO: Add test for resolv_gethostbyname().
 //       - Invalid parameters.
 //       - DNS response message parsing.
 //           - Unexpected type of resource record (RR).

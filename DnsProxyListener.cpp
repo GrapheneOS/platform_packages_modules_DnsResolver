@@ -75,6 +75,7 @@ namespace {
 constexpr int MAX_QUERIES_PER_UID = 256;
 
 // Max packet size for answer, sync with getaddrinfo.c
+// TODO: switch to dynamically allocated buffers with std::vector
 constexpr int MAXPACKET = 8 * 1024;
 
 android::netdutils::OperationLimiter<uid_t> queryLimiter(MAX_QUERIES_PER_UID);
@@ -1033,7 +1034,8 @@ DnsProxyListener::GetHostByNameHandler::~GetHostByNameHandler() {
     free(mName);
 }
 
-void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, struct hostent** hpp,
+void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, hostent* hbuf, char* buf,
+                                                              size_t buflen, struct hostent** hpp,
                                                               NetworkDnsEventReported* event) {
     // Don't have to consider family AF_UNSPEC case because gethostbyname{, 2} only supports
     // family AF_INET or AF_INET6.
@@ -1051,7 +1053,7 @@ void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, struc
     // If caller wants IPv6 answers but no data, try to query IPv4 answers for synthesis
     const uid_t uid = mClient->getUid();
     if (queryLimiter.start(uid)) {
-        *rv = android_gethostbynamefornetcontext(mName, AF_INET, &mNetContext, hpp, event);
+        *rv = resolv_gethostbyname(mName, AF_INET, hbuf, buf, buflen, &mNetContext, hpp, event);
         queryLimiter.finish(uid);
         if (*rv) {
             *rv = EAI_NODATA;  // return original error code
@@ -1074,11 +1076,14 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     maybeFixupNetContext(&mNetContext);
     const uid_t uid = mClient->getUid();
     hostent* hp = nullptr;
+    hostent hbuf;
+    char tmpbuf[MAXPACKET];
     int32_t rv = 0;
     NetworkDnsEventReported event;
     initDnsEvent(&event);
     if (queryLimiter.start(uid)) {
-        rv = android_gethostbynamefornetcontext(mName, mAf, &mNetContext, &hp, &event);
+        rv = resolv_gethostbyname(mName, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
+                                  &event);
         queryLimiter.finish(uid);
     } else {
         rv = EAI_MEMORY;
@@ -1086,12 +1091,12 @@ void DnsProxyListener::GetHostByNameHandler::run() {
                    << ", max concurrent queries reached";
     }
 
-    doDns64Synthesis(&rv, &hp, &event);
+    doDns64Synthesis(&rv, &hbuf, tmpbuf, sizeof tmpbuf, &hp, &event);
     const int32_t latencyUs = saturate_cast<int32_t>(s.timeTakenUs());
     event.set_latency_micros(latencyUs);
     event.set_event_type(EVENT_GETHOSTBYNAME);
 
-    LOG(DEBUG) << "GetHostByNameHandler::run: errno: " << (hp ? "success" : strerror(errno));
+    LOG(DEBUG) << "GetHostByNameHandler::run: result: " << gai_strerror(rv);
 
     bool success = true;
     if (hp) {

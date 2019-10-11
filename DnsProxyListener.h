@@ -84,7 +84,8 @@ class DnsProxyListener : public FrameworkListener {
         std::string threadName();
 
       private:
-        void doDns64Synthesis(int32_t* rv, hostent** hpp, NetworkDnsEventReported* event);
+        void doDns64Synthesis(int32_t* rv, hostent* hbuf, char* buf, size_t buflen, hostent** hpp,
+                              NetworkDnsEventReported* event);
 
         SocketClient* mClient;  // ref counted
         char* mName;            // owned. TODO: convert to std::string.

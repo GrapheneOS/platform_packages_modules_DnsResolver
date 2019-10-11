@@ -20,9 +20,17 @@
 #include "netd_resolv/resolv.h"  // struct android_net_context
 #include "stats.pb.h"
 
+/*
+ * Error code extending EAI_* codes defined in bionic/libc/include/netdb.h.
+ * This error code, including EAI_*, returned from android_getaddrinfofornetcontext()
+ * and resolv_gethostbyname() are used for DNS metrics.
+ */
+#define NETD_RESOLV_TIMEOUT 255  // consistent with RCODE_TIMEOUT
+
 // This is the entry point for the gethostbyname() family of legacy calls.
-int android_gethostbynamefornetcontext(const char*, int, const android_net_context*, hostent**,
-                                       android::net::NetworkDnsEventReported*);
+int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_t buflen,
+                         const android_net_context* netcontext, hostent** result,
+                         android::net::NetworkDnsEventReported*);
 
 // This is the entry point for the gethostbyaddr() family of legacy calls.
 int android_gethostbyaddrfornetcontext(const void*, socklen_t, int, const android_net_context*,
