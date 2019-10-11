@@ -76,6 +76,7 @@
 #include "netd_resolv/resolv.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
+#include "resolv_static.h"
 #include "stats.pb.h"
 
 using android::net::NetworkDnsEventReported;

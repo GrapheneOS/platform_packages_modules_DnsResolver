@@ -42,6 +42,7 @@
 
 #include "hostent.h"
 #include "resolv_private.h"
+#include "resolv_static.h"
 
 #define ALIGNBYTES (sizeof(uintptr_t) - 1)
 #define ALIGN(p) (((uintptr_t)(p) + ALIGNBYTES) & ~ALIGNBYTES)
