@@ -968,7 +968,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
 //           - Invalid length CNAME, or QNAME.
 //           - Unexpected amount of questions.
 //       - CNAME RDATA with the domain name which has null label(s).
-// TODO: Add test for android_gethostbyaddrfornetcontext().
+// TODO: Add test for resolv_gethostbyaddr().
 
 }  // end of namespace net
 }  // end of namespace android

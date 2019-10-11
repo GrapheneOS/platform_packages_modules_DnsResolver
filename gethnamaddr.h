@@ -30,8 +30,9 @@
 // This is the entry point for the gethostbyname() family of legacy calls.
 int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_t buflen,
                          const android_net_context* netcontext, hostent** result,
-                         android::net::NetworkDnsEventReported*);
+                         android::net::NetworkDnsEventReported* event);
 
 // This is the entry point for the gethostbyaddr() family of legacy calls.
-int android_gethostbyaddrfornetcontext(const void*, socklen_t, int, const android_net_context*,
-                                       hostent**, android::net::NetworkDnsEventReported*);
+int resolv_gethostbyaddr(const void* addr, socklen_t len, int af, hostent* hp, char* buf,
+                         size_t buflen, const android_net_context* netcontext, hostent** result,
+                         android::net::NetworkDnsEventReported* event);
