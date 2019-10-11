@@ -1487,7 +1487,10 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     for (int i = 0; i < numservers; i++) {
         // The addrinfo structures allocated here are freed in free_nameservers_locked().
         const addrinfo hints = {
-                .ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM, .ai_flags = AI_NUMERICHOST};
+                .ai_flags = AI_NUMERICHOST,
+                .ai_family = AF_UNSPEC,
+                .ai_socktype = SOCK_DGRAM,
+        };
         const int rt = getaddrinfo_numeric(nameservers[i].c_str(), "53", hints, &nsaddrinfo[i]);
         if (rt != 0) {
             for (int j = 0; j < i; j++) {
