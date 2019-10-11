@@ -164,7 +164,10 @@ bool DnsTlsFrontend::startServer() {
 
     // Set up TCP server socket for clients.
     addrinfo frontend_ai_hints{
-            .ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM, .ai_flags = AI_PASSIVE};
+            .ai_flags = AI_PASSIVE,
+            .ai_family = AF_UNSPEC,
+            .ai_socktype = SOCK_STREAM,
+    };
     addrinfo* frontend_ai_res = nullptr;
     int rv = getaddrinfo(listen_address_.c_str(), listen_service_.c_str(), &frontend_ai_hints,
                          &frontend_ai_res);
