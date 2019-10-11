@@ -35,15 +35,11 @@
 #include <unordered_map>
 #include <vector>
 
-struct __res_state;
-struct resolv_cache;
-
-constexpr int DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY = -1;
-
-/* sets the name server addresses to the provided res_state structure. The
- * name servers are retrieved from the cache which is associated
- * with the network to which the res_state structure is associated */
-void _resolv_populate_res_for_net(struct __res_state* statp);
+// Sets the name server addresses to the provided ResState.
+// The name servers are retrieved from the cache which is associated
+// with the network to which ResState is associated.
+struct ResState;
+void _resolv_populate_res_for_net(ResState* statp);
 
 std::vector<unsigned> resolv_list_caches();
 

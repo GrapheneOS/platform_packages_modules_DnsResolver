@@ -140,6 +140,7 @@ using android::base::StringAppendF;
  * *****************************************
  */
 const int CONFIG_MAX_ENTRIES = 64 * 2 * 5;
+constexpr int DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY = -1;
 
 static time_t _time_now(void) {
     struct timeval tv;

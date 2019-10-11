@@ -30,6 +30,7 @@
 #include <gtest/gtest.h>
 
 #include "netd_resolv/stats.h"
+#include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
 #include "tests/dns_responder/dns_responder.h"
@@ -64,9 +65,10 @@ struct CacheStats {
 };
 
 std::vector<char> makeQuery(int op, const char* qname, int qclass, int qtype) {
-    res_state res = res_get_state();
     uint8_t buf[MAXPACKET] = {};
-    const int len = res_nmkquery(res, op, qname, qclass, qtype, NULL, 0, NULL, buf, sizeof(buf));
+    const int len = res_nmkquery(op, qname, qclass, qtype, /*data=*/nullptr, /*datalen=*/0, buf,
+                                 sizeof(buf),
+                                 /*netcontext_flags=*/0);
     return std::vector<char>(buf, buf + len);
 }
 
