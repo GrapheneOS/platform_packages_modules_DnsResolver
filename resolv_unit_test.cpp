@@ -236,8 +236,8 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_SocketType) {
             for (const auto& socktype : {SOCK_RDM, SOCK_SEQPACKET, SOCK_DCCP, SOCK_PACKET}) {
                 const addrinfo hints = {
                         .ai_family = family,
-                        .ai_protocol = protocol,
                         .ai_socktype = socktype,
+                        .ai_protocol = protocol,
                 };
                 for (const char* service : {static_cast<const char*>(nullptr),  // service is null
                                             "80",
@@ -295,8 +295,8 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_MeaningfulSocktypeAndProtocolCom
                 addrinfo* result = nullptr;
                 const addrinfo hints = {
                         .ai_family = family,
-                        .ai_protocol = protocol,
                         .ai_socktype = socktype,
+                        .ai_protocol = protocol,
                 };
                 NetworkDnsEventReported event;
                 int rv = resolv_getaddrinfo("localhost", nullptr /*servname*/, &hints, &mNetcontext,

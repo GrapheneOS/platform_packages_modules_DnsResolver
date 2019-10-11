@@ -558,8 +558,8 @@ TEST_F(ResolverTest, GetAddrInfo_InvalidSocketType) {
     // TODO: Test other invalid socket types.
     const addrinfo hints = {
             .ai_family = AF_UNSPEC,
-            .ai_protocol = ANY,
             .ai_socktype = SOCK_PACKET,
+            .ai_protocol = ANY,
     };
     addrinfo* result = nullptr;
     // This is a valid hint, but the query won't be sent because the socket type is
@@ -2640,10 +2640,10 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QueryNullArgumentNode) {
         SCOPED_TRACE(config.asParameters());
 
         addrinfo hints = {
+                .ai_flags = config.flag,
                 .ai_family = AF_UNSPEC,  // any address family
                 .ai_socktype = 0,        // any type
                 .ai_protocol = 0,        // any protocol
-                .ai_flags = config.flag,
         };
 
         // Assign hostname as null and service as port name.

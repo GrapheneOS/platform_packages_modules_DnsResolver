@@ -40,7 +40,10 @@ std::string addrToString(const sockaddr_storage* addr) {
 }
 
 bool parseServer(const char* server, sockaddr_storage* parsed) {
-    addrinfo hints = {.ai_family = AF_UNSPEC, .ai_flags = AI_NUMERICHOST | AI_NUMERICSERV};
+    addrinfo hints = {
+            .ai_flags = AI_NUMERICHOST | AI_NUMERICSERV,
+            .ai_family = AF_UNSPEC,
+    };
     addrinfo* res;
 
     int err = getaddrinfo(server, "853", &hints, &res);
