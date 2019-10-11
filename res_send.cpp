@@ -290,16 +290,8 @@ static void res_set_usable_server(int selectedServer, int nscount, bool usable_s
     }
 }
 
-/* int
- * res_isourserver(ina)
- *	looks up "ina" in _res.ns_addr_list[]
- * returns:
- *	0  : not found
- *	>0 : found
- * author:
- *	paul vixie, 29may94
- */
-static int res_ourserver_p(res_state statp, const sockaddr* sa) {
+// Looks up the nameserver address in res.nsaddrs[], returns true if found, otherwise false.
+static bool res_ourserver_p(res_state statp, const sockaddr* sa) {
     const sockaddr_in *inp, *srv;
     const sockaddr_in6 *in6p, *srv6;
     int ns;
@@ -312,7 +304,7 @@ static int res_ourserver_p(res_state statp, const sockaddr* sa) {
                 if (srv->sin_family == inp->sin_family && srv->sin_port == inp->sin_port &&
                     (srv->sin_addr.s_addr == INADDR_ANY ||
                      srv->sin_addr.s_addr == inp->sin_addr.s_addr))
-                    return 1;
+                    return true;
             }
             break;
         case AF_INET6:
@@ -325,13 +317,13 @@ static int res_ourserver_p(res_state statp, const sockaddr* sa) {
 #endif
                     (IN6_IS_ADDR_UNSPECIFIED(&srv6->sin6_addr) ||
                      IN6_ARE_ADDR_EQUAL(&srv6->sin6_addr, &in6p->sin6_addr)))
-                    return 1;
+                    return true;
             }
             break;
         default:
             break;
     }
-    return 0;
+    return false;
 }
 
 /* int
