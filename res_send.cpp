@@ -107,7 +107,6 @@
 #include "netd_resolv/stats.h"
 #include "private/android_filesystem_config.h"
 #include "res_debug.h"
-#include "res_state_ext.h"
 #include "resolv_cache.h"
 #include "stats.pb.h"
 
@@ -291,16 +290,8 @@ static void res_set_usable_server(int selectedServer, int nscount, bool usable_s
     }
 }
 
-/* int
- * res_isourserver(ina)
- *	looks up "ina" in _res.ns_addr_list[]
- * returns:
- *	0  : not found
- *	>0 : found
- * author:
- *	paul vixie, 29may94
- */
-static int res_ourserver_p(res_state statp, const sockaddr* sa) {
+// Looks up the nameserver address in res.nsaddrs[], returns true if found, otherwise false.
+static bool res_ourserver_p(res_state statp, const sockaddr* sa) {
     const sockaddr_in *inp, *srv;
     const sockaddr_in6 *in6p, *srv6;
     int ns;
@@ -313,11 +304,10 @@ static int res_ourserver_p(res_state statp, const sockaddr* sa) {
                 if (srv->sin_family == inp->sin_family && srv->sin_port == inp->sin_port &&
                     (srv->sin_addr.s_addr == INADDR_ANY ||
                      srv->sin_addr.s_addr == inp->sin_addr.s_addr))
-                    return 1;
+                    return true;
             }
             break;
         case AF_INET6:
-            if (statp->_u._ext.ext == NULL) break;
             in6p = (const struct sockaddr_in6*) (const void*) sa;
             for (ns = 0; ns < statp->nscount; ns++) {
                 srv6 = (struct sockaddr_in6*) (void*) get_nsaddr(statp, (size_t) ns);
@@ -327,13 +317,13 @@ static int res_ourserver_p(res_state statp, const sockaddr* sa) {
 #endif
                     (IN6_IS_ADDR_UNSPECIFIED(&srv6->sin6_addr) ||
                      IN6_ARE_ADDR_EQUAL(&srv6->sin6_addr, &in6p->sin6_addr)))
-                    return 1;
+                    return true;
             }
             break;
         default:
             break;
     }
-    return 0;
+    return false;
 }
 
 /* int
@@ -455,49 +445,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         // TODO: Remove errno once callers stop using it
         errno = ESRCH;
         return -ESRCH;
-    }
-
-    /*
-     * If the ns_addr_list in the resolver context has changed, then
-     * invalidate our cached copy and the associated timing data.
-     */
-    if (statp->_u._ext.nscount != 0) {
-        int needclose = 0;
-        struct sockaddr_storage peer;
-        socklen_t peerlen;
-
-        if (statp->_u._ext.nscount != statp->nscount) {
-            needclose++;
-        } else {
-            for (int ns = 0; ns < statp->nscount; ns++) {
-                if (statp->_u._ext.nssocks[ns] == -1) continue;
-                peerlen = sizeof(peer);
-                if (getpeername(statp->_u._ext.nssocks[ns], (struct sockaddr*) (void*) &peer,
-                                &peerlen) < 0) {
-                    needclose++;
-                    break;
-                }
-                if (!sock_eq((struct sockaddr*) (void*) &peer, get_nsaddr(statp, (size_t) ns))) {
-                    needclose++;
-                    break;
-                }
-            }
-        }
-        if (needclose) {
-            res_nclose(statp);
-            statp->_u._ext.nscount = 0;
-        }
-    }
-
-    /*
-     * Maybe initialize our private copy of the ns_addr_list.
-     */
-    if (statp->_u._ext.nscount == 0) {
-        for (int ns = 0; ns < statp->nscount; ns++) {
-            statp->_u._ext.nstimes[ns] = RES_MAXTIME;
-            statp->_u._ext.nssocks[ns] = -1;
-        }
-        statp->_u._ext.nscount = statp->nscount;
     }
 
     res_stats stats[MAXNS];
@@ -684,7 +631,7 @@ static int get_salen(const struct sockaddr* sa) {
 }
 
 static struct sockaddr* get_nsaddr(res_state statp, size_t n) {
-    return (struct sockaddr*)(void*)&statp->_u._ext.ext->nsaddrs[n];
+    return (struct sockaddr*)(void*)&statp->nsaddrs[n];
 }
 
 static struct timespec get_timeout(res_state statp, const res_params* params, const int ns) {
@@ -991,9 +938,9 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
 
     nsap = get_nsaddr(statp, (size_t) ns);
     nsaplen = get_salen(nsap);
-    if (statp->_u._ext.nssocks[ns] == -1) {
-        statp->_u._ext.nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
-        if (statp->_u._ext.nssocks[ns] < 0) {
+    if (statp->nssocks[ns] == -1) {
+        statp->nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        if (statp->nssocks[ns] < 0) {
             switch (errno) {
                 case EPROTONOSUPPORT:
                 case EPFNOSUPPORT:
@@ -1007,9 +954,9 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
             }
         }
 
-        resolv_tag_socket(statp->_u._ext.nssocks[ns], statp->uid);
+        resolv_tag_socket(statp->nssocks[ns], statp->uid);
         if (statp->_mark != MARK_UNSET) {
-            if (setsockopt(statp->_u._ext.nssocks[ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
+            if (setsockopt(statp->nssocks[ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
                            sizeof(statp->_mark)) < 0) {
                 res_nclose(statp);
                 return -1;
@@ -1019,19 +966,19 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         // on the next socket operation when the server responds with an
         // ICMP port-unreachable error. This way we can detect the absence of
         // a nameserver without timing out.
-        if (random_bind(statp->_u._ext.nssocks[ns], nsap->sa_family) < 0) {
+        if (random_bind(statp->nssocks[ns], nsap->sa_family) < 0) {
             dump_error("bind(dg)", nsap, nsaplen);
             res_nclose(statp);
             return (0);
         }
-        if (connect(statp->_u._ext.nssocks[ns], nsap, (socklen_t) nsaplen) < 0) {
+        if (connect(statp->nssocks[ns], nsap, (socklen_t)nsaplen) < 0) {
             dump_error("connect(dg)", nsap, nsaplen);
             res_nclose(statp);
             return (0);
         }
         LOG(DEBUG) << __func__ << ": new DG socket";
     }
-    s = statp->_u._ext.nssocks[ns];
+    s = statp->nssocks[ns];
     if (send(s, (const char*) buf, (size_t) buflen, 0) != buflen) {
         PLOG(DEBUG) << __func__ << ": send: ";
         res_nclose(statp);

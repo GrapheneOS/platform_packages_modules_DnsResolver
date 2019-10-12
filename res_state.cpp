@@ -41,6 +41,7 @@
 #include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
+#include "resolv_static.h"
 
 typedef struct {
     // TODO: Have one __res_state per network so we don't have to repopulate frequently.
@@ -75,7 +76,7 @@ static void res_thread_free(void* _rt) {
     LOG(VERBOSE) << __func__ << ": rt=" << rt << " for thread=" << gettid();
 
     res_static_done(rt->_rstatic);
-    res_ndestroy(rt->_nres);
+    res_nclose(rt->_nres);
     free(rt);
 }
 

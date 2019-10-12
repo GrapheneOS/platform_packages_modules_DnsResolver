@@ -59,7 +59,6 @@
 #include <server_configurable_flags/get_flags.h>
 
 #include "res_debug.h"
-#include "res_state_ext.h"
 #include "resolv_private.h"
 
 using android::base::StringAppendF;
@@ -1488,7 +1487,10 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     for (int i = 0; i < numservers; i++) {
         // The addrinfo structures allocated here are freed in free_nameservers_locked().
         const addrinfo hints = {
-                .ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM, .ai_flags = AI_NUMERICHOST};
+                .ai_flags = AI_NUMERICHOST,
+                .ai_family = AF_UNSPEC,
+                .ai_socktype = SOCK_DGRAM,
+        };
         const int rt = getaddrinfo_numeric(nameservers[i].c_str(), "53", hints, &nsaddrinfo[i]);
         if (rt != 0) {
             for (int j = 0; j < i; j++) {
@@ -1582,8 +1584,8 @@ void _resolv_populate_res_for_net(res_state statp) {
                 break;
             }
 
-            if ((size_t) ai->ai_addrlen <= sizeof(statp->_u._ext.ext->nsaddrs[0])) {
-                memcpy(&statp->_u._ext.ext->nsaddrs[nserv], ai->ai_addr, ai->ai_addrlen);
+            if ((size_t)ai->ai_addrlen <= sizeof(statp->nsaddrs[0])) {
+                memcpy(&statp->nsaddrs[nserv], ai->ai_addr, ai->ai_addrlen);
             } else {
                 LOG(INFO) << __func__ << ": found too long addrlen";
             }

@@ -515,7 +515,11 @@ bool DNSResponder::startServer() {
     }
 
     // Set up UDP socket.
-    addrinfo ai_hints{.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM, .ai_flags = AI_PASSIVE};
+    addrinfo ai_hints{
+            .ai_flags = AI_PASSIVE,
+            .ai_family = AF_UNSPEC,
+            .ai_socktype = SOCK_DGRAM,
+    };
     addrinfo* ai_res = nullptr;
     int rv = getaddrinfo(listen_address_.c_str(), listen_service_.c_str(), &ai_hints, &ai_res);
     ScopedAddrinfo ai_res_cleanup(ai_res);
