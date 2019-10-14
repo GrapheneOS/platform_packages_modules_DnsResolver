@@ -109,11 +109,7 @@ bool AddressComparator::operator() (const DnsTlsServer& x, const DnsTlsServer& y
 
 // Returns a tuple of references to the elements of s.
 auto make_tie(const DnsTlsServer& s) {
-    return std::tie(
-        s.ss,
-        s.name,
-        s.protocol
-    );
+    return std::tie(s.ss, s.name, s.protocol, s.connectTimeout);
 }
 
 bool DnsTlsServer::operator <(const DnsTlsServer& other) const {

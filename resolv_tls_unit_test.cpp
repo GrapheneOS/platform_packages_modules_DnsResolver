@@ -791,6 +791,18 @@ TEST_F(ServerTest, Name) {
     EXPECT_TRUE(s2.wasExplicitlyConfigured());
 }
 
+TEST_F(ServerTest, Timeout) {
+    DnsTlsServer s1(V4ADDR1), s2(V4ADDR1);
+    s1.connectTimeout = std::chrono::milliseconds(4000);
+    checkUnequal(s1, s2);
+    s2.connectTimeout = std::chrono::milliseconds(4000);
+    EXPECT_EQ(s1, s2);
+    EXPECT_TRUE(isAddressEqual(s1, s2));
+
+    EXPECT_FALSE(s1.wasExplicitlyConfigured());
+    EXPECT_FALSE(s2.wasExplicitlyConfigured());
+}
+
 TEST(QueryMapTest, Basic) {
     DnsTlsQueryMap map;
 

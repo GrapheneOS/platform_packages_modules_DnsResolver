@@ -89,4 +89,10 @@ parcelable ResolverParamsParcel {
      *
      */
     @utf8InCpp String caCertificate;
+
+    /**
+     * The timeout for the connection attempt to a Private DNS server.
+     * It's initialized to 0 to use the predefined default value.
+     */
+    int tlsConnectTimeoutMs = 0;
 }
