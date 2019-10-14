@@ -55,6 +55,7 @@ class DnsTlsFrontend {
     void clearQueries() { queries_ = 0; }
     bool waitForQueries(int number, int timeoutMs) const;
     void set_chain_length(int length) { chain_length_ = length; }
+    void setHangOnHandshakeForTesting(bool hangOnHandshake) { hangOnHandshake_ = hangOnHandshake; }
 
   private:
     void requestHandler();
@@ -81,6 +82,7 @@ class DnsTlsFrontend {
     std::thread handler_thread_ GUARDED_BY(update_mutex_);
     std::mutex update_mutex_;
     int chain_length_ = 1;
+    std::atomic<bool> hangOnHandshake_ = false;
 };
 
 }  // namespace test
