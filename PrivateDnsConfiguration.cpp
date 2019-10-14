@@ -29,6 +29,8 @@
 #include "netd_resolv/resolv.h"
 #include "netdutils/BackoffSequence.h"
 
+using std::chrono::milliseconds;
+
 namespace android {
 namespace net {
 
@@ -59,9 +61,9 @@ bool parseServer(const char* server, sockaddr_storage* parsed) {
 
 int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
                                  const std::vector<std::string>& servers, const std::string& name,
-                                 const std::string& caCert) {
+                                 const std::string& caCert, int32_t connectTimeoutMs) {
     LOG(DEBUG) << "PrivateDnsConfiguration::set(" << netId << ", 0x" << std::hex << mark << std::dec
-               << ", " << servers.size() << ", " << name << ")";
+               << ", " << servers.size() << ", " << name << ", " << connectTimeoutMs << "ms)";
 
     // Parse the list of servers that has been passed in
     std::set<DnsTlsServer> tlsServers;
@@ -73,6 +75,15 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         DnsTlsServer server(parsed);
         server.name = name;
         server.certificate = caCert;
+
+        // connectTimeoutMs = 0: use the default timeout value.
+        // connectTimeoutMs < 0: invalid timeout value.
+        if (connectTimeoutMs > 0) {
+            // Set a specific timeout value but limit it to be at least 1 second.
+            server.connectTimeout =
+                    (connectTimeoutMs < 1000) ? milliseconds(1000) : milliseconds(connectTimeoutMs);
+        }
+
         tlsServers.insert(server);
     }
 
