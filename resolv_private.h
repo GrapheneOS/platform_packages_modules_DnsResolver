@@ -86,6 +86,7 @@ union sockaddr_union {
     struct sockaddr_in sin;
     struct sockaddr_in6 sin6;
 };
+constexpr int MAXPACKET = 8 * 1024;
 
 struct ResState {
     unsigned netid;                           // NetId: cache key and socket mark
@@ -193,6 +194,13 @@ inline void resolv_tag_socket(int sock, uid_t uid, pid_t pid) {
     if (fchown(sock, uid, -1) == -1) {
         LOG(WARNING) << "Failed to chown socket: " << strerror(errno);
     }
+}
+
+inline std::string addrToString(const sockaddr_storage* addr) {
+    char out[INET6_ADDRSTRLEN] = {0};
+    getnameinfo((const sockaddr*)addr, sizeof(sockaddr_storage), out, INET6_ADDRSTRLEN, nullptr, 0,
+                NI_NUMERICHOST);
+    return std::string(out);
 }
 
 #endif  // NETD_RESOLV_PRIVATE_H
