@@ -17,6 +17,7 @@
 #ifndef _DNS_DNSTLSSERVER_H
 #define _DNS_DNSTLSSERVER_H
 
+#include <chrono>
 #include <set>
 #include <string>
 #include <vector>
@@ -57,6 +58,11 @@ struct DnsTlsServer {
 
     // Placeholder.  More protocols might be defined in the future.
     int protocol = IPPROTO_TCP;
+
+    // The time to wait for the attempt on connecting to the server.
+    // Set the default value 127 seconds to be consistent with TCP connect timeout.
+    // (presume net.ipv4.tcp_syn_retries = 6)
+    std::chrono::milliseconds connectTimeout = std::chrono::milliseconds(127 * 1000);
 
     // Exact comparison of DnsTlsServer objects
     bool operator<(const DnsTlsServer& other) const;

@@ -103,6 +103,7 @@ static ResolverParamsParcel makeResolverParamsParcel(int netId, const std::vecto
     paramsParcel.tlsServers = tlsServers;
     paramsParcel.tlsFingerprints = {};
     paramsParcel.caCertificate = caCert;
+    paramsParcel.tlsConnectTimeoutMs = 1000;
 
     return paramsParcel;
 }
