@@ -107,5 +107,6 @@ std::string ToString(const hostent* he);
 std::string ToString(const addrinfo* ai);
 std::string ToString(const android::netdutils::ScopedAddrinfo& ai);
 std::string ToString(const sockaddr_storage* addr);
+std::vector<std::string> ToStrings(const hostent* he);
 std::vector<std::string> ToStrings(const addrinfo* ai);
 std::vector<std::string> ToStrings(const android::netdutils::ScopedAddrinfo& ai);

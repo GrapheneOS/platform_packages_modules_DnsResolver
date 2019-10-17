@@ -26,12 +26,13 @@
 #include <gtest/gtest.h>
 
 #include "PrivateDnsConfiguration.h"
-#include "dns_responder/dns_responder.h"
-#include "dns_responder_client.h"
 #include "getaddrinfo.h"
+#include "gethnamaddr.h"
 #include "golddata.pb.h"
 #include "resolv_cache.h"
 #include "resolv_test_utils.h"
+#include "tests/dns_responder/dns_responder.h"
+#include "tests/dns_responder/dns_responder_client_ndk.h"
 #include "tests/dns_responder/dns_tls_certificate.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
 
@@ -43,6 +44,10 @@ using std::chrono::milliseconds;
 
 enum class DnsProtocol { CLEARTEXT, TLS };
 
+// The buffer size of resolv_gethostbyname().
+// TODO: Consider moving to packages/modules/DnsResolver/tests/resolv_test_utils.h.
+constexpr unsigned int MAXPACKET = 8 * 1024;
+
 const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/";
 const std::vector<std::string> kGoldFilesGetAddrInfo = {
         "getaddrinfo.topsite.google.pbtxt",    "getaddrinfo.topsite.youtube.pbtxt",
@@ -51,6 +56,9 @@ const std::vector<std::string> kGoldFilesGetAddrInfo = {
         "getaddrinfo.topsite.wikipedia.pbtxt", "getaddrinfo.topsite.ebay.pbtxt",
         "getaddrinfo.topsite.netflix.pbtxt",   "getaddrinfo.topsite.bing.pbtxt"};
 const std::vector<std::string> kGoldFilesGetAddrInfoTls = {"getaddrinfo.tls.topsite.google.pbtxt"};
+const std::vector<std::string> kGoldFilesGetHostByName = {"gethostbyname.topsite.youtube.pbtxt"};
+const std::vector<std::string> kGoldFilesGetHostByNameTls = {
+        "gethostbyname.tls.topsite.youtube.pbtxt"};
 
 // Fixture test class definition.
 class TestBase : public ::testing::Test {
@@ -67,8 +75,8 @@ class TestBase : public ::testing::Test {
         resolv_delete_cache_for_net(TEST_NETID);
     }
 
-    void SetResolverConfiguration(const std::vector<std::string>& servers = {},
-                                  const std::vector<std::string>& domains = {},
+    void SetResolverConfiguration(const std::vector<std::string>& servers,
+                                  const std::vector<std::string>& domains,
                                   const std::vector<std::string>& tlsServers = {},
                                   const std::string& tlsHostname = "",
                                   const std::string& caCert = "") {
@@ -177,6 +185,20 @@ class TestBase : public ::testing::Test {
         VerifyAddress(goldtest, result);
     }
 
+    void VerifyGetHostByName(const android::net::GoldTest& goldtest, const DnsProtocol protocol) {
+        ASSERT_TRUE(goldtest.config().has_hostbyname());
+        const auto& args = goldtest.config().hostbyname();
+        hostent* hp = nullptr;
+        hostent hbuf;
+        char tmpbuf[MAXPACKET];
+        const android_net_context netcontext = GetNetContext(protocol);
+        NetworkDnsEventReported event;
+        const int rv = resolv_gethostbyname(args.host().c_str(), args.family(), &hbuf, tmpbuf,
+                                            sizeof(tmpbuf), &netcontext, &hp, &event);
+        ASSERT_EQ(rv, goldtest.result().return_code());
+        VerifyAddress(goldtest, hp);
+    }
+
     void VerifyResolver(const android::net::GoldTest& goldtest, const test::DNSResponder& dns,
                         const test::DnsTlsFrontend& tls, const DnsProtocol protocol) {
         size_t queries;
@@ -190,6 +212,12 @@ class TestBase : public ::testing::Test {
                 ASSERT_NO_FATAL_FAILURE(VerifyGetAddrInfo(goldtest, protocol));
                 queries = goldtest.config().addrinfo().family() == AF_UNSPEC ? 2U : 1U;
                 name = goldtest.config().addrinfo().host();
+                break;
+            case android::net::CallType::CALL_GETHOSTBYNAME:
+                ASSERT_TRUE(goldtest.config().has_hostbyname());
+                ASSERT_NO_FATAL_FAILURE(VerifyGetHostByName(goldtest, protocol));
+                queries = 1U;
+                name = goldtest.config().hostbyname().host();
                 break;
             default:
                 FAIL() << "Unsupported call type: " << calltype;
@@ -358,6 +386,16 @@ INSTANTIATE_TEST_SUITE_P(GetAddrInfo, ResolvGoldTest,
 INSTANTIATE_TEST_SUITE_P(GetAddrInfoTls, ResolvGoldTest,
                          ::testing::Combine(::testing::Values(DnsProtocol::TLS),
                                             ::testing::ValuesIn(kGoldFilesGetAddrInfoTls)),
+                         ResolvGoldTest::Name);
+
+// GetHostByName tests.
+INSTANTIATE_TEST_SUITE_P(GetHostByName, ResolvGoldTest,
+                         ::testing::Combine(::testing::Values(DnsProtocol::CLEARTEXT),
+                                            ::testing::ValuesIn(kGoldFilesGetHostByName)),
+                         ResolvGoldTest::Name);
+INSTANTIATE_TEST_SUITE_P(GetHostByNameTls, ResolvGoldTest,
+                         ::testing::Combine(::testing::Values(DnsProtocol::TLS),
+                                            ::testing::ValuesIn(kGoldFilesGetHostByNameTls)),
                          ResolvGoldTest::Name);
 
 TEST_P(ResolvGoldTest, GoldData) {
