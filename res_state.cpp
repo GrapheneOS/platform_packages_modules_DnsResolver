@@ -41,33 +41,15 @@
 #include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
-#include "resolv_static.h"
 
 typedef struct {
     // TODO: Have one __res_state per network so we don't have to repopulate frequently.
     struct __res_state _nres[1];
-    struct res_static _rstatic[1];
 } _res_thread;
 
 static _res_thread* res_thread_alloc(void) {
     _res_thread* rt = (_res_thread*) calloc(1, sizeof(*rt));
-
-    if (rt) {
-        memset(rt->_rstatic, 0, sizeof rt->_rstatic);
-    }
     return rt;
-}
-
-static void res_static_done(struct res_static* rs) {
-    /* fortunately, there is nothing to do here, since the
-     * points in h_addr_ptrs and host_aliases should all
-     * point to 'hostbuf'
-     */
-    if (rs->hostf) { /* should not happen in theory, but just be safe */
-        fclose(rs->hostf);
-        rs->hostf = NULL;
-    }
-    free(rs->servent.s_aliases);
 }
 
 static void res_thread_free(void* _rt) {
@@ -75,7 +57,6 @@ static void res_thread_free(void* _rt) {
 
     LOG(VERBOSE) << __func__ << ": rt=" << rt << " for thread=" << gettid();
 
-    res_static_done(rt->_rstatic);
     res_nclose(rt->_nres);
     free(rt);
 }
@@ -111,10 +92,4 @@ res_state res_get_state(void) {
     _res_thread* rt = res_thread_get();
 
     return rt ? rt->_nres : NULL;
-}
-
-res_static* res_get_static(void) {
-    _res_thread* rt = res_thread_get();
-
-    return rt ? rt->_rstatic : NULL;
 }
