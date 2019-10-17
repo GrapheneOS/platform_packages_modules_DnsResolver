@@ -75,6 +75,7 @@ namespace {
 constexpr int MAX_QUERIES_PER_UID = 256;
 
 // Max packet size for answer, sync with getaddrinfo.c
+// TODO: switch to dynamically allocated buffers with std::vector
 constexpr int MAXPACKET = 8 * 1024;
 
 android::netdutils::OperationLimiter<uid_t> queryLimiter(MAX_QUERIES_PER_UID);
@@ -1033,7 +1034,8 @@ DnsProxyListener::GetHostByNameHandler::~GetHostByNameHandler() {
     free(mName);
 }
 
-void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, struct hostent** hpp,
+void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, hostent* hbuf, char* buf,
+                                                              size_t buflen, struct hostent** hpp,
                                                               NetworkDnsEventReported* event) {
     // Don't have to consider family AF_UNSPEC case because gethostbyname{, 2} only supports
     // family AF_INET or AF_INET6.
@@ -1051,7 +1053,7 @@ void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, struc
     // If caller wants IPv6 answers but no data, try to query IPv4 answers for synthesis
     const uid_t uid = mClient->getUid();
     if (queryLimiter.start(uid)) {
-        *rv = android_gethostbynamefornetcontext(mName, AF_INET, &mNetContext, hpp, event);
+        *rv = resolv_gethostbyname(mName, AF_INET, hbuf, buf, buflen, &mNetContext, hpp, event);
         queryLimiter.finish(uid);
         if (*rv) {
             *rv = EAI_NODATA;  // return original error code
@@ -1074,11 +1076,14 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     maybeFixupNetContext(&mNetContext);
     const uid_t uid = mClient->getUid();
     hostent* hp = nullptr;
+    hostent hbuf;
+    char tmpbuf[MAXPACKET];
     int32_t rv = 0;
     NetworkDnsEventReported event;
     initDnsEvent(&event);
     if (queryLimiter.start(uid)) {
-        rv = android_gethostbynamefornetcontext(mName, mAf, &mNetContext, &hp, &event);
+        rv = resolv_gethostbyname(mName, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
+                                  &event);
         queryLimiter.finish(uid);
     } else {
         rv = EAI_MEMORY;
@@ -1086,12 +1091,12 @@ void DnsProxyListener::GetHostByNameHandler::run() {
                    << ", max concurrent queries reached";
     }
 
-    doDns64Synthesis(&rv, &hp, &event);
+    doDns64Synthesis(&rv, &hbuf, tmpbuf, sizeof tmpbuf, &hp, &event);
     const int32_t latencyUs = saturate_cast<int32_t>(s.timeTakenUs());
     event.set_latency_micros(latencyUs);
     event.set_event_type(EVENT_GETHOSTBYNAME);
 
-    LOG(DEBUG) << "GetHostByNameHandler::run: errno: " << (hp ? "success" : strerror(errno));
+    LOG(DEBUG) << "GetHostByNameHandler::run: result: " << gai_strerror(rv);
 
     bool success = true;
     if (hp) {
@@ -1181,7 +1186,9 @@ DnsProxyListener::GetHostByAddrHandler::~GetHostByAddrHandler() {
     free(mAddress);
 }
 
-void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(struct hostent** hpp,
+void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(hostent* hbuf, char* buf,
+                                                                  size_t buflen,
+                                                                  struct hostent** hpp,
                                                                   NetworkDnsEventReported* event) {
     if (*hpp != nullptr || mAddressFamily != AF_INET6 || !mAddress) {
         return;
@@ -1210,14 +1217,14 @@ void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(struct hostent
     if (queryLimiter.start(uid)) {
         // Remove NAT64 prefix and do reverse DNS query
         struct in_addr v4addr = {.s_addr = v6addr.s6_addr32[3]};
-        android_gethostbyaddrfornetcontext(&v4addr, sizeof(v4addr), AF_INET, &mNetContext, hpp,
-                                           event);
+        resolv_gethostbyaddr(&v4addr, sizeof(v4addr), AF_INET, hbuf, buf, buflen, &mNetContext, hpp,
+                             event);
         queryLimiter.finish(uid);
         if (*hpp) {
             // Replace IPv4 address with original queried IPv6 address in place. The space has
             // reserved by dns_gethtbyaddr() and netbsd_gethostent_r() in
             // system/netd/resolv/gethnamaddr.cpp.
-            // Note that android_gethostbyaddrfornetcontext returns only one entry in result.
+            // Note that resolv_gethostbyaddr() returns only one entry in result.
             memcpy((*hpp)->h_addr_list[0], &v6addr, sizeof(v6addr));
             (*hpp)->h_addrtype = AF_INET6;
             (*hpp)->h_length = sizeof(struct in6_addr);
@@ -1232,12 +1239,14 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     maybeFixupNetContext(&mNetContext);
     const uid_t uid = mClient->getUid();
     hostent* hp = nullptr;
+    hostent hbuf;
+    char tmpbuf[MAXPACKET];
     int32_t rv = 0;
     NetworkDnsEventReported event;
     initDnsEvent(&event);
     if (queryLimiter.start(uid)) {
-        rv = android_gethostbyaddrfornetcontext(mAddress, mAddressLen, mAddressFamily, &mNetContext,
-                                                &hp, &event);
+        rv = resolv_gethostbyaddr(mAddress, mAddressLen, mAddressFamily, &hbuf, tmpbuf,
+                                  sizeof tmpbuf, &mNetContext, &hp, &event);
         queryLimiter.finish(uid);
     } else {
         rv = EAI_MEMORY;
@@ -1245,12 +1254,12 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
                    << ", max concurrent queries reached";
     }
 
-    doDns64ReverseLookup(&hp, &event);
+    doDns64ReverseLookup(&hbuf, tmpbuf, sizeof tmpbuf, &hp, &event);
     const int32_t latencyUs = saturate_cast<int32_t>(s.timeTakenUs());
     event.set_latency_micros(latencyUs);
     event.set_event_type(EVENT_GETHOSTBYADDR);
 
-    LOG(DEBUG) << "GetHostByAddrHandler::run: result: " << (hp ? "success" : gai_strerror(rv));
+    LOG(DEBUG) << "GetHostByAddrHandler::run: result: " << gai_strerror(rv);
 
     bool success = true;
     if (hp) {

@@ -42,7 +42,9 @@
 
 #include "hostent.h"
 #include "resolv_private.h"
-#include "resolv_static.h"
+
+constexpr int MAXALIASES = 35;
+constexpr int MAXADDRS = 35;
 
 #define ALIGNBYTES (sizeof(uintptr_t) - 1)
 #define ALIGN(p) (((uintptr_t)(p) + ALIGNBYTES) & ~ALIGNBYTES)
