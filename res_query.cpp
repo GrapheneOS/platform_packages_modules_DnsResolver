@@ -123,7 +123,8 @@ again:
 
     LOG(DEBUG) << __func__ << ": (" << cl << ", " << type << ")";
 
-    n = res_nmkquery(statp, QUERY, name, cl, type, NULL, 0, NULL, buf, sizeof(buf));
+    n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, 0, buf, sizeof(buf),
+                     statp->netcontext_flags);
     if (n > 0 &&
         (statp->netcontext_flags &
          (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
