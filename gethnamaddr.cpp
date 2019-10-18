@@ -74,6 +74,7 @@
 
 #include "hostent.h"
 #include "netd_resolv/resolv.h"
+#include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
 #include "stats.pb.h"
@@ -116,7 +117,7 @@ static void pad_v4v6_hostent(struct hostent* hp, char** bpp, char* ep);
 static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
                            const android_net_context* netcontext, getnamaddr* info,
                            NetworkDnsEventReported* event);
-static int dns_gethtbyname(const char* name, int af, getnamaddr* info);
+static int dns_gethtbyname(ResState* res, const char* name, int af, getnamaddr* info);
 
 #define BOUNDED_INCR(x)      \
     do {                     \
@@ -393,9 +394,8 @@ int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_
                          NetworkDnsEventReported* event) {
     getnamaddr info;
 
-    res_state res = res_get_state();
-    if (res == nullptr) return EAI_MEMORY;
-    res_setnetcontext(res, netcontext, event);
+    ResState res;
+    res_init(&res, netcontext, event);
 
     size_t size;
     switch (af) {
@@ -450,7 +450,7 @@ int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_
     info.buf = buf;
     info.buflen = buflen;
     if (_hf_gethtbyname2(name, af, &info)) {
-        int error = dns_gethtbyname(name, af, &info);
+        int error = dns_gethtbyname(&res, name, af, &info);
         if (error != 0) return error;
     }
     *result = hp;
@@ -652,7 +652,7 @@ static void pad_v4v6_hostent(struct hostent* hp, char** bpp, char* ep) {
                          });
 }
 
-static int dns_gethtbyname(const char* name, int addr_type, getnamaddr* info) {
+static int dns_gethtbyname(ResState* res, const char* name, int addr_type, getnamaddr* info) {
     int n, type;
     info->hp->h_addrtype = addr_type;
 
@@ -669,9 +669,6 @@ static int dns_gethtbyname(const char* name, int addr_type, getnamaddr* info) {
             return EAI_FAMILY;
     }
     auto buf = std::make_unique<querybuf>();
-
-    res_state res = res_get_state();
-    if (!res) return EAI_MEMORY;
 
     int he;
     n = res_nsearch(res, name, C_IN, type, buf->buf, (int)sizeof(buf->buf), &he);
@@ -734,12 +731,10 @@ static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
 
     auto buf = std::make_unique<querybuf>();
 
-    res_state res = res_get_state();
-    if (!res) return EAI_MEMORY;
-
-    res_setnetcontext(res, netcontext, event);
+    ResState res;
+    res_init(&res, netcontext, event);
     int he;
-    n = res_nquery(res, qbuf, C_IN, T_PTR, buf->buf, (int)sizeof(buf->buf), &he);
+    n = res_nquery(&res, qbuf, C_IN, T_PTR, buf->buf, (int)sizeof(buf->buf), &he);
     if (n < 0) {
         LOG(DEBUG) << __func__ << ": res_nquery failed (" << n << ")";
         // Note that res_nquery() doesn't set the pair NETDB_INTERNAL and errno.
