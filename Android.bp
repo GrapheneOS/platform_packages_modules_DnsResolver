@@ -50,7 +50,6 @@ cc_library {
         "res_mkquery.cpp",
         "res_query.cpp",
         "res_send.cpp",
-        "res_state.cpp",
         "res_stats.cpp",
         "Dns64Configuration.cpp",
         "DnsProxyListener.cpp",

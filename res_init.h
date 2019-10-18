@@ -15,5 +15,8 @@
  */
 #pragma once
 
-struct __res_state;
-void res_init(__res_state* statp);
+#include "resolv_private.h"
+
+// TODO: make this a constructor for ResState
+void res_init(ResState* res, const struct android_net_context* netcontext,
+              android::net::NetworkDnsEventReported* event);
