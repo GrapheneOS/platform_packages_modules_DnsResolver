@@ -87,7 +87,7 @@ union sockaddr_union {
     struct sockaddr_in6 sin6;
 };
 
-struct __res_state {
+struct ResState {
     unsigned netid;                           // NetId: cache key and socket mark
     uid_t uid;                                // uid of the app that sent the DNS lookup
     int nscount;                              // number of name srvers
@@ -103,7 +103,9 @@ struct __res_state {
     uint32_t netcontext_flags;
 };
 
-typedef struct __res_state* res_state;
+// TODO: remove these legacy aliases
+typedef ResState __res_state;
+typedef ResState* res_state;
 
 /* Retrieve a local copy of the stats for the given netid. The buffer must have space for
  * MAXNS __resolver_stats. Returns the revision id of the resolvers used.
@@ -140,9 +142,6 @@ void _res_stats_set_sample(res_sample* sample, time_t now, int rcode, int rtt);
 
 extern const char* const _res_opcodes[];
 
-/* Things involving an internal (static) resolver context. */
-struct __res_state* res_get_state(void);
-
 int res_hnok(const char*);
 int res_ownok(const char*);
 int res_mailok(const char*);
@@ -157,15 +156,11 @@ int res_queriesmatch(const uint8_t*, const uint8_t*, const uint8_t*, const uint8
 int res_nquery(res_state, const char*, int, int, uint8_t*, int, int*);
 int res_nsearch(res_state, const char*, int, int, uint8_t*, int, int*);
 int res_nquerydomain(res_state, const char*, const char*, int, int, uint8_t*, int, int*);
-int res_nmkquery(res_state, int, const char*, int, int, const uint8_t*, int, const uint8_t*,
-                 uint8_t*, int);
+int res_nmkquery(int op, const char* qname, int cl, int type, const uint8_t* data, int datalen,
+                 uint8_t* buf, int buflen, int netcontext_flags);
 int res_nsend(res_state, const uint8_t*, int, uint8_t*, int, int*, uint32_t);
 void res_nclose(res_state);
 int res_nopt(res_state, int, uint8_t*, int, int);
-
-struct android_net_context;
-void res_setnetcontext(res_state, const struct android_net_context*,
-                       android::net::NetworkDnsEventReported* event);
 
 int getaddrinfo_numeric(const char* hostname, const char* servname, addrinfo hints,
                         addrinfo** result);
