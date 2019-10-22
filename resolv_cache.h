@@ -28,12 +28,15 @@
 
 #pragma once
 
-#include "netd_resolv/resolv.h"
-
-#include <stddef.h>
-
 #include <unordered_map>
 #include <vector>
+
+#include <netdutils/DumpWriter.h>
+#include <netdutils/InternetAddresses.h>
+#include <stats.pb.h>
+
+#include "ResolverStats.h"
+#include "netd_resolv/params.h"
 
 // Sets the name server addresses to the provided ResState.
 // The name servers are retrieved from the cache which is associated
@@ -83,3 +86,12 @@ bool has_named_cache(unsigned netid);
 // Get the expiration time of a cache entry. Return 0 on success; otherwise, an negative error is
 // returned if the expiration time can't be acquired.
 int resolv_cache_get_expiration(unsigned netid, const std::vector<char>& query, time_t* expiration);
+
+// Set private DNS servers to DnsStats for a given network.
+int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::string>& servers);
+
+// Add a statistics record to DnsStats for a given network.
+bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& server,
+                      const android::net::DnsQueryEvent* record);
+
+void resolv_stats_dump(android::netdutils::DumpWriter& dw, unsigned netid);
