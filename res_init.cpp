@@ -98,6 +98,7 @@ void res_init(ResState* statp, const struct android_net_context* _Nonnull netcon
 
     statp->netid = netcontext->dns_netid;
     statp->uid = netcontext->uid;
+    statp->pid = netcontext->pid;
     statp->id = arc4random_uniform(65536);
     statp->_mark = netcontext->dns_mark;
     statp->netcontext_flags = netcontext->flags;

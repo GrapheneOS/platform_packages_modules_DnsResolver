@@ -147,7 +147,7 @@ bool hasPermissionToBypassPrivateDns(uid_t uid) {
     return false;
 }
 
-void maybeFixupNetContext(android_net_context* ctx) {
+void maybeFixupNetContext(android_net_context* ctx, pid_t pid) {
     if (requestingUseLocalNameservers(ctx->flags) && !hasPermissionToBypassPrivateDns(ctx->uid)) {
         // Not permitted; clear the flag.
         ctx->flags &= ~NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS;
@@ -161,6 +161,7 @@ void maybeFixupNetContext(android_net_context* ctx) {
             ctx->flags |= NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS;
         }
     }
+    ctx->pid = pid;
 }
 
 void addIpAddrWithinLimit(std::vector<std::string>* ip_addrs, const sockaddr* addr,
@@ -669,7 +670,7 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
 
     addrinfo* result = nullptr;
     Stopwatch s;
-    maybeFixupNetContext(&mNetContext);
+    maybeFixupNetContext(&mNetContext, mClient->getPid());
     const uid_t uid = mClient->getUid();
     int32_t rv = 0;
     NetworkDnsEventReported event;
@@ -856,7 +857,7 @@ void DnsProxyListener::ResNSendHandler::run() {
                << mNetContext.dns_mark << " " << mNetContext.uid << " " << mNetContext.flags << "}";
 
     Stopwatch s;
-    maybeFixupNetContext(&mNetContext);
+    maybeFixupNetContext(&mNetContext, mClient->getPid());
 
     // Decode
     std::vector<uint8_t> msg(MAXPACKET, 0);
@@ -1073,7 +1074,7 @@ void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, hoste
 
 void DnsProxyListener::GetHostByNameHandler::run() {
     Stopwatch s;
-    maybeFixupNetContext(&mNetContext);
+    maybeFixupNetContext(&mNetContext, mClient->getPid());
     const uid_t uid = mClient->getUid();
     hostent* hp = nullptr;
     hostent hbuf;
@@ -1236,7 +1237,7 @@ void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(hostent* hbuf,
 
 void DnsProxyListener::GetHostByAddrHandler::run() {
     Stopwatch s;
-    maybeFixupNetContext(&mNetContext);
+    maybeFixupNetContext(&mNetContext, mClient->getPid());
     const uid_t uid = mClient->getUid();
     hostent* hp = nullptr;
     hostent hbuf;
