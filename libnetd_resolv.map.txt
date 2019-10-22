@@ -22,6 +22,7 @@ LIBNETD_RESOLV {
   global:
     resolv_has_nameservers;
     resolv_init;
+    resolv_gethostbyaddr_from_local_cache;
   local:
     *;
 };
