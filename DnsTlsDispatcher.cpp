@@ -17,8 +17,11 @@
 #define LOG_TAG "resolv"
 
 #include "DnsTlsDispatcher.h"
+
 #include <netdutils/Stopwatch.h>
+
 #include "DnsTlsSocketFactory.h"
+#include "resolv_cache.h"
 #include "resolv_private.h"
 #include "stats.pb.h"
 
@@ -27,6 +30,7 @@
 namespace android {
 namespace net {
 
+using android::netdutils::IPSockAddr;
 using android::netdutils::Stopwatch;
 using netdutils::Slice;
 
@@ -112,19 +116,23 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
             case DnsTlsTransport::Response::success:
                 dnsQueryEvent->set_rcode(
                         static_cast<NsRcode>(reinterpret_cast<HEADER*>(ans.base())->rcode));
+                resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(server.ss), dnsQueryEvent);
                 return code;
             case DnsTlsTransport::Response::limit_error:
                 dnsQueryEvent->set_rcode(NS_R_INTERNAL_ERROR);
+                resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(server.ss), dnsQueryEvent);
                 return code;
             // These response codes might differ when trying other servers, so
             // keep iterating to see if we can get a different (better) result.
             case DnsTlsTransport::Response::network_error:
                 // Sync from res_tls_send in res_send.cpp
                 dnsQueryEvent->set_rcode(NS_R_TIMEOUT);
-                continue;
+                resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(server.ss), dnsQueryEvent);
+                break;
             case DnsTlsTransport::Response::internal_error:
                 dnsQueryEvent->set_rcode(NS_R_INTERNAL_ERROR);
-                continue;
+                resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(server.ss), dnsQueryEvent);
+                break;
             // No "default" statement.
         }
     }

@@ -28,6 +28,7 @@
 #include "ResolverEventReporter.h"
 #include "netd_resolv/resolv.h"
 #include "netdutils/BackoffSequence.h"
+#include "resolv_cache.h"
 
 using std::chrono::milliseconds;
 
@@ -95,6 +96,7 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
     } else {
         mPrivateDnsModes[netId] = PrivateDnsMode::OFF;
         mPrivateDnsTransports.erase(netId);
+        resolv_stats_set_servers_for_dot(netId, {});
         return 0;
     }
 
@@ -126,7 +128,8 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
             validatePrivateDnsProvider(server, tracker, netId, mark);
         }
     }
-    return 0;
+
+    return resolv_stats_set_servers_for_dot(netId, servers);
 }
 
 PrivateDnsStatus PrivateDnsConfiguration::getStatus(unsigned netId) {
