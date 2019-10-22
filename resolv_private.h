@@ -90,6 +90,7 @@ union sockaddr_union {
 struct ResState {
     unsigned netid;                           // NetId: cache key and socket mark
     uid_t uid;                                // uid of the app that sent the DNS lookup
+    pid_t pid;                                // pid of the app that sent the DNS lookup
     int nscount;                              // number of name srvers
     uint16_t id;                              // current message id
     std::vector<std::string> search_domains;  // domains to search
@@ -182,9 +183,9 @@ android::net::NsType getQueryType(const uint8_t* msg, size_t msgLen);
 
 android::net::IpVersion ipFamilyToIPVersion(int ipFamily);
 
-inline void resolv_tag_socket(int sock, uid_t uid) {
+inline void resolv_tag_socket(int sock, uid_t uid, pid_t pid) {
     if (android::net::gResNetdCallbacks.tagSocket != nullptr) {
-        if (int err = android::net::gResNetdCallbacks.tagSocket(sock, TAG_SYSTEM_DNS, uid)) {
+        if (int err = android::net::gResNetdCallbacks.tagSocket(sock, TAG_SYSTEM_DNS, uid, pid)) {
             LOG(WARNING) << "Failed to tag socket: " << strerror(-err);
         }
     }
