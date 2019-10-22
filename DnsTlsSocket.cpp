@@ -38,6 +38,7 @@
 #include <netdutils/SocketOption.h>
 #include <netdutils/ThreadUtil.h>
 
+#include "netd_resolv/resolv.h"
 #include "private/android_filesystem_config.h"  // AID_DNS
 #include "resolv_private.h"
 
@@ -95,7 +96,7 @@ Status DnsTlsSocket::tcpConnect() {
         return Status(errno);
     }
 
-    resolv_tag_socket(mSslFd.get(), AID_DNS);
+    resolv_tag_socket(mSslFd.get(), AID_DNS, NET_CONTEXT_INVALID_PID);
 
     const socklen_t len = sizeof(mMark);
     if (setsockopt(mSslFd.get(), SOL_SOCKET, SO_MARK, &mMark, len) == -1) {
