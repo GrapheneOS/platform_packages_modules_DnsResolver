@@ -104,7 +104,6 @@ struct ResState {
 };
 
 // TODO: remove these legacy aliases
-typedef ResState __res_state;
 typedef ResState* res_state;
 
 /* Retrieve a local copy of the stats for the given netid. The buffer must have space for

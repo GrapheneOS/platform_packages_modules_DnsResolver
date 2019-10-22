@@ -356,6 +356,7 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
             dw.decIndent();
         }
         dw.println("Concurrent DNS query timeout: %d", wait_for_pending_req_timeout_count[0]);
+        resolv_stats_dump(dw, netId);
     }
     dw.decIndent();
 }
