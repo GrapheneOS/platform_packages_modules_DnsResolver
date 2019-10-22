@@ -58,10 +58,15 @@
 
 #include <server_configurable_flags/get_flags.h>
 
+#include "DnsStats.h"
 #include "res_debug.h"
 #include "resolv_private.h"
 
 using android::base::StringAppendF;
+using android::net::DnsQueryEvent;
+using android::net::DnsStats;
+using android::netdutils::DumpWriter;
+using android::netdutils::IPSockAddr;
 
 /* This code implements a small and *simple* DNS resolver cache.
  *
@@ -939,6 +944,7 @@ struct resolv_cache_info {
     int wait_for_pending_req_timeout_count;
     // Map format: ReturnCode:rate_denom
     std::unordered_map<int, uint32_t> dns_event_subsampling_map;
+    std::unique_ptr<DnsStats> dnsStats;
 };
 
 /* gets cache associated with a network, or NULL if none exists */
@@ -1362,6 +1368,7 @@ int resolv_create_cache_for_net(unsigned netid) {
     cache_info->netid = netid;
     cache_info->cache = new Cache;
     cache_info->dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
+    cache_info->dnsStats.reset(new DnsStats());
     insert_cache_info_locked(cache_info);
 
     return 0;
@@ -1379,6 +1386,11 @@ void resolv_delete_cache_for_net(unsigned netid) {
             prev_cache_info->next = cache_info->next;
             delete cache_info->cache;
             free_nameservers_locked(cache_info);
+
+            // It won't be necessary after the memory of cache_info can be deallocated by the
+            // C++ delete expression.
+            cache_info->dnsStats.reset();
+
             free(cache_info);
             break;
         }
@@ -1538,6 +1550,18 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     // Always update the search paths. Cache-flushing however is not necessary,
     // since the stored cache entries do contain the domain, not just the host name.
     cache_info->search_domains = filter_domains(domains);
+
+    std::vector<IPSockAddr> serverSockAddrs;
+    serverSockAddrs.reserve(cache_info->nameservers.size());
+    for (const auto& server : cache_info->nameservers) {
+        serverSockAddrs.push_back(IPSockAddr::toIPSockAddr(server, 53));
+    }
+
+    if (!cache_info->dnsStats->setServers(serverSockAddrs, android::net::PROTO_TCP) ||
+        !cache_info->dnsStats->setServers(serverSockAddrs, android::net::PROTO_UDP)) {
+        LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
+        return -EINVAL;
+    }
 
     return 0;
 }
@@ -1779,4 +1803,42 @@ int resolv_cache_get_expiration(unsigned netid, const std::vector<char>& query,
 
     *expiration = e->expires;
     return 0;
+}
+
+int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::string>& servers) {
+    std::lock_guard guard(cache_mutex);
+    const auto info = find_cache_info_locked(netid);
+
+    if (info == nullptr) return -ENONET;
+
+    std::vector<IPSockAddr> serverSockAddrs;
+    serverSockAddrs.reserve(servers.size());
+    for (const auto& server : servers) {
+        serverSockAddrs.push_back(IPSockAddr::toIPSockAddr(server, 853));
+    }
+
+    if (!info->dnsStats->setServers(serverSockAddrs, android::net::PROTO_DOT)) {
+        LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& server,
+                      const DnsQueryEvent* record) {
+    if (record == nullptr) return false;
+
+    std::lock_guard guard(cache_mutex);
+    if (const auto info = find_cache_info_locked(netid); info != nullptr) {
+        return info->dnsStats->addStats(server, *record);
+    }
+    return false;
+}
+
+void resolv_stats_dump(DumpWriter& dw, unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    if (const auto info = find_cache_info_locked(netid); info != nullptr) {
+        info->dnsStats->dump(dw);
+    }
 }
