@@ -266,6 +266,7 @@ int getaddrinfo_numeric(const char* hostname, const char* servname, addrinfo hin
             .dns_netid = NETID_UNSET,
             .dns_mark = MARK_UNSET,
             .uid = NET_CONTEXT_INVALID_UID,
+            .pid = NET_CONTEXT_INVALID_PID,
     };
     NetworkDnsEventReported event;
     return android_getaddrinfofornetcontext(hostname, servname, &hints, &netcontext, result,

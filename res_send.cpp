@@ -130,6 +130,7 @@ using android::net::PrivateDnsModes;
 using android::net::PrivateDnsStatus;
 using android::net::PROTO_TCP;
 using android::net::PROTO_UDP;
+using android::netdutils::IPSockAddr;
 using android::netdutils::Slice;
 using android::netdutils::Stopwatch;
 
@@ -544,6 +545,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                     _res_stats_set_sample(&sample, now, *rcode, delay);
                     _resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, ns, &sample,
                                                             params.max_samples);
+                    resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(*nsap), dnsQueryEvent);
                 }
 
                 LOG(INFO) << __func__ << ": used send_vc " << n;
@@ -577,6 +579,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                     _res_stats_set_sample(&sample, now, *rcode, delay);
                     _resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, ns, &sample,
                                                             params.max_samples);
+                    resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(*nsap), dnsQueryEvent);
                 }
 
                 LOG(INFO) << __func__ << ": used send_dg " << n;
@@ -712,7 +715,7 @@ same_ns:
                     return -1;
             }
         }
-        resolv_tag_socket(statp->_vcsock, statp->uid);
+        resolv_tag_socket(statp->_vcsock, statp->uid, statp->pid);
         if (statp->_mark != MARK_UNSET) {
             if (setsockopt(statp->_vcsock, SOL_SOCKET, SO_MARK, &statp->_mark,
                            sizeof(statp->_mark)) < 0) {
@@ -955,7 +958,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
             }
         }
 
-        resolv_tag_socket(statp->nssocks[ns], statp->uid);
+        resolv_tag_socket(statp->nssocks[ns], statp->uid, statp->pid);
         if (statp->_mark != MARK_UNSET) {
             if (setsockopt(statp->nssocks[ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
                            sizeof(statp->_mark)) < 0) {
