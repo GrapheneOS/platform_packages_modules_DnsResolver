@@ -226,15 +226,6 @@ static struct timespec evNowTime(void) {
     return tsnow;
 }
 
-static struct iovec evConsIovec(void* buf, size_t cnt) {
-    struct iovec ret;
-
-    memset(&ret, 0xf5, sizeof ret);
-    ret.iov_base = buf;
-    ret.iov_len = cnt;
-    return ret;
-}
-
 // END: Code copied from ISC eventlib
 
 /* BIONIC-BEGIN: implement source port randomization */
@@ -669,7 +660,6 @@ static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int 
     struct sockaddr* nsap;
     int nsaplen;
     int truncating, connreset, n;
-    struct iovec iov[2];
     uint8_t* cp;
 
     LOG(INFO) << __func__ << ": using send_vc";
@@ -754,8 +744,10 @@ same_ns:
      * Send length & message
      */
     uint16_t len = htons(static_cast<uint16_t>(buflen));
-    iov[0] = evConsIovec(&len, INT16SZ);
-    iov[1] = evConsIovec((void*) buf, (size_t) buflen);
+    const iovec iov[] = {
+            {.iov_base = &len, .iov_len = INT16SZ},
+            {.iov_base = const_cast<uint8_t*>(buf), .iov_len = static_cast<size_t>(buflen)},
+    };
     if (writev(statp->_vcsock, iov, 2) != (INT16SZ + buflen)) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": write failed: ";
@@ -863,8 +855,8 @@ read_len:
 }
 
 /* return -1 on error (errno set), 0 on success */
-static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t salen,
-                                const struct timespec timeout) {
+static int connect_with_timeout(int sock, const sockaddr* nsap, socklen_t salen,
+                                const timespec timeout) {
     int res, origflags;
 
     origflags = fcntl(sock, F_GETFL, 0);
@@ -876,8 +868,8 @@ static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t
         goto done;
     }
     if (res != 0) {
-        struct timespec now = evNowTime();
-        struct timespec finish = evAddTime(now, timeout);
+        timespec now = evNowTime();
+        timespec finish = evAddTime(now, timeout);
         LOG(INFO) << __func__ << ": " << sock << " send_vc";
         res = retrying_poll(sock, POLLIN | POLLOUT, &finish);
         if (res <= 0) {
@@ -1102,6 +1094,7 @@ static void dump_error(const char* str, const struct sockaddr* address, int alen
     char hbuf[NI_MAXHOST];
     char sbuf[NI_MAXSERV];
     constexpr int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
+    const int err = errno;
 
     if (!WOULD_LOG(DEBUG)) return;
 
@@ -1111,6 +1104,7 @@ static void dump_error(const char* str, const struct sockaddr* address, int alen
         strncpy(sbuf, "?", sizeof(sbuf) - 1);
         sbuf[sizeof(sbuf) - 1] = '\0';
     }
+    errno = err;
     PLOG(DEBUG) << __func__ << ": " << str << " ([" << hbuf << "]." << sbuf << "): ";
 }
 
