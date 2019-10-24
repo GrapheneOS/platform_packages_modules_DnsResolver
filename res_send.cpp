@@ -440,6 +440,25 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         return -ESRCH;
     }
 
+    // DoT
+    if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
+        bool fallback = false;
+        resplen = res_tls_send(statp, Slice(const_cast<uint8_t*>(buf), buflen), Slice(ans, anssiz),
+                               rcode, &fallback);
+        if (resplen > 0) {
+            LOG(DEBUG) << __func__ << ": got answer from DoT";
+            res_pquery(ans, resplen);
+            if (cache_status == RESOLV_CACHE_NOTFOUND) {
+                resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
+            }
+            return resplen;
+        }
+        if (!fallback) {
+            _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
+            return -terrno;
+        }
+    }
+
     res_stats stats[MAXNS];
     res_params params;
     int revision_id = resolv_cache_get_resolver_stats(statp->netid, &params, stats);
@@ -477,28 +496,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             nsaplen = get_salen(nsap);
 
         same_ns:
-            // TODO: Since we expect there is only one DNS server being queried here while this
-            // function tries to query all of private DNS servers. Consider moving it to other
-            // reasonable place. In addition, maybe add stats for private DNS.
-            if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
-                bool fallback = false;
-                resplen = res_tls_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
-                                       Slice(ans, anssiz), rcode, &fallback);
-                if (resplen > 0) {
-                    LOG(DEBUG) << __func__ << ": got answer from DoT";
-                    res_pquery(ans, resplen);
-                    if (cache_status == RESOLV_CACHE_NOTFOUND) {
-                        resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
-                    }
-                    return resplen;
-                }
-                if (!fallback) {
-                    _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
-                    res_nclose(statp);
-                    return -terrno;
-                }
-            }
-
             static const int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
             char abuf[NI_MAXHOST];
             DnsQueryEvent* dnsQueryEvent = addDnsQueryEvent(statp->event);
