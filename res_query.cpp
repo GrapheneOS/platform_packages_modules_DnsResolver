@@ -89,12 +89,6 @@
 #include "resolv_cache.h"
 #include "resolv_private.h"
 
-#if PACKETSZ > 1024
-#define MAXPACKET PACKETSZ
-#else
-#define MAXPACKET 1024
-#endif
-
 /*
  * Formulate a normal query, send, and await answer.
  * Returned answer is placed in supplied buffer "answer".

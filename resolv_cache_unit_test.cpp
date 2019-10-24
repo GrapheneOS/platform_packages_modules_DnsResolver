@@ -43,7 +43,6 @@ constexpr int TEST_NETID_2 = 31;
 // Constant values sync'd from res_cache.cpp
 constexpr int DNS_HEADER_SIZE = 12;
 constexpr int MAX_ENTRIES = 64 * 2 * 5;
-constexpr int MAXPACKET = 8 * 1024;
 
 namespace {
 
@@ -97,13 +96,6 @@ std::vector<char> makeAnswer(const std::vector<char>& query, const char* rdata_s
 // Get the current time in unix timestamp since the Epoch.
 time_t currentTime() {
     return std::time(nullptr);
-}
-
-std::string addrToString(const sockaddr_storage* addr) {
-    char out[INET6_ADDRSTRLEN] = {0};
-    getnameinfo((const sockaddr*)addr, sizeof(sockaddr_storage), out, INET6_ADDRSTRLEN, nullptr, 0,
-                NI_NUMERICHOST);
-    return std::string(out);
 }
 
 // Comparison for res_stats. Simply check the count in the cache test.

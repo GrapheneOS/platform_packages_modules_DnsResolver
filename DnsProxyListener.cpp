@@ -74,10 +74,6 @@ namespace {
 // Limits the number of outstanding DNS queries by client UID.
 constexpr int MAX_QUERIES_PER_UID = 256;
 
-// Max packet size for answer, sync with getaddrinfo.c
-// TODO: switch to dynamically allocated buffers with std::vector
-constexpr int MAXPACKET = 8 * 1024;
-
 android::netdutils::OperationLimiter<uid_t> queryLimiter(MAX_QUERIES_PER_UID);
 
 void logArguments(int argc, char** argv) {
