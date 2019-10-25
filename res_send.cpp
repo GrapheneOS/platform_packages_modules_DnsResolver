@@ -83,7 +83,6 @@
 
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
-#include <netinet/in.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -110,6 +109,7 @@
 #include "res_init.h"
 #include "resolv_cache.h"
 #include "stats.pb.h"
+#include "util.h"
 
 // TODO: use the namespace something like android::netd_resolv for libnetd_resolv
 using android::net::CacheStatus;
@@ -136,7 +136,6 @@ using android::netdutils::Stopwatch;
 
 static DnsTlsDispatcher sDnsTlsDispatcher;
 
-static int get_salen(const struct sockaddr*);
 static struct sockaddr* get_nsaddr(res_state, size_t);
 static int send_vc(res_state, res_params* params, const uint8_t*, int, uint8_t*, int, int*, int,
                    time_t*, int*, int*);
@@ -427,7 +426,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     } else if (cache_status != RESOLV_CACHE_UNSUPPORTED) {
         // had a cache miss for a known network, so populate the thread private
         // data so the normal resolve path can do its thing
-        _resolv_populate_res_for_net(statp);
+        resolv_populate_res_for_net(statp);
     }
     if (statp->nscount == 0) {
         // We have no nameservers configured, so there's no point trying.
@@ -493,7 +492,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             int delay = 0;
             *rcode = RCODE_INTERNAL_ERROR;
             const sockaddr* nsap = get_nsaddr(statp, ns);
-            nsaplen = get_salen(nsap);
+            nsaplen = sockaddrSize(nsap);
 
         same_ns:
             static const int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
@@ -613,15 +612,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
 
 /* Private */
 
-static int get_salen(const struct sockaddr* sa) {
-    if (sa->sa_family == AF_INET)
-        return (sizeof(struct sockaddr_in));
-    else if (sa->sa_family == AF_INET6)
-        return (sizeof(struct sockaddr_in6));
-    else
-        return (0); /* unknown, die on connect */
-}
-
 static struct sockaddr* get_nsaddr(res_state statp, size_t n) {
     return (struct sockaddr*)(void*)&statp->nsaddrs[n];
 }
@@ -662,7 +652,7 @@ static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int 
     LOG(INFO) << __func__ << ": using send_vc";
 
     nsap = get_nsaddr(statp, (size_t) ns);
-    nsaplen = get_salen(nsap);
+    nsaplen = sockaddrSize(nsap);
 
     connreset = 0;
 same_ns:
@@ -930,7 +920,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
     int resplen, n, s;
 
     nsap = get_nsaddr(statp, (size_t) ns);
-    nsaplen = get_salen(nsap);
+    nsaplen = sockaddrSize(nsap);
     if (statp->nssocks[ns] == -1) {
         statp->nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         if (statp->nssocks[ns] < 0) {
@@ -1234,7 +1224,7 @@ int resolv_res_nsend(const android_net_context* netContext, const uint8_t* msg, 
     assert(event != nullptr);
     ResState res;
     res_init(&res, netContext, event);
-    _resolv_populate_res_for_net(&res);
+    resolv_populate_res_for_net(&res);
     *rcode = NOERROR;
     return res_nsend(&res, msg, msgLen, ans, ansLen, rcode, flags);
 }
