@@ -872,7 +872,7 @@ static int entry_equals(const Entry* e1, const Entry* e2) {
 /* Maximum time for a thread to wait for an pending request */
 constexpr int PENDING_REQUEST_TIMEOUT = 20;
 
-// lock protecting everything in the resolve_cache_info structs (next ptr, etc)
+// lock protecting everything in NetConfig.
 static std::mutex cache_mutex;
 static std::condition_variable cv;
 
@@ -976,8 +976,8 @@ struct Cache {
     } pending_requests{};
 };
 
-struct resolv_cache_info {
-    explicit resolv_cache_info(unsigned netId) : netid(netId) {
+struct NetConfig {
+    explicit NetConfig(unsigned netId) : netid(netId) {
         cache = std::make_unique<Cache>();
         dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
         dnsStats = std::make_unique<DnsStats>();
@@ -1173,8 +1173,8 @@ static void _cache_remove_expired(Cache* cache) {
     }
 }
 
-// gets a resolv_cache_info associated with a network, or NULL if not found
-static resolv_cache_info* find_cache_info_locked(unsigned netid) REQUIRES(cache_mutex);
+// Get a NetConfig associated with a network, or nullptr if not found.
+static NetConfig* find_netconfig_locked(unsigned netid) REQUIRES(cache_mutex);
 
 ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int querylen, void* answer,
                                       int answersize, int* answerlen, uint32_t flags) {
@@ -1236,7 +1236,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
                 return RESOLV_CACHE_NOTFOUND;
             }
             if (ret == false) {
-                resolv_cache_info* info = find_cache_info_locked(netid);
+                NetConfig* info = find_netconfig_locked(netid);
                 if (info != NULL) {
                     info->wait_for_pending_req_timeout_count++;
                 }
@@ -1422,72 +1422,72 @@ bool resolv_gethostbyaddr_from_cache(unsigned netid, char domain_name[], size_t 
     return false;
 }
 
-static std::unordered_map<unsigned, std::unique_ptr<resolv_cache_info>> sCacheInfoMap
+static std::unordered_map<unsigned, std::unique_ptr<NetConfig>> sNetConfigMap
         GUARDED_BY(cache_mutex);
 
-// Clears nameservers set for |cache_info| and clears the stats
-static void free_nameservers_locked(resolv_cache_info* cache_info);
+// Clears nameservers set for |netconfig| and clears the stats
+static void free_nameservers_locked(NetConfig* netconfig);
 // Order-insensitive comparison for the two set of servers.
 static bool resolv_is_nameservers_equal(const std::vector<std::string>& oldServers,
                                         const std::vector<std::string>& newServers);
-// clears the stats samples contained withing the given cache_info
-static void res_cache_clear_stats_locked(resolv_cache_info* cache_info);
+// clears the stats samples contained withing the given netconfig.
+static void res_cache_clear_stats_locked(NetConfig* netconfig);
 
 // public API for netd to query if name server is set on specific netid
 bool resolv_has_nameservers(unsigned netid) {
     std::lock_guard guard(cache_mutex);
-    resolv_cache_info* info = find_cache_info_locked(netid);
+    NetConfig* info = find_netconfig_locked(netid);
     return (info != nullptr) && (info->nscount > 0);
 }
 
 int resolv_create_cache_for_net(unsigned netid) {
     std::lock_guard guard(cache_mutex);
-    if (sCacheInfoMap.find(netid) != sCacheInfoMap.end()) {
+    if (sNetConfigMap.find(netid) != sNetConfigMap.end()) {
         LOG(ERROR) << __func__ << ": Cache is already created, netId: " << netid;
         return -EEXIST;
     }
 
-    sCacheInfoMap[netid] = std::make_unique<resolv_cache_info>(netid);
+    sNetConfigMap[netid] = std::make_unique<NetConfig>(netid);
     return 0;
 }
 
 void resolv_delete_cache_for_net(unsigned netid) {
     std::lock_guard guard(cache_mutex);
-    sCacheInfoMap.erase(netid);
+    sNetConfigMap.erase(netid);
 }
 
 int resolv_flush_cache_for_net(unsigned netid) {
     std::lock_guard guard(cache_mutex);
 
-    resolv_cache_info* cache_info = find_cache_info_locked(netid);
-    if (cache_info == nullptr) {
+    NetConfig* netconfig = find_netconfig_locked(netid);
+    if (netconfig == nullptr) {
         return -ENONET;
     }
-    cache_info->cache->flush();
+    netconfig->cache->flush();
 
     // Also clear the NS statistics.
-    res_cache_clear_stats_locked(cache_info);
+    res_cache_clear_stats_locked(netconfig);
     return 0;
 }
 
 std::vector<unsigned> resolv_list_caches() {
     std::lock_guard guard(cache_mutex);
     std::vector<unsigned> result;
-    result.reserve(sCacheInfoMap.size());
-    for (const auto& [netId, _] : sCacheInfoMap) {
+    result.reserve(sNetConfigMap.size());
+    for (const auto& [netId, _] : sNetConfigMap) {
         result.push_back(netId);
     }
     return result;
 }
 
 static Cache* find_named_cache_locked(unsigned netid) {
-    resolv_cache_info* info = find_cache_info_locked(netid);
+    NetConfig* info = find_netconfig_locked(netid);
     if (info != nullptr) return info->cache.get();
     return nullptr;
 }
 
-static resolv_cache_info* find_cache_info_locked(unsigned netid) {
-    if (auto it = sCacheInfoMap.find(netid); it != sCacheInfoMap.end()) {
+static NetConfig* find_netconfig_locked(unsigned netid) {
+    if (auto it = sNetConfigMap.find(netid); it != sNetConfigMap.end()) {
         return it->second.get();
     }
     return nullptr;
@@ -1566,41 +1566,41 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     }
 
     std::lock_guard guard(cache_mutex);
-    resolv_cache_info* cache_info = find_cache_info_locked(netid);
+    NetConfig* netconfig = find_netconfig_locked(netid);
 
-    if (cache_info == nullptr) return -ENONET;
+    if (netconfig == nullptr) return -ENONET;
 
-    uint8_t old_max_samples = cache_info->params.max_samples;
-    cache_info->params = params;
-    resolv_set_experiment_params(&cache_info->params);
-    if (!resolv_is_nameservers_equal(cache_info->nameservers, nameservers)) {
+    uint8_t old_max_samples = netconfig->params.max_samples;
+    netconfig->params = params;
+    resolv_set_experiment_params(&netconfig->params);
+    if (!resolv_is_nameservers_equal(netconfig->nameservers, nameservers)) {
         // free current before adding new
-        free_nameservers_locked(cache_info);
-        cache_info->nameservers = std::move(nameservers);
+        free_nameservers_locked(netconfig);
+        netconfig->nameservers = std::move(nameservers);
         for (int i = 0; i < numservers; i++) {
             LOG(INFO) << __func__ << ": netid = " << netid
-                      << ", addr = " << cache_info->nameservers[i];
+                      << ", addr = " << netconfig->nameservers[i];
         }
-        cache_info->nameserverSockAddrs = std::move(ipSockAddrs);
-        cache_info->nscount = numservers;
+        netconfig->nameserverSockAddrs = std::move(ipSockAddrs);
+        netconfig->nscount = numservers;
     } else {
-        if (cache_info->params.max_samples != old_max_samples) {
+        if (netconfig->params.max_samples != old_max_samples) {
             // If the maximum number of samples changes, the overhead of keeping the most recent
             // samples around is not considered worth the effort, so they are cleared instead.
             // All other parameters do not affect shared state: Changing these parameters does
             // not invalidate the samples, as they only affect aggregation and the conditions
             // under which servers are considered usable.
-            res_cache_clear_stats_locked(cache_info);
+            res_cache_clear_stats_locked(netconfig);
         }
     }
 
     // Always update the search paths. Cache-flushing however is not necessary,
     // since the stored cache entries do contain the domain, not just the host name.
-    cache_info->search_domains = filter_domains(domains);
+    netconfig->search_domains = filter_domains(domains);
 
     // Setup stats for cleartext dns servers.
-    if (!cache_info->dnsStats->setServers(cache_info->nameserverSockAddrs, PROTO_TCP) ||
-        !cache_info->dnsStats->setServers(cache_info->nameserverSockAddrs, PROTO_UDP)) {
+    if (!netconfig->dnsStats->setServers(netconfig->nameserverSockAddrs, PROTO_TCP) ||
+        !netconfig->dnsStats->setServers(netconfig->nameserverSockAddrs, PROTO_UDP)) {
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
@@ -1621,11 +1621,11 @@ static bool resolv_is_nameservers_equal(const std::vector<std::string>& oldServe
     return olds == news;
 }
 
-static void free_nameservers_locked(resolv_cache_info* cache_info) {
-    cache_info->nscount = 0;
-    cache_info->nameservers.clear();
-    cache_info->nameserverSockAddrs.clear();
-    res_cache_clear_stats_locked(cache_info);
+static void free_nameservers_locked(NetConfig* netconfig) {
+    netconfig->nscount = 0;
+    netconfig->nameservers.clear();
+    netconfig->nameserverSockAddrs.clear();
+    res_cache_clear_stats_locked(netconfig);
 }
 
 void resolv_populate_res_for_net(ResState* statp) {
@@ -1635,7 +1635,7 @@ void resolv_populate_res_for_net(ResState* statp) {
     LOG(INFO) << __func__ << ": netid=" << statp->netid;
 
     std::lock_guard guard(cache_mutex);
-    resolv_cache_info* info = find_cache_info_locked(statp->netid);
+    NetConfig* info = find_netconfig_locked(statp->netid);
     if (info == nullptr) return;
 
     // TODO: Convert nsaddrs[] to c++ container and remove the size-checking.
@@ -1673,17 +1673,17 @@ static void res_cache_add_stats_sample_locked(res_stats* stats, const res_sample
     }
 }
 
-static void res_cache_clear_stats_locked(resolv_cache_info* cache_info) {
+static void res_cache_clear_stats_locked(NetConfig* netconfig) {
     for (int i = 0; i < MAXNS; ++i) {
-        cache_info->nsstats[i].sample_count = 0;
-        cache_info->nsstats[i].sample_next = 0;
+        netconfig->nsstats[i].sample_count = 0;
+        netconfig->nsstats[i].sample_next = 0;
     }
 
     // Increment the revision id to ensure that sample state is not written back if the
     // servers change; in theory it would suffice to do so only if the servers or
     // max_samples actually change, in practice the overhead of checking is higher than the
     // cost, and overflows are unlikely.
-    ++cache_info->revision_id;
+    ++netconfig->revision_id;
 }
 
 int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
@@ -1694,7 +1694,7 @@ int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
     int revision_id = -1;
     std::lock_guard guard(cache_mutex);
 
-    resolv_cache_info* info = find_cache_info_locked(netid);
+    NetConfig* info = find_netconfig_locked(netid);
     if (info) {
         if (info->nscount > MAXNS) {
             LOG(INFO) << __func__ << ": nscount " << info->nscount << " > MAXNS " << MAXNS;
@@ -1732,10 +1732,10 @@ int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
 std::vector<std::string> resolv_cache_dump_subsampling_map(unsigned netid) {
     using android::base::StringPrintf;
     std::lock_guard guard(cache_mutex);
-    resolv_cache_info* cache_info = find_cache_info_locked(netid);
-    if (cache_info == nullptr) return {};
+    NetConfig* netconfig = find_netconfig_locked(netid);
+    if (netconfig == nullptr) return {};
     std::vector<std::string> result;
-    for (const auto& pair : cache_info->dns_event_subsampling_map) {
+    for (const auto& pair : netconfig->dns_event_subsampling_map) {
         result.push_back(StringPrintf("%s:%d",
                                       (pair.first == DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY)
                                               ? "default"
@@ -1751,9 +1751,9 @@ std::vector<std::string> resolv_cache_dump_subsampling_map(unsigned netid) {
 // Returns the subsampling rate if the event should be sampled, or 0 if it should be discarded.
 uint32_t resolv_cache_get_subsampling_denom(unsigned netid, int return_code) {
     std::lock_guard guard(cache_mutex);
-    resolv_cache_info* cache_info = find_cache_info_locked(netid);
-    if (cache_info == nullptr) return 0;  // Don't log anything at all.
-    const auto& subsampling_map = cache_info->dns_event_subsampling_map;
+    NetConfig* netconfig = find_netconfig_locked(netid);
+    if (netconfig == nullptr) return 0;  // Don't log anything at all.
+    const auto& subsampling_map = netconfig->dns_event_subsampling_map;
     auto search_returnCode = subsampling_map.find(return_code);
     uint32_t denom;
     if (search_returnCode != subsampling_map.end()) {
@@ -1767,7 +1767,7 @@ uint32_t resolv_cache_get_subsampling_denom(unsigned netid, int return_code) {
 
 int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stats stats[MAXNS]) {
     std::lock_guard guard(cache_mutex);
-    resolv_cache_info* info = find_cache_info_locked(netid);
+    NetConfig* info = find_netconfig_locked(netid);
     if (info) {
         memcpy(stats, info->nsstats, sizeof(info->nsstats));
         *params = info->params;
@@ -1782,7 +1782,7 @@ void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, con
     if (max_samples <= 0 || sa == nullptr) return;
 
     std::lock_guard guard(cache_mutex);
-    resolv_cache_info* info = find_cache_info_locked(netid);
+    NetConfig* info = find_netconfig_locked(netid);
 
     if (info && info->revision_id == revision_id) {
         const int serverNum = std::min(MAXNS, static_cast<int>(info->nameserverSockAddrs.size()));
@@ -1837,7 +1837,7 @@ int resolv_cache_get_expiration(unsigned netid, const std::vector<char>& query,
 
 int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::string>& servers) {
     std::lock_guard guard(cache_mutex);
-    const auto info = find_cache_info_locked(netid);
+    const auto info = find_netconfig_locked(netid);
 
     if (info == nullptr) return -ENONET;
 
@@ -1860,7 +1860,7 @@ bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& serv
     if (record == nullptr) return false;
 
     std::lock_guard guard(cache_mutex);
-    if (const auto info = find_cache_info_locked(netid); info != nullptr) {
+    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
         return info->dnsStats->addStats(server, *record);
     }
     return false;
@@ -1868,7 +1868,7 @@ bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& serv
 
 void resolv_stats_dump(DumpWriter& dw, unsigned netid) {
     std::lock_guard guard(cache_mutex);
-    if (const auto info = find_cache_info_locked(netid); info != nullptr) {
+    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
         info->dnsStats->dump(dw);
     }
 }

@@ -902,7 +902,7 @@ TEST_F(ResolvCacheTest, DnsEventSubsampling) {
     }
 }
 
-// TODO: Tests for struct resolv_cache_info, including:
+// TODO: Tests for NetConfig, including:
 //     - res_params
 //         -- resolv_cache_get_resolver_stats()
 //     - res_stats
