@@ -51,6 +51,7 @@ cc_library {
         "res_query.cpp",
         "res_send.cpp",
         "res_stats.cpp",
+        "util.cpp",
         "Dns64Configuration.cpp",
         "DnsProxyListener.cpp",
         "DnsResolver.cpp",
