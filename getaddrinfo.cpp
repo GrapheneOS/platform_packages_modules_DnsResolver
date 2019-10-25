@@ -1697,7 +1697,7 @@ static int res_searchN(const char* name, res_target* target, res_state res, int*
          * the domain stuff is tried.  Will have a better
          * fix after thread pools are used.
          */
-        _resolv_populate_res_for_net(res);
+        resolv_populate_res_for_net(res);
 
         for (const auto& domain : res->search_domains) {
             ret = res_querydomainN(name, domain.c_str(), target, res, herrno);
