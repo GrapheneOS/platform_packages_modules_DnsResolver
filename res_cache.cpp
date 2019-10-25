@@ -876,6 +876,49 @@ constexpr int PENDING_REQUEST_TIMEOUT = 20;
 static std::mutex cache_mutex;
 static std::condition_variable cv;
 
+namespace {
+
+// Map format: ReturnCode:rate_denom
+// if the ReturnCode is not associated with any rate_denom, use default
+// Sampling rate varies by return code; events to log are chosen randomly, with a
+// probability proportional to the sampling rate.
+constexpr const char DEFAULT_SUBSAMPLING_MAP[] = "default:1 0:100 7:10";
+
+std::unordered_map<int, uint32_t> resolv_get_dns_event_subsampling_map() {
+    using android::base::ParseInt;
+    using android::base::ParseUint;
+    using android::base::Split;
+    using server_configurable_flags::GetServerConfigurableFlag;
+    std::unordered_map<int, uint32_t> sampling_rate_map{};
+    std::vector<std::string> subsampling_vector =
+            Split(GetServerConfigurableFlag("netd_native", "dns_event_subsample_map",
+                                            DEFAULT_SUBSAMPLING_MAP),
+                  " ");
+    for (const auto& pair : subsampling_vector) {
+        std::vector<std::string> rate_denom = Split(pair, ":");
+        int return_code;
+        uint32_t denom;
+        if (rate_denom.size() != 2) {
+            LOG(ERROR) << __func__ << ": invalid subsampling_pair = " << pair;
+            continue;
+        }
+        if (rate_denom[0] == "default") {
+            return_code = DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY;
+        } else if (!ParseInt(rate_denom[0], &return_code)) {
+            LOG(ERROR) << __func__ << ": parse subsampling_pair failed = " << pair;
+            continue;
+        }
+        if (!ParseUint(rate_denom[1], &denom)) {
+            LOG(ERROR) << __func__ << ": parse subsampling_pair failed = " << pair;
+            continue;
+        }
+        sampling_rate_map[return_code] = denom;
+    }
+    return sampling_rate_map;
+}
+
+}  // namespace
+
 // Note that Cache is not thread-safe per se, access to its members must be protected
 // by an external mutex.
 //
@@ -934,9 +977,14 @@ struct Cache {
 };
 
 struct resolv_cache_info {
-    unsigned netid = 0;
-    Cache* cache = nullptr;  // TODO: use unique_ptr or embed
-    resolv_cache_info* next = nullptr;
+    explicit resolv_cache_info(unsigned netId) : netid(netId) {
+        cache = std::make_unique<Cache>();
+        dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
+        dnsStats = std::make_unique<DnsStats>();
+    }
+
+    const unsigned netid;
+    std::unique_ptr<Cache> cache;
     int nscount = 0;
     std::vector<std::string> nameservers;
     std::vector<IPSockAddr> nameserverSockAddrs;
@@ -1374,11 +1422,9 @@ bool resolv_gethostbyaddr_from_cache(unsigned netid, char domain_name[], size_t 
     return false;
 }
 
-// Head of the list of caches.
-static struct resolv_cache_info res_cache_list GUARDED_BY(cache_mutex);
+static std::unordered_map<unsigned, std::unique_ptr<resolv_cache_info>> sCacheInfoMap
+        GUARDED_BY(cache_mutex);
 
-// insert resolv_cache_info into the list of resolv_cache_infos
-static void insert_cache_info_locked(resolv_cache_info* cache_info);
 // Clears nameservers set for |cache_info| and clears the stats
 static void free_nameservers_locked(resolv_cache_info* cache_info);
 // Order-insensitive comparison for the two set of servers.
@@ -1394,86 +1440,20 @@ bool resolv_has_nameservers(unsigned netid) {
     return (info != nullptr) && (info->nscount > 0);
 }
 
-namespace {
-
-// Map format: ReturnCode:rate_denom
-// if the ReturnCode is not associated with any rate_denom, use default
-// Sampling rate varies by return code; events to log are chosen randomly, with a
-// probability proportional to the sampling rate.
-constexpr const char DEFAULT_SUBSAMPLING_MAP[] = "default:1 0:100 7:10";
-
-std::unordered_map<int, uint32_t> resolv_get_dns_event_subsampling_map() {
-    using android::base::ParseInt;
-    using android::base::ParseUint;
-    using android::base::Split;
-    using server_configurable_flags::GetServerConfigurableFlag;
-    std::unordered_map<int, uint32_t> sampling_rate_map{};
-    std::vector<std::string> subsampling_vector =
-            Split(GetServerConfigurableFlag("netd_native", "dns_event_subsample_map",
-                                            DEFAULT_SUBSAMPLING_MAP),
-                  " ");
-    for (const auto& pair : subsampling_vector) {
-        std::vector<std::string> rate_denom = Split(pair, ":");
-        int return_code;
-        uint32_t denom;
-        if (rate_denom.size() != 2) {
-            LOG(ERROR) << __func__ << ": invalid subsampling_pair = " << pair;
-            continue;
-        }
-        if (rate_denom[0] == "default") {
-            return_code = DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY;
-        } else if (!ParseInt(rate_denom[0], &return_code)) {
-            LOG(ERROR) << __func__ << ": parse subsampling_pair failed = " << pair;
-            continue;
-        }
-        if (!ParseUint(rate_denom[1], &denom)) {
-            LOG(ERROR) << __func__ << ": parse subsampling_pair failed = " << pair;
-            continue;
-        }
-        sampling_rate_map[return_code] = denom;
-    }
-    return sampling_rate_map;
-}
-
-}  // namespace
-
 int resolv_create_cache_for_net(unsigned netid) {
     std::lock_guard guard(cache_mutex);
-    Cache* cache = find_named_cache_locked(netid);
-    // Should not happen
-    if (cache) {
+    if (sCacheInfoMap.find(netid) != sCacheInfoMap.end()) {
         LOG(ERROR) << __func__ << ": Cache is already created, netId: " << netid;
         return -EEXIST;
     }
 
-    resolv_cache_info* cache_info = new resolv_cache_info;
-    cache_info->netid = netid;
-    cache_info->cache = new Cache;
-    cache_info->dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
-    cache_info->dnsStats.reset(new DnsStats());
-    insert_cache_info_locked(cache_info);
-
+    sCacheInfoMap[netid] = std::make_unique<resolv_cache_info>(netid);
     return 0;
 }
 
 void resolv_delete_cache_for_net(unsigned netid) {
     std::lock_guard guard(cache_mutex);
-
-    struct resolv_cache_info* prev_cache_info = &res_cache_list;
-
-    while (prev_cache_info->next) {
-        struct resolv_cache_info* cache_info = prev_cache_info->next;
-
-        if (cache_info->netid == netid) {
-            prev_cache_info->next = cache_info->next;
-            delete cache_info->cache;
-            free_nameservers_locked(cache_info);
-            delete cache_info;
-            break;
-        }
-
-        prev_cache_info = prev_cache_info->next;
-    }
+    sCacheInfoMap.erase(netid);
 }
 
 int resolv_flush_cache_for_net(unsigned netid) {
@@ -1492,39 +1472,25 @@ int resolv_flush_cache_for_net(unsigned netid) {
 
 std::vector<unsigned> resolv_list_caches() {
     std::lock_guard guard(cache_mutex);
-    struct resolv_cache_info* cache_info = res_cache_list.next;
     std::vector<unsigned> result;
-    while (cache_info) {
-        result.push_back(cache_info->netid);
-        cache_info = cache_info->next;
+    result.reserve(sCacheInfoMap.size());
+    for (const auto& [netId, _] : sCacheInfoMap) {
+        result.push_back(netId);
     }
     return result;
 }
 
-// TODO: convert this to a simple and efficient C++ container.
-static void insert_cache_info_locked(struct resolv_cache_info* cache_info) {
-    struct resolv_cache_info* last;
-    for (last = &res_cache_list; last->next; last = last->next) {}
-    last->next = cache_info;
-}
-
 static Cache* find_named_cache_locked(unsigned netid) {
     resolv_cache_info* info = find_cache_info_locked(netid);
-    if (info != nullptr) return info->cache;
+    if (info != nullptr) return info->cache.get();
     return nullptr;
 }
 
 static resolv_cache_info* find_cache_info_locked(unsigned netid) {
-    struct resolv_cache_info* cache_info = res_cache_list.next;
-
-    while (cache_info) {
-        if (cache_info->netid == netid) {
-            break;
-        }
-
-        cache_info = cache_info->next;
+    if (auto it = sCacheInfoMap.find(netid); it != sCacheInfoMap.end()) {
+        return it->second.get();
     }
-    return cache_info;
+    return nullptr;
 }
 
 static void resolv_set_experiment_params(res_params* params) {
