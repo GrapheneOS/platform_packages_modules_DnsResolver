@@ -933,19 +933,18 @@ struct Cache {
     } pending_requests{};
 };
 
-// TODO: allocate with new
 struct resolv_cache_info {
-    unsigned netid;
-    Cache* cache;  // TODO: use unique_ptr or embed
-    struct resolv_cache_info* next;
-    int nscount;
+    unsigned netid = 0;
+    Cache* cache = nullptr;  // TODO: use unique_ptr or embed
+    resolv_cache_info* next = nullptr;
+    int nscount = 0;
     std::vector<std::string> nameservers;
     std::vector<IPSockAddr> nameserverSockAddrs;
-    int revision_id;  // # times the nameservers have been replaced
-    res_params params;
-    struct res_stats nsstats[MAXNS];
+    int revision_id = 0;  // # times the nameservers have been replaced
+    res_params params{};
+    res_stats nsstats[MAXNS]{};
     std::vector<std::string> search_domains;
-    int wait_for_pending_req_timeout_count;
+    int wait_for_pending_req_timeout_count = 0;
     // Map format: ReturnCode:rate_denom
     std::unordered_map<int, uint32_t> dns_event_subsampling_map;
     std::unique_ptr<DnsStats> dnsStats;
@@ -1380,8 +1379,6 @@ static struct resolv_cache_info res_cache_list GUARDED_BY(cache_mutex);
 
 // insert resolv_cache_info into the list of resolv_cache_infos
 static void insert_cache_info_locked(resolv_cache_info* cache_info);
-// creates a resolv_cache_info
-static resolv_cache_info* create_cache_info();
 // Clears nameservers set for |cache_info| and clears the stats
 static void free_nameservers_locked(resolv_cache_info* cache_info);
 // Order-insensitive comparison for the two set of servers.
@@ -1449,8 +1446,7 @@ int resolv_create_cache_for_net(unsigned netid) {
         return -EEXIST;
     }
 
-    resolv_cache_info* cache_info = create_cache_info();
-    if (!cache_info) return -ENOMEM;
+    resolv_cache_info* cache_info = new resolv_cache_info;
     cache_info->netid = netid;
     cache_info->cache = new Cache;
     cache_info->dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
@@ -1472,12 +1468,7 @@ void resolv_delete_cache_for_net(unsigned netid) {
             prev_cache_info->next = cache_info->next;
             delete cache_info->cache;
             free_nameservers_locked(cache_info);
-
-            // It won't be necessary after the memory of cache_info can be deallocated by the
-            // C++ delete expression.
-            cache_info->dnsStats.reset();
-
-            free(cache_info);
+            delete cache_info;
             break;
         }
 
@@ -1508,10 +1499,6 @@ std::vector<unsigned> resolv_list_caches() {
         cache_info = cache_info->next;
     }
     return result;
-}
-
-static resolv_cache_info* create_cache_info() {
-    return (struct resolv_cache_info*) calloc(sizeof(struct resolv_cache_info), 1);
 }
 
 // TODO: convert this to a simple and efficient C++ container.
