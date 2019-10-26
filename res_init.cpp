@@ -112,7 +112,7 @@ void res_init(ResState* statp, const struct android_net_context* _Nonnull netcon
     }
 
     // The following dummy initialization is probably useless because
-    // it's overwritten later by _resolv_populate_res_for_net().
+    // it's overwritten later by resolv_populate_res_for_net().
     // TODO: check if it's safe to remove.
     const sockaddr_union u{
             .sin.sin_addr.s_addr = INADDR_ANY,

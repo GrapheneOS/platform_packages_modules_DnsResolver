@@ -89,12 +89,6 @@
 #include "resolv_cache.h"
 #include "resolv_private.h"
 
-#if PACKETSZ > 1024
-#define MAXPACKET PACKETSZ
-#else
-#define MAXPACKET 1024
-#endif
-
 /*
  * Formulate a normal query, send, and await answer.
  * Returned answer is placed in supplied buffer "answer".
@@ -256,7 +250,7 @@ int res_nsearch(res_state statp, const char* name, /* domain name */
          * be loaded once for the thread instead of each
          * time a query is tried.
          */
-        _resolv_populate_res_for_net(statp);
+        resolv_populate_res_for_net(statp);
 
         for (const auto& domain : statp->search_domains) {
             if (domain == "." || domain == "") ++root_on_list;

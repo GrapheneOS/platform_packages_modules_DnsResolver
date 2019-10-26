@@ -108,20 +108,13 @@ const Explore explore_options[] = {
 };
 
 #define PTON_MAX 16
-#define MAXPACKET (8 * 1024)
-
-typedef union {
-    HEADER hdr;
-    uint8_t buf[MAXPACKET];
-} querybuf;
 
 struct res_target {
     struct res_target* next;
-    const char* name;  /* domain name */
-    int qclass, qtype; /* class and type of query */
-    uint8_t* answer;   /* buffer to put answer */
-    int anslen;        /* size of answer buffer */
-    int n;             /* result length */
+    const char* name;                                                  // domain name
+    int qclass, qtype;                                                 // class and type of query
+    std::vector<uint8_t> answer = std::vector<uint8_t>(MAXPACKET, 0);  // buffer to put answer
+    int n = 0;                                                         // result length
 };
 
 static int str2number(const char*);
@@ -139,8 +132,8 @@ static int get_port(const struct addrinfo*, const char*, int);
 static const struct afd* find_afd(int);
 static int ip6_str2scopeid(const char*, struct sockaddr_in6*, uint32_t*);
 
-static struct addrinfo* getanswer(const querybuf*, int, const char*, int, const struct addrinfo*,
-                                  int* herrno);
+static struct addrinfo* getanswer(const std::vector<uint8_t>&, int, const char*, int,
+                                  const struct addrinfo*, int* herrno);
 static int dns_getaddrinfo(const char* name, const addrinfo* pai,
                            const android_net_context* netcontext, addrinfo** rv,
                            NetworkDnsEventReported* event);
@@ -838,8 +831,8 @@ static int ip6_str2scopeid(const char* scope, struct sockaddr_in6* sin6, uint32_
         }                            \
     } while (0)
 
-static struct addrinfo* getanswer(const querybuf* answer, int anslen, const char* qname, int qtype,
-                                  const struct addrinfo* pai, int* herrno) {
+static struct addrinfo* getanswer(const std::vector<uint8_t>& answer, int anslen, const char* qname,
+                                  int qtype, const struct addrinfo* pai, int* herrno) {
     struct addrinfo sentinel = {};
     struct addrinfo *cur;
     struct addrinfo ai;
@@ -856,14 +849,13 @@ static struct addrinfo* getanswer(const querybuf* answer, int anslen, const char
     int (*name_ok)(const char*);
     char hostbuf[8 * 1024];
 
-    assert(answer != NULL);
     assert(qname != NULL);
     assert(pai != NULL);
 
     cur = &sentinel;
 
     canonname = NULL;
-    eom = answer->buf + anslen;
+    eom = answer.data() + anslen;
     switch (qtype) {
         case T_A:
         case T_AAAA:
@@ -876,18 +868,18 @@ static struct addrinfo* getanswer(const querybuf* answer, int anslen, const char
     /*
      * find first satisfactory answer
      */
-    hp = &answer->hdr;
+    hp = reinterpret_cast<const HEADER*>(answer.data());
     ancount = ntohs(hp->ancount);
     qdcount = ntohs(hp->qdcount);
     bp = hostbuf;
     ep = hostbuf + sizeof hostbuf;
-    cp = answer->buf;
+    cp = answer.data();
     BOUNDED_INCR(HFIXEDSZ);
     if (qdcount != 1) {
         *herrno = NO_RECOVERY;
         return (NULL);
     }
-    n = dn_expand(answer->buf, eom, cp, bp, ep - bp);
+    n = dn_expand(answer.data(), eom, cp, bp, ep - bp);
     if ((n < 0) || !(*name_ok)(bp)) {
         *herrno = NO_RECOVERY;
         return (NULL);
@@ -911,7 +903,7 @@ static struct addrinfo* getanswer(const querybuf* answer, int anslen, const char
     haveanswer = 0;
     had_error = 0;
     while (ancount-- > 0 && cp < eom && !had_error) {
-        n = dn_expand(answer->buf, eom, cp, bp, ep - bp);
+        n = dn_expand(answer.data(), eom, cp, bp, ep - bp);
         if ((n < 0) || !(*name_ok)(bp)) {
             had_error++;
             continue;
@@ -931,7 +923,7 @@ static struct addrinfo* getanswer(const querybuf* answer, int anslen, const char
             continue; /* XXX - had_error++ ? */
         }
         if ((qtype == T_A || qtype == T_AAAA || qtype == T_ANY) && type == T_CNAME) {
-            n = dn_expand(answer->buf, eom, cp, tbuf, sizeof tbuf);
+            n = dn_expand(answer.data(), eom, cp, tbuf, sizeof tbuf);
             if ((n < 0) || !(*name_ok)(tbuf)) {
                 had_error++;
                 continue;
@@ -1397,16 +1389,11 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
     res_target q = {};
     res_target q2 = {};
 
-    auto buf = std::make_unique<querybuf>();
-    auto buf2 = std::make_unique<querybuf>();
-
     switch (pai->ai_family) {
         case AF_UNSPEC: {
             /* prefer IPv6 */
             q.name = name;
             q.qclass = C_IN;
-            q.answer = buf->buf;
-            q.anslen = sizeof(buf->buf);
             int query_ipv6 = 1, query_ipv4 = 1;
             if (pai->ai_flags & AI_ADDRCONFIG) {
                 query_ipv6 = have_ipv6(netcontext->app_mark, netcontext->uid);
@@ -1419,8 +1406,6 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
                     q2.name = name;
                     q2.qclass = C_IN;
                     q2.qtype = T_A;
-                    q2.answer = buf2->buf;
-                    q2.anslen = sizeof(buf2->buf);
                 }
             } else if (query_ipv4) {
                 q.qtype = T_A;
@@ -1433,15 +1418,11 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
             q.name = name;
             q.qclass = C_IN;
             q.qtype = T_A;
-            q.answer = buf->buf;
-            q.anslen = sizeof(buf->buf);
             break;
         case AF_INET6:
             q.name = name;
             q.qclass = C_IN;
             q.qtype = T_AAAA;
-            q.answer = buf->buf;
-            q.anslen = sizeof(buf->buf);
             break;
         default:
             return EAI_FAMILY;
@@ -1460,13 +1441,13 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     addrinfo sentinel = {};
     addrinfo* cur = &sentinel;
-    addrinfo* ai = getanswer(buf.get(), q.n, q.name, q.qtype, pai, &he);
+    addrinfo* ai = getanswer(q.answer, q.n, q.name, q.qtype, pai, &he);
     if (ai) {
         cur->ai_next = ai;
         while (cur && cur->ai_next) cur = cur->ai_next;
     }
     if (q.next) {
-        ai = getanswer(buf2.get(), q2.n, q2.name, q2.qtype, pai, &he);
+        ai = getanswer(q2.answer, q2.n, q2.name, q2.qtype, pai, &he);
         if (ai) cur->ai_next = ai;
     }
     if (sentinel.ai_next == NULL) {
@@ -1578,7 +1559,6 @@ static bool files_getaddrinfo(const char* name, const addrinfo* pai, addrinfo** 
  */
 static int res_queryN(const char* name, res_target* target, res_state res, int* herrno) {
     uint8_t buf[MAXPACKET];
-    HEADER* hp;
     int n;
     struct res_target* t;
     int rcode;
@@ -1591,10 +1571,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
     ancount = 0;
 
     for (t = target; t; t = t->next) {
-        uint8_t* answer;
-        int anslen;
-
-        hp = (HEADER*) (void*) t->answer;
+        HEADER* hp = (HEADER*)(void*)t->answer.data();
         bool retried = false;
     again:
         hp->rcode = NOERROR; /* default */
@@ -1602,8 +1579,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
         /* make it easier... */
         int cl = t->qclass;
         int type = t->qtype;
-        answer = t->answer;
-        anslen = t->anslen;
+        const int anslen = t->answer.size();
 
         LOG(DEBUG) << __func__ << ": (" << cl << ", " << type << ")";
 
@@ -1620,7 +1596,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
             return n;
         }
 
-        n = res_nsend(res, buf, n, answer, anslen, &rcode, 0);
+        n = res_nsend(res, buf, n, t->answer.data(), anslen, &rcode, 0);
         if (n < 0 || hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
             // Record rcode from DNS response header only if no timeout.
             // Keep rcode timeout for reporting later if any.
@@ -1689,7 +1665,7 @@ static int res_searchN(const char* name, res_target* target, res_state res, int*
     assert(name != NULL);
     assert(target != NULL);
 
-    hp = (HEADER*) (void*) target->answer; /*XXX*/
+    hp = (HEADER*)(void*)target->answer.data();
 
     errno = 0;
     *herrno = HOST_NOT_FOUND; /* default, if we never query */
@@ -1721,7 +1697,7 @@ static int res_searchN(const char* name, res_target* target, res_state res, int*
          * the domain stuff is tried.  Will have a better
          * fix after thread pools are used.
          */
-        _resolv_populate_res_for_net(res);
+        resolv_populate_res_for_net(res);
 
         for (const auto& domain : res->search_domains) {
             ret = res_querydomainN(name, domain.c_str(), target, res, herrno);

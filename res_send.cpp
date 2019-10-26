@@ -83,7 +83,6 @@
 
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
-#include <netinet/in.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -110,6 +109,7 @@
 #include "res_init.h"
 #include "resolv_cache.h"
 #include "stats.pb.h"
+#include "util.h"
 
 // TODO: use the namespace something like android::netd_resolv for libnetd_resolv
 using android::net::CacheStatus;
@@ -136,7 +136,6 @@ using android::netdutils::Stopwatch;
 
 static DnsTlsDispatcher sDnsTlsDispatcher;
 
-static int get_salen(const struct sockaddr*);
 static struct sockaddr* get_nsaddr(res_state, size_t);
 static int send_vc(res_state, res_params* params, const uint8_t*, int, uint8_t*, int, int*, int,
                    time_t*, int*, int*);
@@ -224,15 +223,6 @@ static struct timespec evNowTime(void) {
     struct timespec tsnow;
     clock_gettime(CLOCK_REALTIME, &tsnow);
     return tsnow;
-}
-
-static struct iovec evConsIovec(void* buf, size_t cnt) {
-    struct iovec ret;
-
-    memset(&ret, 0xf5, sizeof ret);
-    ret.iov_base = buf;
-    ret.iov_len = cnt;
-    return ret;
 }
 
 // END: Code copied from ISC eventlib
@@ -436,7 +426,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     } else if (cache_status != RESOLV_CACHE_UNSUPPORTED) {
         // had a cache miss for a known network, so populate the thread private
         // data so the normal resolve path can do its thing
-        _resolv_populate_res_for_net(statp);
+        resolv_populate_res_for_net(statp);
     }
     if (statp->nscount == 0) {
         // We have no nameservers configured, so there's no point trying.
@@ -447,6 +437,25 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         // TODO: Remove errno once callers stop using it
         errno = ESRCH;
         return -ESRCH;
+    }
+
+    // DoT
+    if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
+        bool fallback = false;
+        resplen = res_tls_send(statp, Slice(const_cast<uint8_t*>(buf), buflen), Slice(ans, anssiz),
+                               rcode, &fallback);
+        if (resplen > 0) {
+            LOG(DEBUG) << __func__ << ": got answer from DoT";
+            res_pquery(ans, resplen);
+            if (cache_status == RESOLV_CACHE_NOTFOUND) {
+                resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
+            }
+            return resplen;
+        }
+        if (!fallback) {
+            _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
+            return -terrno;
+        }
     }
 
     res_stats stats[MAXNS];
@@ -483,31 +492,9 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             int delay = 0;
             *rcode = RCODE_INTERNAL_ERROR;
             const sockaddr* nsap = get_nsaddr(statp, ns);
-            nsaplen = get_salen(nsap);
+            nsaplen = sockaddrSize(nsap);
 
         same_ns:
-            // TODO: Since we expect there is only one DNS server being queried here while this
-            // function tries to query all of private DNS servers. Consider moving it to other
-            // reasonable place. In addition, maybe add stats for private DNS.
-            if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
-                bool fallback = false;
-                resplen = res_tls_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
-                                       Slice(ans, anssiz), rcode, &fallback);
-                if (resplen > 0) {
-                    LOG(DEBUG) << __func__ << ": got answer from DoT";
-                    res_pquery(ans, resplen);
-                    if (cache_status == RESOLV_CACHE_NOTFOUND) {
-                        resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
-                    }
-                    return resplen;
-                }
-                if (!fallback) {
-                    _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
-                    res_nclose(statp);
-                    return -terrno;
-                }
-            }
-
             static const int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
             char abuf[NI_MAXHOST];
             DnsQueryEvent* dnsQueryEvent = addDnsQueryEvent(statp->event);
@@ -625,15 +612,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
 
 /* Private */
 
-static int get_salen(const struct sockaddr* sa) {
-    if (sa->sa_family == AF_INET)
-        return (sizeof(struct sockaddr_in));
-    else if (sa->sa_family == AF_INET6)
-        return (sizeof(struct sockaddr_in6));
-    else
-        return (0); /* unknown, die on connect */
-}
-
 static struct sockaddr* get_nsaddr(res_state statp, size_t n) {
     return (struct sockaddr*)(void*)&statp->nsaddrs[n];
 }
@@ -669,13 +647,12 @@ static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int 
     struct sockaddr* nsap;
     int nsaplen;
     int truncating, connreset, n;
-    struct iovec iov[2];
     uint8_t* cp;
 
     LOG(INFO) << __func__ << ": using send_vc";
 
     nsap = get_nsaddr(statp, (size_t) ns);
-    nsaplen = get_salen(nsap);
+    nsaplen = sockaddrSize(nsap);
 
     connreset = 0;
 same_ns:
@@ -754,8 +731,10 @@ same_ns:
      * Send length & message
      */
     uint16_t len = htons(static_cast<uint16_t>(buflen));
-    iov[0] = evConsIovec(&len, INT16SZ);
-    iov[1] = evConsIovec((void*) buf, (size_t) buflen);
+    const iovec iov[] = {
+            {.iov_base = &len, .iov_len = INT16SZ},
+            {.iov_base = const_cast<uint8_t*>(buf), .iov_len = static_cast<size_t>(buflen)},
+    };
     if (writev(statp->_vcsock, iov, 2) != (INT16SZ + buflen)) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": write failed: ";
@@ -863,8 +842,8 @@ read_len:
 }
 
 /* return -1 on error (errno set), 0 on success */
-static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t salen,
-                                const struct timespec timeout) {
+static int connect_with_timeout(int sock, const sockaddr* nsap, socklen_t salen,
+                                const timespec timeout) {
     int res, origflags;
 
     origflags = fcntl(sock, F_GETFL, 0);
@@ -876,8 +855,8 @@ static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t
         goto done;
     }
     if (res != 0) {
-        struct timespec now = evNowTime();
-        struct timespec finish = evAddTime(now, timeout);
+        timespec now = evNowTime();
+        timespec finish = evAddTime(now, timeout);
         LOG(INFO) << __func__ << ": " << sock << " send_vc";
         res = retrying_poll(sock, POLLIN | POLLOUT, &finish);
         if (res <= 0) {
@@ -941,7 +920,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
     int resplen, n, s;
 
     nsap = get_nsaddr(statp, (size_t) ns);
-    nsaplen = get_salen(nsap);
+    nsaplen = sockaddrSize(nsap);
     if (statp->nssocks[ns] == -1) {
         statp->nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         if (statp->nssocks[ns] < 0) {
@@ -1102,6 +1081,7 @@ static void dump_error(const char* str, const struct sockaddr* address, int alen
     char hbuf[NI_MAXHOST];
     char sbuf[NI_MAXSERV];
     constexpr int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
+    const int err = errno;
 
     if (!WOULD_LOG(DEBUG)) return;
 
@@ -1111,6 +1091,7 @@ static void dump_error(const char* str, const struct sockaddr* address, int alen
         strncpy(sbuf, "?", sizeof(sbuf) - 1);
         sbuf[sizeof(sbuf) - 1] = '\0';
     }
+    errno = err;
     PLOG(DEBUG) << __func__ << ": " << str << " ([" << hbuf << "]." << sbuf << "): ";
 }
 
@@ -1243,7 +1224,7 @@ int resolv_res_nsend(const android_net_context* netContext, const uint8_t* msg, 
     assert(event != nullptr);
     ResState res;
     res_init(&res, netContext, event);
-    _resolv_populate_res_for_net(&res);
+    resolv_populate_res_for_net(&res);
     *rcode = NOERROR;
     return res_nsend(&res, msg, msgLen, ans, ansLen, rcode, flags);
 }

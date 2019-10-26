@@ -74,10 +74,6 @@ namespace {
 // Limits the number of outstanding DNS queries by client UID.
 constexpr int MAX_QUERIES_PER_UID = 256;
 
-// Max packet size for answer, sync with getaddrinfo.c
-// TODO: switch to dynamically allocated buffers with std::vector
-constexpr int MAXPACKET = 8 * 1024;
-
 android::netdutils::OperationLimiter<uid_t> queryLimiter(MAX_QUERIES_PER_UID);
 
 void logArguments(int argc, char** argv) {
@@ -886,12 +882,13 @@ void DnsProxyListener::ResNSendHandler::run() {
 
     // Send DNS query
     std::vector<uint8_t> ansBuf(MAXPACKET, 0);
-    int arcode, nsendAns = -1;
+    int rcode = ns_r_noerror;
+    int nsendAns = -1;
     NetworkDnsEventReported event;
     initDnsEvent(&event);
     if (queryLimiter.start(uid)) {
         nsendAns = resolv_res_nsend(&mNetContext, msg.data(), msgLen, ansBuf.data(), MAXPACKET,
-                                    &arcode, static_cast<ResNsendFlags>(mFlags), &event);
+                                    &rcode, static_cast<ResNsendFlags>(mFlags), &event);
         queryLimiter.finish(uid);
     } else {
         LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid
@@ -909,13 +906,13 @@ void DnsProxyListener::ResNSendHandler::run() {
         sendBE32(mClient, nsendAns);
         if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
             reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
-                           resNSendToAiError(nsendAns, arcode), event, rr_name);
+                           resNSendToAiError(nsendAns, rcode), event, rr_name);
         }
         return;
     }
 
     // Send rcode
-    if (!sendBE32(mClient, arcode)) {
+    if (!sendBE32(mClient, rcode)) {
         PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send rcode to uid " << uid;
         return;
     }
@@ -932,7 +929,7 @@ void DnsProxyListener::ResNSendHandler::run() {
         const int total_ip_addr_count =
                 extractResNsendAnswers((uint8_t*) ansBuf.data(), nsendAns, rr_type, &ip_addrs);
         reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
-                       resNSendToAiError(nsendAns, arcode), event, rr_name, ip_addrs,
+                       resNSendToAiError(nsendAns, rcode), event, rr_name, ip_addrs,
                        total_ip_addr_count);
     }
 }

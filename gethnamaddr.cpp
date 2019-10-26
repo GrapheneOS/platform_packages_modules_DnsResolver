@@ -95,8 +95,6 @@ using android::net::NetworkDnsEventReported;
 #define maybe_hnok(res, hn) maybe_ok((res), (hn), res_hnok)
 #define maybe_dnok(res, dn) maybe_ok((res), (dn), res_dnok)
 
-#define MAXPACKET (8 * 1024)
-
 constexpr int MAXADDRS = 35;
 
 typedef union {
