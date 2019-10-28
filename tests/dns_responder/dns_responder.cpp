@@ -742,7 +742,7 @@ bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
                     .rclass = ns_class::ns_c_in,
                     .ttl = kAnswerRecordTtlSec,  // seconds
             };
-            if (!fillAnswerRdata(it->second, record)) return false;
+            if (!fillRdata(it->second, record)) return false;
             answers->push_back(std::move(record));
             if (rtype != ns_type::ns_t_cname) break;
             rname = it->second;
@@ -758,7 +758,7 @@ bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
     return true;
 }
 
-bool DNSResponder::fillAnswerRdata(const std::string& rdatastr, DNSRecord& record) {
+bool DNSResponder::fillRdata(const std::string& rdatastr, DNSRecord& record) {
     if (record.rtype == ns_type::ns_t_a) {
         record.rdata.resize(4);
         if (inet_pton(AF_INET, rdatastr.c_str(), record.rdata.data()) != 1) {
@@ -771,7 +771,8 @@ bool DNSResponder::fillAnswerRdata(const std::string& rdatastr, DNSRecord& recor
             LOG(ERROR) << "inet_pton(AF_INET6, " << rdatastr << ") failed";
             return false;
         }
-    } else if ((record.rtype == ns_type::ns_t_ptr) || (record.rtype == ns_type::ns_t_cname)) {
+    } else if ((record.rtype == ns_type::ns_t_ptr) || (record.rtype == ns_type::ns_t_cname) ||
+               (record.rtype == ns_type::ns_t_ns)) {
         constexpr char delimiter = '.';
         std::string name = rdatastr;
         std::vector<char> rdata;

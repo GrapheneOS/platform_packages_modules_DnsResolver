@@ -85,7 +85,7 @@ std::vector<char> makeAnswer(const std::vector<char>& query, const char* rdata_s
                 .rclass = question.qclass,
                 .ttl = ttl,
         };
-        test::DNSResponder::fillAnswerRdata(rdata_str, record);
+        test::DNSResponder::fillRdata(rdata_str, record);
         header.answers.push_back(std::move(record));
     }
 
