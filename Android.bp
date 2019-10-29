@@ -60,6 +60,7 @@ cc_library {
         "util.cpp",
         "Dns64Configuration.cpp",
         "DnsProxyListener.cpp",
+        "DnsQueryLog.cpp",
         "DnsResolver.cpp",
         "DnsResolverService.cpp",
         "DnsStats.cpp",
