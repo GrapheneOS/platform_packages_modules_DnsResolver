@@ -3486,3 +3486,115 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
     EXPECT_GE(3000, std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
     EXPECT_LE(1000, std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 }
+
+// Parameterized tests.
+// TODO: Merge the existing tests as parameterized test if possible.
+// TODO: Perhaps move parameterized tests to an independent file.
+enum class CallType { GETADDRINFO, GETHOSTBYNAME };
+class ResolverParameterizedTest : public ResolverTest,
+                                  public testing::WithParamInterface<CallType> {};
+
+INSTANTIATE_TEST_SUITE_P(TestQueryCall, ResolverParameterizedTest,
+                         testing::Values(CallType::GETADDRINFO, CallType::GETHOSTBYNAME),
+                         [](const testing::TestParamInfo<CallType>& info) {
+                             std::string name;
+                             switch (info.param) {
+                                 case CallType::GETADDRINFO:
+                                     name = "GetAddrInfo";
+                                     break;
+                                 case CallType::GETHOSTBYNAME:
+                                     name = "GetHostByName";
+                                     break;
+                                 default:
+                                     name = "InvalidParameter";  // Should not happen.
+                             }
+                             return name;
+                         });
+
+TEST_P(ResolverParameterizedTest, AuthoritySectionAndAdditionalSection) {
+    // DNS response may have more information in authority section and additional section.
+    // Currently, getanswer() of packages/modules/DnsResolver/getaddrinfo.cpp doesn't parse the
+    // content of authority section and additional section. Test these sections if they crash
+    // the resolver, just in case. See also RFC 1035 section 4.1.
+    const auto& calltype = GetParam();
+    test::DNSHeader header(kDefaultDnsHeader);
+
+    // Create a DNS response which has a authoritative nameserver record in authority
+    // section and its relevant address record in additional section.
+    //
+    // Question
+    //   hello.example.com.     IN      A
+    // Answer
+    //   hello.example.com.     IN      A   1.2.3.4
+    // Authority:
+    //   hello.example.com.     IN      NS  ns1.example.com.
+    // Additional:
+    //   ns1.example.com.       IN      A   5.6.7.8
+    //
+    // A response may have only question, answer, and authority section. Current testing response
+    // should be able to cover this condition.
+
+    // Question section.
+    test::DNSQuestion question{
+            .qname = {.name = kHelloExampleCom},
+            .qtype = ns_type::ns_t_a,
+            .qclass = ns_c_in,
+    };
+    header.questions.push_back(std::move(question));
+
+    // Answer section.
+    test::DNSRecord recordAnswer{
+            .name = {.name = kHelloExampleCom},
+            .rtype = ns_type::ns_t_a,
+            .rclass = ns_c_in,
+            .ttl = 0,  // no cache
+    };
+    EXPECT_TRUE(test::DNSResponder::fillRdata("1.2.3.4", recordAnswer));
+    header.answers.push_back(std::move(recordAnswer));
+
+    // Authority section.
+    test::DNSRecord recordAuthority{
+            .name = {.name = kHelloExampleCom},
+            .rtype = ns_type::ns_t_ns,
+            .rclass = ns_c_in,
+            .ttl = 0,  // no cache
+    };
+    EXPECT_TRUE(test::DNSResponder::fillRdata("ns1.example.com.", recordAuthority));
+    header.authorities.push_back(std::move(recordAuthority));
+
+    // Additional section.
+    test::DNSRecord recordAdditional{
+            .name = {.name = "ns1.example.com."},
+            .rtype = ns_type::ns_t_a,
+            .rclass = ns_c_in,
+            .ttl = 0,  // no cache
+    };
+    EXPECT_TRUE(test::DNSResponder::fillRdata("5.6.7.8", recordAdditional));
+    header.additionals.push_back(std::move(recordAdditional));
+
+    // Start DNS server.
+    test::DNSResponder dns(test::DNSResponder::MappingType::DNS_HEADER);
+    dns.addMappingDnsHeader(kHelloExampleCom, ns_type::ns_t_a, header);
+    ASSERT_TRUE(dns.startServer());
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+    dns.clearQueries();
+
+    // Expect that get the address and the resolver doesn't crash.
+    if (calltype == CallType::GETADDRINFO) {
+        const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+        ScopedAddrinfo result = safe_getaddrinfo("hello", nullptr, &hints);
+        EXPECT_TRUE(result != nullptr);
+        EXPECT_EQ(1U, GetNumQueries(dns, kHelloExampleCom));
+        EXPECT_EQ("1.2.3.4", ToString(result));
+    } else if (calltype == CallType::GETHOSTBYNAME) {
+        const hostent* result = gethostbyname("hello");
+        EXPECT_EQ(1U, GetNumQueries(dns, kHelloExampleCom));
+        ASSERT_FALSE(result == nullptr);
+        ASSERT_EQ(4, result->h_length);
+        ASSERT_FALSE(result->h_addr_list[0] == nullptr);
+        EXPECT_EQ("1.2.3.4", ToString(result));
+        EXPECT_TRUE(result->h_addr_list[1] == nullptr);
+    } else {
+        FAIL() << "Unsupported call type: " << static_cast<uint32_t>(calltype);
+    }
+}
