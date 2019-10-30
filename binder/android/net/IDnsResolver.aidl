@@ -161,4 +161,13 @@ interface IDnsResolver {
      *         POSIX errno.
      */
     void setLogSeverity(int logSeverity);
+
+    /**
+     * Flush cache for the given network.
+     *
+     * @param netId the network ID of the network to flush.
+     * @throws ServiceSpecificException in case of failure, with an error code corresponding to the
+     *         POSIX errno.
+     */
+    void flushNetworkCache(int netId);
 }

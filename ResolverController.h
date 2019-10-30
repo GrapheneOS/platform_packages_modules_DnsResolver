@@ -38,6 +38,7 @@ class ResolverController {
 
     void destroyNetworkCache(unsigned netid);
     int createNetworkCache(unsigned netid);
+    int flushNetworkCache(unsigned netid);
 
     int getPrefix64(unsigned netId, netdutils::IPPrefix* prefix);
 
