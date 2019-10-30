@@ -38,8 +38,9 @@ extern struct ResolvStub {
 
     bool (*resolv_init)(const ResolverNetdCallbacks& callbacks);
 
-    bool (*resolv_gethostbyaddr_from_local_cache)(unsigned netId, char domain_name[],
-                                                  unsigned domain_name_size, char* ip_address);
+    bool (*resolv_gethostbyaddr_from_cache)(unsigned netId, char domain_name[],
+                                            size_t domain_name_size, const char* ip_address,
+                                            int af);
 } RESOLV_STUB;
 
 int resolv_stub_init();
