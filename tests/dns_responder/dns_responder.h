@@ -171,7 +171,7 @@ class DNSResponder {
     std::condition_variable& getCv() { return cv; }
     std::mutex& getCvMutex() { return cv_mutex_; }
     void setDeferredResp(bool deferred_resp);
-    static bool fillAnswerRdata(const std::string& rdatastr, DNSRecord& record);
+    static bool fillRdata(const std::string& rdatastr, DNSRecord& record);
 
   private:
     // Key used for accessing mappings.
