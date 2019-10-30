@@ -708,6 +708,85 @@ TEST_F(ResolvCacheTest, GetStats) {
     expectCacheStats("GetStats", TEST_NETID, cacheStats);
 }
 
+TEST_F(ResolvCacheTest, GetHostByAddrFromCache_InvalidArgs) {
+    char domain_name[NS_MAXDNAME] = {};
+    const char query_v4[] = "1.2.3.5";
+
+    // invalid buffer size
+    EXPECT_FALSE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME + 1, nullptr,
+                                                 AF_INET));
+    EXPECT_STREQ("", domain_name);
+
+    // invalid query
+    EXPECT_FALSE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, nullptr,
+                                                 AF_INET));
+    EXPECT_STREQ("", domain_name);
+
+    // unsupported AF
+    EXPECT_FALSE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, query_v4,
+                                                 AF_UNSPEC));
+    EXPECT_STREQ("", domain_name);
+}
+
+TEST_F(ResolvCacheTest, GetHostByAddrFromCache) {
+    char domain_name[NS_MAXDNAME] = {};
+    const char query_v4[] = "1.2.3.5";
+    const char query_v6[] = "2001:db8::102:304";
+    const char query_v6_unabbreviated[] = "2001:0db8:0000:0000:0000:0000:0102:0304";
+    const char query_v6_mixed[] = "2001:db8::1.2.3.4";
+    const char answer[] = "existent.in.cache";
+
+    // cache does not exist
+    EXPECT_FALSE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, query_v4,
+                                                 AF_INET));
+    EXPECT_STREQ("", domain_name);
+
+    // cache is empty
+    EXPECT_EQ(0, cacheCreate(TEST_NETID));
+    EXPECT_FALSE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, query_v4,
+                                                 AF_INET));
+    EXPECT_STREQ("", domain_name);
+
+    // no v4 match in cache
+    CacheEntry ce = makeCacheEntry(QUERY, "any.data", ns_c_in, ns_t_a, "1.2.3.4");
+    EXPECT_EQ(0, cacheAdd(TEST_NETID, ce));
+    EXPECT_FALSE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, query_v4,
+                                                 AF_INET));
+    EXPECT_STREQ("", domain_name);
+
+    // v4 match
+    ce = makeCacheEntry(QUERY, answer, ns_c_in, ns_t_a, query_v4);
+    EXPECT_EQ(0, cacheAdd(TEST_NETID, ce));
+    EXPECT_TRUE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, query_v4,
+                                                AF_INET));
+    EXPECT_STREQ(answer, domain_name);
+
+    // no v6 match in cache
+    memset(domain_name, 0, NS_MAXDNAME);
+    EXPECT_FALSE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, query_v6,
+                                                 AF_INET6));
+    EXPECT_STREQ("", domain_name);
+
+    // v6 match
+    ce = makeCacheEntry(QUERY, answer, ns_c_in, ns_t_aaaa, query_v6);
+    EXPECT_EQ(0, cacheAdd(TEST_NETID, ce));
+    EXPECT_TRUE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME, query_v6,
+                                                AF_INET6));
+    EXPECT_STREQ(answer, domain_name);
+
+    // v6 match with unabbreviated address format
+    memset(domain_name, 0, NS_MAXDNAME);
+    EXPECT_TRUE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME,
+                                                query_v6_unabbreviated, AF_INET6));
+    EXPECT_STREQ(answer, domain_name);
+
+    // v6 with mixed address format
+    memset(domain_name, 0, NS_MAXDNAME);
+    EXPECT_TRUE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME,
+                                                query_v6_mixed, AF_INET6));
+    EXPECT_STREQ(answer, domain_name);
+}
+
 namespace {
 
 constexpr int EAI_OK = 0;
