@@ -67,7 +67,7 @@ class TestBase : public ::testing::Test {
                 .rclass = rclass,
                 .ttl = ttl,
         };
-        EXPECT_TRUE(test::DNSResponder::fillAnswerRdata(rdata, record));
+        EXPECT_TRUE(test::DNSResponder::fillRdata(rdata, record));
         return record;
     }
 

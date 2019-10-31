@@ -104,6 +104,6 @@ LIBNETD_RESOLV_PUBLIC bool resolv_init(const ResolverNetdCallbacks* callbacks);
 // Function that performs RDNS in local cache. The |domain_name_size| is the size of domain_name
 // buffer, which is recommended to NS_MAXDNAME. Function return false if hostname not found or
 // domain_name_size > NS_MAXDNAME.
-LIBNETD_RESOLV_PUBLIC bool resolv_gethostbyaddr_from_local_cache(unsigned netId, char domain_name[],
-                                                                 unsigned domain_name_size,
-                                                                 char* ip_address);
+LIBNETD_RESOLV_PUBLIC bool resolv_gethostbyaddr_from_cache(unsigned netId, char domain_name[],
+                                                           size_t domain_name_size,
+                                                           const char* ip_address, int af);
