@@ -70,7 +70,7 @@ cc_library {
     // Link most things statically to minimize our dependence on system ABIs.
     stl: "libc++_static",
     static_libs: [
-        "dnsresolver_aidl_interface-ndk_platform",
+        "dnsresolver_aidl_interface-unstable-ndk_platform",
         "libbase",
         "libcutils",
         "libjsoncpp",
@@ -81,7 +81,7 @@ cc_library {
         "libstatssocket",
         "libsysutils",
         "libutils",  // Used by libstatslog_resolv
-        "netd_event_listener_interface-V1-ndk_platform",
+        "netd_event_listener_interface-ndk_platform",
         "server_configurable_flags",
         "stats_proto",
     ],
@@ -175,7 +175,7 @@ cc_test {
         "libutils",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-cpp",
+        "dnsresolver_aidl_interface-unstable-cpp",
         "libbase",
         "libgmock",
         "libnetd_test_dnsresponder",
@@ -184,8 +184,8 @@ cc_test {
         "libnetd_test_tun_interface",
         "libnetd_test_utils",
         "libnetdutils",
-        "netd_aidl_interface-V2-cpp",
-        "netd_event_listener_interface-V1-cpp",
+        "netd_aidl_interface-cpp",
+        "netd_event_listener_interface-cpp",
     ],
     compile_multilib: "both",
     sanitize: {
@@ -214,9 +214,9 @@ cc_test {
         "libbinder_ndk",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-V2-cpp",
-        "dnsresolver_aidl_interface-V2-ndk_platform",
-        "netd_event_listener_interface-V1-ndk_platform",
+        "dnsresolver_aidl_interface-cpp",
+        "dnsresolver_aidl_interface-ndk_platform",
+        "netd_event_listener_interface-ndk_platform",
         "libgmock",
         "liblog",
         "libnetd_resolv",
