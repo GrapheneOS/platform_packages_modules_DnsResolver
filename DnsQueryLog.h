@@ -49,18 +49,25 @@ class DnsQueryLog {
         const int timeTaken;
     };
 
+    // Allow the tests to set the capacity and the validaty time in milliseconds.
+    DnsQueryLog(size_t size = kDefaultLogSize,
+                std::chrono::milliseconds time = kDefaultValidityMinutes)
+        : mCapacity(size), mValidityTimeMs(time) {}
+
     void push(Record&& record) EXCLUDES(mLock);
     void dump(netdutils::DumpWriter& dw) const EXCLUDES(mLock);
 
   private:
     mutable std::mutex mLock;
     std::deque<Record> mQueue GUARDED_BY(mLock);
+    const size_t mCapacity;
+    const std::chrono::milliseconds mValidityTimeMs;
 
     // The capacity of the circular buffer.
-    static constexpr size_t kLogSize = 200;
+    static constexpr size_t kDefaultLogSize = 200;
 
-    // Limit to dump the queries within last |kValidityMinutes| minutes.
-    static constexpr std::chrono::minutes kValidityMinutes{60};
+    // Limit to dump the queries within last |kDefaultValidityMinutes| minutes.
+    static constexpr std::chrono::minutes kDefaultValidityMinutes{60};
 };
 
 }  // namespace android::net

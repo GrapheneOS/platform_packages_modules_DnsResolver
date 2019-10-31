@@ -171,6 +171,7 @@ cc_test {
         "resolv_tls_unit_test.cpp",
         "resolv_unit_test.cpp",
         "DnsStatsTest.cpp",
+        "DnsQueryLogTest.cpp",
     ],
     shared_libs: [
         "libbase",
