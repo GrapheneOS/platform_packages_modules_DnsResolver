@@ -15,7 +15,7 @@ cc_test_library {
     static_libs: [
         "libnetd_test_dnsresponder",
         "libnetdutils",
-        "dnsresolver_aidl_interface-V2-cpp",
+        "dnsresolver_aidl_interface-cpp",
     ],
 }
 
@@ -44,9 +44,9 @@ cc_test {
         "libnetd_test_dnsresponder",
         "libnetd_test_resolv_utils",
         "libnetdutils",
-        "netd_aidl_interface-V2-cpp",
+        "netd_aidl_interface-cpp",
         "netd_event_listener_interface-cpp",
-        "dnsresolver_aidl_interface-V2-cpp",
+        "dnsresolver_aidl_interface-cpp",
     ],
     compile_multilib: "both",
     sanitize: {
