@@ -62,11 +62,15 @@ class PrivateDnsConfiguration {
 
   private:
     typedef std::map<DnsTlsServer, Validation, AddressComparator> PrivateDnsTracker;
+    typedef std::set<DnsTlsServer, AddressComparator> ThreadTracker;
 
     void validatePrivateDnsProvider(const DnsTlsServer& server, PrivateDnsTracker& tracker,
                                     unsigned netId, uint32_t mark) REQUIRES(mPrivateDnsLock);
 
     bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success);
+
+    bool needValidateThread(const DnsTlsServer& server, unsigned netId) REQUIRES(mPrivateDnsLock);
+    void cleanValidateThreadTracker(const DnsTlsServer& server, unsigned netId);
 
     // Start validation for newly added servers as well as any servers that have
     // landed in Validation::fail state. Note that servers that have failed
@@ -79,6 +83,7 @@ class PrivateDnsConfiguration {
     // Structure for tracking the validation status of servers on a specific netId.
     // Using the AddressComparator ensures at most one entry per IP address.
     std::map<unsigned, PrivateDnsTracker> mPrivateDnsTransports GUARDED_BY(mPrivateDnsLock);
+    std::map<unsigned, ThreadTracker> mPrivateDnsValidateThreads GUARDED_BY(mPrivateDnsLock);
 };
 
 extern PrivateDnsConfiguration gPrivateDnsConfiguration;
