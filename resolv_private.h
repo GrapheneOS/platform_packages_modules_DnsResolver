@@ -116,8 +116,8 @@ int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stat
 /* Add a sample to the shared struct for the given netid and server, provided that the
  * revision_id of the stored servers has not changed.
  */
-void _resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, int ns,
-                                             const res_sample* sample, int max_samples);
+void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, const sockaddr* sa,
+                                            const res_sample& sample, int max_samples);
 
 // Calculate the round-trip-time from start time t0 and end time t1.
 int _res_stats_calculate_rtt(const timespec* t1, const timespec* t0);
