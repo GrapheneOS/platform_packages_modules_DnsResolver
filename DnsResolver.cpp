@@ -38,6 +38,7 @@ bool resolv_init(const ResolverNetdCallbacks* callbacks) {
     gResNetdCallbacks.log = callbacks->log;
     if (gApiLevel >= 30) {
         gResNetdCallbacks.tagSocket = callbacks->tagSocket;
+        gResNetdCallbacks.evaluate_domain_name = callbacks->evaluate_domain_name;
     }
     android::net::gDnsResolv = android::net::DnsResolver::getInstance();
     return android::net::gDnsResolv->start();

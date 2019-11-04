@@ -535,6 +535,13 @@ DnsProxyListener::GetAddrInfoHandler::~GetAddrInfoHandler() {
     free(mHints);
 }
 
+static bool evaluate_domain_name(const android_net_context &netcontext,
+                                 const char *host) {
+    if (!gResNetdCallbacks.evaluate_domain_name)
+        return true;
+    return gResNetdCallbacks.evaluate_domain_name(netcontext, host);
+}
+
 static bool sendBE32(SocketClient* c, uint32_t data) {
     uint32_t be_data = htonl(data);
     return c->sendData(&be_data, sizeof(be_data)) == 0;
@@ -672,7 +679,12 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event);
     if (queryLimiter.start(uid)) {
-        rv = resolv_getaddrinfo(mHost, mService, mHints, &mNetContext, &result, &event);
+        if (evaluate_domain_name(mNetContext, mHost)) {
+            rv = resolv_getaddrinfo(mHost, mService, mHints, &mNetContext, &result,
+                                    &event);
+        } else {
+            rv = EAI_SYSTEM;
+        }
         queryLimiter.finish(uid);
     } else {
         // Note that this error code is currently not passed down to the client.
@@ -887,8 +899,12 @@ void DnsProxyListener::ResNSendHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event);
     if (queryLimiter.start(uid)) {
-        nsendAns = resolv_res_nsend(&mNetContext, msg.data(), msgLen, ansBuf.data(), MAXPACKET,
-                                    &rcode, static_cast<ResNsendFlags>(mFlags), &event);
+        if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
+            nsendAns = resolv_res_nsend(&mNetContext, msg.data(), msgLen, ansBuf.data(), MAXPACKET,
+                                        &rcode, static_cast<ResNsendFlags>(mFlags), &event);
+        } else {
+            nsendAns = -EAI_SYSTEM;
+        }
         queryLimiter.finish(uid);
     } else {
         LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid
@@ -1080,8 +1096,12 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event);
     if (queryLimiter.start(uid)) {
-        rv = resolv_gethostbyname(mName, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
-                                  &event);
+        if (evaluate_domain_name(mNetContext, mName)) {
+            rv = resolv_gethostbyname(mName, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
+                                      &event);
+        } else {
+            rv = EAI_SYSTEM;
+        }
         queryLimiter.finish(uid);
     } else {
         rv = EAI_MEMORY;
