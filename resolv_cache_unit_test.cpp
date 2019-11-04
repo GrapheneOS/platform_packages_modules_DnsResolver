@@ -215,6 +215,11 @@ class ResolvCacheTest : public ::testing::Test {
         EXPECT_TRUE(params == expected.setup.params) << msg;
 
         // res_stats checking.
+        if (expected.stats.size() == 0) {
+            for (int ns = 0; ns < nscount; ns++) {
+                EXPECT_EQ(0U, stats[ns].sample_count) << msg;
+            }
+        }
         for (size_t i = 0; i < expected.stats.size(); i++) {
             EXPECT_TRUE(stats[i] == expected.stats[i]) << msg;
         }
