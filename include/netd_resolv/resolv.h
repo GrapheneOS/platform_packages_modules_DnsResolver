@@ -81,6 +81,29 @@ typedef void (*get_network_context_callback)(unsigned netid, uid_t uid,
 typedef void (*log_callback)(const char* msg);
 typedef int (*tagSocketCallback)(int sockFd, uint32_t tag, uid_t uid, pid_t pid);
 
+// The DnsResolver module invokes this callback once before starting each DNS
+// lookup. The callback receives the android_net_context associated with the
+// request, and the (possibly unqualified) hostname requested by the app via
+// getaddrinfo() or gethostbyname().
+//
+// If the callback returns false, the DnsResolver will abort the request
+// returning EAI_SYSTEM. If the callback returns true, the query will proceed as
+// usual.
+//
+// If this callback is not present (i.e. set to nullptr), the effect is the same
+// of returning true.
+//
+// This callback *will* be invoked concurrently from multiple threads. It must
+// peform its own locking when accessing shared data structures. Furthermore,
+// the callback must not sleep nor perform RPC requests.
+//
+// Be mindful that hostnames could contain sensitive user data. Do not log them
+// and do not transmit them to third parties without explicit user
+// authorization.
+//
+typedef bool (*evaluate_domain_name_callback)(
+    const android_net_context &netcontext, const char *host);
+
 /*
  * Some functions needed by the resolver (e.g. checkCallingPermission()) live in
  * libraries with no ABI stability guarantees, such as libbinder.so.
@@ -92,6 +115,7 @@ struct ResolverNetdCallbacks {
     get_network_context_callback get_network_context;
     log_callback log;
     tagSocketCallback tagSocket;
+    evaluate_domain_name_callback evaluate_domain_name;
 };
 
 #define TAG_SYSTEM_DNS 0xFFFFFF82
