@@ -43,6 +43,45 @@ static constexpr char kLocalHostAddr[] = "127.0.0.1";
 static constexpr char kIp6LocalHost[] = "ip6-localhost";
 static constexpr char kIp6LocalHostAddr[] = "::1";
 static constexpr char kHelloExampleCom[] = "hello.example.com.";
+static constexpr char kHelloExampleComAddrV4[] = "1.2.3.4";
+
+static const std::vector<uint8_t> kHelloExampleComQueryV4 = {
+        /* Header */
+        0x00, 0x00, /* Transaction ID: 0x0000 */
+        0x01, 0x00, /* Flags: rd */
+        0x00, 0x01, /* Questions: 1 */
+        0x00, 0x00, /* Answer RRs: 0 */
+        0x00, 0x00, /* Authority RRs: 0 */
+        0x00, 0x00, /* Additional RRs: 0 */
+        /* Queries */
+        0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03,
+        0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+        0x00, 0x01,             /* Type: A */
+        0x00, 0x01              /* Class: IN */
+};
+
+static const std::vector<uint8_t> kHelloExampleComResponseV4 = {
+        /* Header */
+        0x00, 0x00, /* Transaction ID: 0x0000 */
+        0x81, 0x80, /* Flags: qr rd ra */
+        0x00, 0x01, /* Questions: 1 */
+        0x00, 0x01, /* Answer RRs: 1 */
+        0x00, 0x00, /* Authority RRs: 0 */
+        0x00, 0x00, /* Additional RRs: 0 */
+        /* Queries */
+        0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03,
+        0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+        0x00, 0x01,             /* Type: A */
+        0x00, 0x01,             /* Class: IN */
+        /* Answers */
+        0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03,
+        0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+        0x00, 0x01,             /* Type: A */
+        0x00, 0x01,             /* Class: IN */
+        0x00, 0x00, 0x00, 0x00, /* Time to live: 0 */
+        0x00, 0x04,             /* Data length: 4 */
+        0x01, 0x02, 0x03, 0x04  /* Address: 1.2.3.4 */
+};
 
 // Illegal hostnames
 static constexpr char kBadCharAfterPeriodHost[] = "hello.example.^com.";
