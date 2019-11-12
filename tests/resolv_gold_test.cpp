@@ -192,9 +192,6 @@ TEST_P(ResolvGoldTest, GoldData) {
     addrinfo* res = nullptr;
     const auto& args = goldtest.config().addrinfo();
     const addrinfo hints = {
-            .ai_family = args.family(),
-            .ai_socktype = args.socktype(),
-            .ai_protocol = args.protocol(),
             // Clear the flag AI_ADDRCONFIG to avoid flaky test because AI_ADDRCONFIG looks at
             // whether connectivity is available. It makes that the resolver may send only A
             // or AAAA DNS query per connectivity even AF_UNSPEC has been assigned. See also
@@ -202,6 +199,9 @@ TEST_P(ResolvGoldTest, GoldData) {
             // TODO: Consider keeping the configuration flag AI_ADDRCONFIG once the unit
             // test can treat the IPv4 and IPv6 connectivity.
             .ai_flags = args.ai_flags() & ~AI_ADDRCONFIG,
+            .ai_family = args.family(),
+            .ai_socktype = args.socktype(),
+            .ai_protocol = args.protocol(),
     };
     NetworkDnsEventReported event;
     int rv = resolv_getaddrinfo(args.host().c_str(), nullptr, &hints, &kNetcontext, &res, &event);
