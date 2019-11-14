@@ -160,7 +160,9 @@ bool DnsTlsSocket::initialize() {
     // For discussion of alternative, sustainable approaches see b/71909242.
     if (RESOLV_INJECT_CA_CERTIFICATE && !mServer.certificate.empty()) {
         // Inject test CA certs from ResolverParamsParcel.caCertificate for internal testing.
-        LOG(WARNING) << "test CA certificate is valid";
+        // This is only allowed by DnsResolverService if the caller is not AID_SYSTEM, and on
+        // debug builds.
+        LOG(WARNING) << "Setting test CA certificate. This should never happen in production code.";
         if (!setTestCaCertificate()) {
             LOG(ERROR) << "Failed to set test CA certificate";
             return false;
