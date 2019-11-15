@@ -28,7 +28,6 @@ aidl_interface {
             gen_log: true,
         },
     },
-    api_dir: "aidl/dnsresolver",
     versions: [
         "1",
         "2",
