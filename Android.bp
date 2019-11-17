@@ -188,10 +188,6 @@ cc_test {
         "netd_event_listener_interface-cpp",
     ],
     compile_multilib: "both",
-    sanitize: {
-        address: true,
-        recover: ["all"],
-    },
 }
 
 cc_test {
