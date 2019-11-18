@@ -32,6 +32,7 @@ aidl_interface {
     versions: [
         "1",
         "2",
+        "3",
     ],
 }
 
@@ -80,7 +81,7 @@ cc_library {
         "libstatslog_resolv",
         "libstatssocket",
         "libsysutils",
-        "libutils",  // Used by libstatslog_resolv
+        "libutils", // Used by libstatslog_resolv
         "netd_event_listener_interface-ndk_platform",
         "server_configurable_flags",
         "stats_proto",
@@ -156,7 +157,7 @@ cc_test {
     test_suites: ["device-tests"],
     require_root: true,
     defaults: ["netd_defaults"],
-    tidy: false,  // cuts test build time by > 1m30s
+    tidy: false, // cuts test build time by > 1m30s
     srcs: [
         "tests/dns_responder/dns_responder.cpp",
         "dnsresolver_binder_test.cpp",
