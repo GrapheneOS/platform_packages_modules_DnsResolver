@@ -34,8 +34,8 @@
 #include "PrivateDnsConfiguration.h"
 #include "ResolverEventReporter.h"
 #include "ResolverStats.h"
-#include "netd_resolv/stats.h"
 #include "resolv_cache.h"
+#include "stats.h"
 
 using aidl::android::net::ResolverParamsParcel;
 

@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef _DNS_DNSTLSSERVER_H
-#define _DNS_DNSTLSSERVER_H
+#pragma once
 
 #include <chrono>
 #include <set>
@@ -24,7 +23,7 @@
 
 #include <netinet/in.h>
 
-#include <netd_resolv/params.h>
+#include <params.h>
 
 namespace android {
 namespace net {
@@ -78,5 +77,3 @@ struct AddressComparator {
 
 }  // namespace net
 }  // namespace android
-
-#endif  // _DNS_DNSTLSSERVER_H

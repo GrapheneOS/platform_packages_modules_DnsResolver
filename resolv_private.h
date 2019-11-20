@@ -46,13 +46,7 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/*
- *	@(#)resolv.h	8.1 (Berkeley) 6/2/93
- *	Id: resolv.h,v 1.7.2.11.4.2 2004/06/25 00:41:05 marka Exp
- */
-
-#ifndef NETD_RESOLV_PRIVATE_H
-#define NETD_RESOLV_PRIVATE_H
+#pragma once
 
 #include <android-base/logging.h>
 #include <net/if.h>
@@ -62,9 +56,9 @@
 #include <vector>
 
 #include "DnsResolver.h"
-#include "netd_resolv/params.h"
 #include "netd_resolv/resolv.h"
-#include "netd_resolv/stats.h"
+#include "params.h"
+#include "stats.h"
 #include "stats.pb.h"
 
 // Linux defines MAXHOSTNAMELEN as 64, while the domain name limit in
@@ -202,5 +196,3 @@ inline std::string addrToString(const sockaddr_storage* addr) {
                 NI_NUMERICHOST);
     return std::string(out);
 }
-
-#endif  // NETD_RESOLV_PRIVATE_H

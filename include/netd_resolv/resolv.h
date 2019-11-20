@@ -28,8 +28,6 @@
 
 #pragma once
 
-#include "params.h"
-
 #include <arpa/nameser.h>
 #include <netinet/in.h>
 
@@ -119,6 +117,8 @@ struct ResolverNetdCallbacks {
 };
 
 #define TAG_SYSTEM_DNS 0xFFFFFF82
+
+#define LIBNETD_RESOLV_PUBLIC extern "C" [[gnu::visibility("default")]]
 
 LIBNETD_RESOLV_PUBLIC bool resolv_has_nameservers(unsigned netid);
 

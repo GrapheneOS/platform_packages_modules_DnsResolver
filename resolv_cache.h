@@ -36,7 +36,7 @@
 #include <stats.pb.h>
 
 #include "ResolverStats.h"
-#include "netd_resolv/params.h"
+#include "params.h"
 
 // Sets the name server addresses to the provided ResState.
 // The name servers are retrieved from the cache which is associated

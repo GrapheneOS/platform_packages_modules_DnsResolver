@@ -29,10 +29,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "netd_resolv/stats.h"
 #include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
+#include "stats.h"
 #include "tests/dns_responder/dns_responder.h"
 
 using namespace std::chrono_literals;
