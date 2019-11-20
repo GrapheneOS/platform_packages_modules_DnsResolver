@@ -17,6 +17,12 @@
 
 #include "util.h"
 
+#include <android-base/parseint.h>
+#include <server_configurable_flags/get_flags.h>
+
+using android::base::ParseInt;
+using server_configurable_flags::GetServerConfigurableFlag;
+
 socklen_t sockaddrSize(const sockaddr* sa) {
     if (sa == nullptr) return 0;
 
@@ -32,4 +38,10 @@ socklen_t sockaddrSize(const sockaddr* sa) {
 
 socklen_t sockaddrSize(const sockaddr_storage& ss) {
     return sockaddrSize(reinterpret_cast<const sockaddr*>(&ss));
+}
+
+int getExperimentFlagInt(const std::string& flagName, int defaultValue) {
+    int val = defaultValue;
+    ParseInt(GetServerConfigurableFlag("netd_native", flagName, ""), &val);
+    return val;
 }
