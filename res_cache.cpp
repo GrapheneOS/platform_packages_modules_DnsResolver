@@ -1527,18 +1527,13 @@ static resolv_cache_info* find_cache_info_locked(unsigned netid) {
 }
 
 static void resolv_set_experiment_params(res_params* params) {
-    using android::base::ParseInt;
-    using server_configurable_flags::GetServerConfigurableFlag;
-
     if (params->retry_count == 0) {
-        params->retry_count = RES_DFLRETRY;
-        ParseInt(GetServerConfigurableFlag("netd_native", "retry_count", ""), &params->retry_count);
+        params->retry_count = getExperimentFlagInt("retry_count", RES_DFLRETRY);
     }
 
     if (params->base_timeout_msec == 0) {
-        params->base_timeout_msec = RES_TIMEOUT;
-        ParseInt(GetServerConfigurableFlag("netd_native", "retransmission_time_interval", ""),
-                 &params->base_timeout_msec);
+        params->base_timeout_msec =
+                getExperimentFlagInt("retransmission_time_interval", RES_TIMEOUT);
     }
 }
 
