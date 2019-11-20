@@ -19,6 +19,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/unique_fd.h>
 #include <android/multinetwork.h>  // ResNsendFlags
@@ -35,6 +36,7 @@
 #include <netdutils/ResponseCode.h>
 #include <netdutils/Slice.h>
 #include <netdutils/SocketOption.h>
+#include <netdutils/Stopwatch.h>
 #include <netinet/in.h>
 #include <openssl/base64.h>
 #include <poll.h> /* poll */
@@ -87,12 +89,14 @@ using android::base::ParseInt;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 using android::net::INetd;
+using android::net::ResolverParamsParcel;
 using android::net::ResolverStats;
 using android::net::metrics::DnsMetricsListener;
 using android::netdutils::enableSockopt;
 using android::netdutils::makeSlice;
 using android::netdutils::ResponseCode;
 using android::netdutils::ScopedAddrinfo;
+using android::netdutils::Stopwatch;
 using android::netdutils::toHex;
 
 // TODO: move into libnetdutils?
@@ -105,6 +109,13 @@ ScopedAddrinfo safe_getaddrinfo(const char* node, const char* service,
         result = nullptr;  // Should already be the case, but...
     }
     return ScopedAddrinfo(result);
+}
+
+std::pair<ScopedAddrinfo, int> safe_getaddrinfo_time_taken(const char* node, const char* service,
+                                                           const addrinfo& hints) {
+    Stopwatch s;
+    ScopedAddrinfo result = safe_getaddrinfo(node, service, &hints);
+    return {std::move(result), s.timeTakenUs() / 1000};
 }
 
 }  // namespace
@@ -3443,27 +3454,47 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     EXPECT_TRUE(netdService->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, false).isOk());
 }
 
+namespace {
+
+const std::string kDotConnectTimeoutMsFlag(
+        "persist.device_config.netd_native.dot_connect_timeout_ms");
+
+class ScopedSystemProperties {
+  public:
+    explicit ScopedSystemProperties(const std::string& key, const std::string& value)
+        : mStoredKey(key) {
+        mStoredValue = android::base::GetProperty(key, "");
+        android::base::SetProperty(key, value);
+    }
+    ~ScopedSystemProperties() { android::base::SetProperty(mStoredKey, mStoredValue); }
+
+  private:
+    std::string mStoredKey;
+    std::string mStoredValue;
+};
+
+}  // namespace
+
 TEST_F(ResolverTest, ConnectTlsServerTimeout) {
-    constexpr char listen_addr[] = "127.0.0.3";
-    constexpr char listen_udp[] = "53";
-    constexpr char listen_tls[] = "853";
-    constexpr char host_name[] = "tls.example.com.";
-    const std::vector<std::string> servers = {listen_addr};
+    constexpr int expectedTimeout = 1000;
+    constexpr char hostname1[] = "query1.example.com.";
+    constexpr char hostname2[] = "query2.example.com.";
     const std::vector<DnsRecord> records = {
-            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+            {hostname1, ns_type::ns_t_a, "1.2.3.4"},
+            {hostname2, ns_type::ns_t_a, "1.2.3.5"},
     };
 
     test::DNSResponder dns;
     StartDns(dns, records);
-
-    test::DnsTlsFrontend tls(listen_addr, listen_tls, listen_addr, listen_udp);
+    test::DnsTlsFrontend tls;
     ASSERT_TRUE(tls.startServer());
 
-    // Opportunistic mode.
-    ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, {}));
+    // The resolver will adjust the timeout value to 1000ms since the value is too small.
+    ScopedSystemProperties scopedSystemProperties(kDotConnectTimeoutMsFlag, "100");
 
-    // Wait for the server being marked as validated so that PrivateDnsStatus::validatedServers()
-    // won't return empty list.
+    // Set up resolver to opportunistic mode with the default configuration.
+    const ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
     EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
     dns.clearQueries();
     tls.clearQueries();
@@ -3475,19 +3506,30 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
     //   1. Connect to the private DNS server.
     //   2. SSL handshake times out.
     //   3. Fallback to UDP transport, and then get the answer.
-    const auto start = std::chrono::steady_clock::now();
-    addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
-    ScopedAddrinfo result = safe_getaddrinfo("tls", nullptr, &hints);
-    const auto end = std::chrono::steady_clock::now();
+    const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+    auto [result, timeTakenMs] = safe_getaddrinfo_time_taken(hostname1, nullptr, hints);
 
-    EXPECT_TRUE(result != nullptr);
+    EXPECT_NE(nullptr, result);
     EXPECT_EQ(0, tls.queries());
-    EXPECT_EQ(1U, GetNumQueries(dns, host_name));
-    EXPECT_EQ("1.2.3.4", ToString(result));
+    EXPECT_EQ(1U, GetNumQueries(dns, hostname1));
+    EXPECT_EQ(records.at(0).addr, ToString(result));
 
-    // 3000ms is a loose upper bound. Theoretically, it takes a bit more than 1000ms.
-    EXPECT_GE(3000, std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
-    EXPECT_LE(1000, std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    // A loose upper bound is set by adding 2000ms buffer time. Theoretically, getaddrinfo()
+    // should just take a bit more than expetTimeout milliseconds.
+    EXPECT_GE(timeTakenMs, expectedTimeout);
+    EXPECT_LE(timeTakenMs, expectedTimeout + 2000);
+
+    // Set the server to be responsive. Verify that the resolver will attempt to reconnect
+    // to the server and then get the result within the timeout.
+    tls.setHangOnHandshakeForTesting(false);
+    std::tie(result, timeTakenMs) = safe_getaddrinfo_time_taken(hostname2, nullptr, hints);
+
+    EXPECT_NE(nullptr, result);
+    EXPECT_EQ(1, tls.queries());
+    EXPECT_EQ(1U, GetNumQueries(dns, hostname2));
+    EXPECT_EQ(records.at(1).addr, ToString(result));
+
+    EXPECT_LE(timeTakenMs, expectedTimeout);
 }
 
 // Parameterized tests.

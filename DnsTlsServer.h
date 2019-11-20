@@ -62,7 +62,9 @@ struct DnsTlsServer {
     // The time to wait for the attempt on connecting to the server.
     // Set the default value 127 seconds to be consistent with TCP connect timeout.
     // (presume net.ipv4.tcp_syn_retries = 6)
-    std::chrono::milliseconds connectTimeout = std::chrono::milliseconds(127 * 1000);
+    std::chrono::milliseconds connectTimeout = std::chrono::milliseconds(kDotConnectTimeoutMs);
+
+    static constexpr int kDotConnectTimeoutMs = 127 * 1000;
 
     // Exact comparison of DnsTlsServer objects
     bool operator<(const DnsTlsServer& other) const;
