@@ -17,7 +17,12 @@
 
 #pragma once
 
+#include <string>
+
 #include <netinet/in.h>
 
 socklen_t sockaddrSize(const sockaddr* sa);
 socklen_t sockaddrSize(const sockaddr_storage& ss);
+
+// TODO: getExperimentFlagString
+int getExperimentFlagInt(const std::string& flagName, int defaultValue);

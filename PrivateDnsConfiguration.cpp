@@ -19,11 +19,9 @@
 #include "PrivateDnsConfiguration.h"
 
 #include <android-base/logging.h>
-#include <android-base/parseint.h>
 #include <android-base/stringprintf.h>
 #include <netdb.h>
 #include <netdutils/ThreadUtil.h>
-#include <server_configurable_flags/get_flags.h>
 #include <sys/socket.h>
 
 #include "DnsTlsTransport.h"
@@ -31,9 +29,8 @@
 #include "netd_resolv/resolv.h"
 #include "netdutils/BackoffSequence.h"
 #include "resolv_cache.h"
+#include "util.h"
 
-using android::base::ParseInt;
-using server_configurable_flags::GetServerConfigurableFlag;
 using std::chrono::milliseconds;
 
 namespace android {
@@ -41,10 +38,9 @@ namespace net {
 
 namespace {
 
-milliseconds getTimeoutFromExperimentFlag(const std::string& flagName, const int defaultValue) {
-    int val = defaultValue;
-    ParseInt(GetServerConfigurableFlag("netd_native", flagName, ""), &val);
-    return (val < 1000) ? milliseconds(1000) : milliseconds(val);
+milliseconds getExperimentTimeout(const std::string& flagName, const milliseconds defaultValue) {
+    int val = getExperimentFlagInt(flagName, defaultValue.count());
+    return milliseconds((val < 1000) ? 1000 : val);
 }
 
 }  // namespace
@@ -90,8 +86,8 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         DnsTlsServer server(parsed);
         server.name = name;
         server.certificate = caCert;
-        server.connectTimeout = getTimeoutFromExperimentFlag("dot_connect_timeout_ms",
-                                                             DnsTlsServer::kDotConnectTimeoutMs);
+        server.connectTimeout =
+                getExperimentTimeout("dot_connect_timeout_ms", DnsTlsServer::kDotConnectTimeoutMs);
         tlsServers.insert(server);
         LOG(DEBUG) << "Set DoT connect timeout " << server.connectTimeout.count() << "ms for " << s;
     }
