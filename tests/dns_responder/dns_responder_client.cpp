@@ -103,7 +103,6 @@ static ResolverParamsParcel makeResolverParamsParcel(int netId, const std::vecto
     paramsParcel.tlsServers = tlsServers;
     paramsParcel.tlsFingerprints = {};
     paramsParcel.caCertificate = caCert;
-    paramsParcel.tlsConnectTimeoutMs = 1000;
 
     return paramsParcel;
 }
@@ -127,6 +126,18 @@ bool DnsResponderClient::SetResolversWithTls(const std::vector<std::string>& ser
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
     if (!rv.isOk()) LOG(ERROR) << "SetResolversWithTls() -> " << rv.toString8();
     return rv.isOk();
+}
+
+bool DnsResponderClient::SetResolversFromParcel(const ResolverParamsParcel& resolverParams) {
+    const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
+    if (!rv.isOk()) LOG(ERROR) << "SetResolversFromParcel() -> " << rv.toString8();
+    return rv.isOk();
+}
+
+ResolverParamsParcel DnsResponderClient::GetDefaultResolverParamsParcel() {
+    return makeResolverParamsParcel(TEST_NETID, kDefaultParams, kDefaultServers,
+                                    kDefaultSearchDomains, {} /* tlsHostname */, kDefaultServers,
+                                    kCaCert);
 }
 
 void DnsResponderClient::SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,

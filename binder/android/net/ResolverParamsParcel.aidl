@@ -93,6 +93,8 @@ parcelable ResolverParamsParcel {
     /**
      * The timeout for the connection attempt to a Private DNS server.
      * It's initialized to 0 to use the predefined default value.
+     * Setting a non-zero value to it takes no effect anymore. The timeout is configurable only
+     * by the experiement flag.
      */
     int tlsConnectTimeoutMs = 0;
 }
