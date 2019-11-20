@@ -39,8 +39,10 @@ namespace test {
  */
 class DnsTlsFrontend {
   public:
-    DnsTlsFrontend(const std::string& listen_address, const std::string& listen_service,
-                   const std::string& backend_address, const std::string& backend_service)
+    DnsTlsFrontend(const std::string& listen_address = kDefaultListenAddr,
+                   const std::string& listen_service = kDefaultListenService,
+                   const std::string& backend_address = kDefaultBackendAddr,
+                   const std::string& backend_service = kDefaultBackendService)
         : listen_address_(listen_address),
           listen_service_(listen_service),
           backend_address_(backend_address),
@@ -56,6 +58,11 @@ class DnsTlsFrontend {
     bool waitForQueries(int number, int timeoutMs) const;
     void set_chain_length(int length) { chain_length_ = length; }
     void setHangOnHandshakeForTesting(bool hangOnHandshake) { hangOnHandshake_ = hangOnHandshake; }
+
+    static constexpr char kDefaultListenAddr[] = "127.0.0.3";
+    static constexpr char kDefaultListenService[] = "853";
+    static constexpr char kDefaultBackendAddr[] = "127.0.0.3";
+    static constexpr char kDefaultBackendService[] = "53";
 
   private:
     void requestHandler();
