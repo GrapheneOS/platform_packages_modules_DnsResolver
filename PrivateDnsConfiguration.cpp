@@ -19,9 +19,11 @@
 #include "PrivateDnsConfiguration.h"
 
 #include <android-base/logging.h>
+#include <android-base/parseint.h>
 #include <android-base/stringprintf.h>
 #include <netdb.h>
 #include <netdutils/ThreadUtil.h>
+#include <server_configurable_flags/get_flags.h>
 #include <sys/socket.h>
 
 #include "DnsTlsTransport.h"
@@ -30,10 +32,22 @@
 #include "netdutils/BackoffSequence.h"
 #include "resolv_cache.h"
 
+using android::base::ParseInt;
+using server_configurable_flags::GetServerConfigurableFlag;
 using std::chrono::milliseconds;
 
 namespace android {
 namespace net {
+
+namespace {
+
+milliseconds getTimeoutFromExperimentFlag(const std::string& flagName, const int defaultValue) {
+    int val = defaultValue;
+    ParseInt(GetServerConfigurableFlag("netd_native", flagName, ""), &val);
+    return (val < 1000) ? milliseconds(1000) : milliseconds(val);
+}
+
+}  // namespace
 
 std::string addrToString(const sockaddr_storage* addr) {
     char out[INET6_ADDRSTRLEN] = {0};
@@ -62,30 +76,24 @@ bool parseServer(const char* server, sockaddr_storage* parsed) {
 
 int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
                                  const std::vector<std::string>& servers, const std::string& name,
-                                 const std::string& caCert, int32_t connectTimeoutMs) {
+                                 const std::string& caCert) {
     LOG(DEBUG) << "PrivateDnsConfiguration::set(" << netId << ", 0x" << std::hex << mark << std::dec
-               << ", " << servers.size() << ", " << name << ", " << connectTimeoutMs << "ms)";
+               << ", " << servers.size() << ", " << name << ")";
 
     // Parse the list of servers that has been passed in
     std::set<DnsTlsServer> tlsServers;
-    for (size_t i = 0; i < servers.size(); ++i) {
+    for (const auto& s : servers) {
         sockaddr_storage parsed;
-        if (!parseServer(servers[i].c_str(), &parsed)) {
+        if (!parseServer(s.c_str(), &parsed)) {
             return -EINVAL;
         }
         DnsTlsServer server(parsed);
         server.name = name;
         server.certificate = caCert;
-
-        // connectTimeoutMs = 0: use the default timeout value.
-        // connectTimeoutMs < 0: invalid timeout value.
-        if (connectTimeoutMs > 0) {
-            // Set a specific timeout value but limit it to be at least 1 second.
-            server.connectTimeout =
-                    (connectTimeoutMs < 1000) ? milliseconds(1000) : milliseconds(connectTimeoutMs);
-        }
-
+        server.connectTimeout = getTimeoutFromExperimentFlag("dot_connect_timeout_ms",
+                                                             DnsTlsServer::kDotConnectTimeoutMs);
         tlsServers.insert(server);
+        LOG(DEBUG) << "Set DoT connect timeout " << server.connectTimeout.count() << "ms for " << s;
     }
 
     std::lock_guard guard(mPrivateDnsLock);

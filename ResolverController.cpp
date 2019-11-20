@@ -210,9 +210,9 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     if (tlsServers.size() > MAXNS) {
         tlsServers.resize(MAXNS);
     }
-    const int err = gPrivateDnsConfiguration.set(
-            resolverParams.netId, fwmark.intValue, tlsServers, resolverParams.tlsName,
-            resolverParams.caCertificate, resolverParams.tlsConnectTimeoutMs);
+    const int err =
+            gPrivateDnsConfiguration.set(resolverParams.netId, fwmark.intValue, tlsServers,
+                                         resolverParams.tlsName, resolverParams.caCertificate);
 
     if (err != 0) {
         return err;

@@ -50,14 +50,12 @@ class DnsResponderClient {
     static void SetupMappings(unsigned num_hosts, const std::vector<std::string>& domains,
                               std::vector<Mapping>* mappings);
 
+    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversForNetwork(const std::vector<std::string>& servers = kDefaultServers,
                                 const std::vector<std::string>& domains = kDefaultSearchDomains,
                                 const std::vector<int>& params = kDefaultParams);
 
-    bool SetResolversForNetwork(const std::vector<std::string>& servers,
-                                const std::vector<std::string>& searchDomains,
-                                const std::string& params);
-
+    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
                              const std::vector<int>& params, const std::string& name) {
@@ -66,10 +64,16 @@ class DnsResponderClient {
         return SetResolversWithTls(servers, searchDomains, params, servers, name);
     }
 
+    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
                              const std::vector<int>& params,
                              const std::vector<std::string>& tlsServers, const std::string& name);
+
+    bool SetResolversFromParcel(const android::net::ResolverParamsParcel& resolverParams);
+
+    // Return a default resolver configuration for opportunistic mode.
+    static android::net::ResolverParamsParcel GetDefaultResolverParamsParcel();
 
     static void SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,
                                 std::vector<std::unique_ptr<test::DNSResponder>>* dns,
