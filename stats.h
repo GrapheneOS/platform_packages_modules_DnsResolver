@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef NETD_RES_STATS_H
-#define NETD_RES_STATS_H
+#pragma once
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -44,19 +43,15 @@ struct res_stats {
 };
 
 // Aggregates the reachability statistics for the given server based on on the stored samples.
-LIBNETD_RESOLV_PUBLIC void android_net_res_stats_aggregate(res_stats* stats, int* successes,
-                                                           int* errors, int* timeouts,
-                                                           int* internal_errors, int* rtt_avg,
-                                                           time_t* last_sample_time);
+void android_net_res_stats_aggregate(res_stats* stats, int* successes, int* errors, int* timeouts,
+                                     int* internal_errors, int* rtt_avg, time_t* last_sample_time);
 
-LIBNETD_RESOLV_PUBLIC int android_net_res_stats_get_info_for_net(
-        unsigned netid, int* nscount, sockaddr_storage servers[MAXNS], int* dcount,
-        char domains[MAXDNSRCH][MAXDNSRCHPATH], res_params* params, res_stats stats[MAXNS],
-        int* wait_for_pending_req_timeout_count);
+int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
+                                           sockaddr_storage servers[MAXNS], int* dcount,
+                                           char domains[MAXDNSRCH][MAXDNSRCHPATH],
+                                           res_params* params, res_stats stats[MAXNS],
+                                           int* wait_for_pending_req_timeout_count);
 
 // Returns an array of bools indicating which servers are considered good
-LIBNETD_RESOLV_PUBLIC int android_net_res_stats_get_usable_servers(const res_params* params,
-                                                                   res_stats stats[], int nscount,
-                                                                   bool valid_servers[]);
-
-#endif  // NETD_RES_STATS_H
+int android_net_res_stats_get_usable_servers(const res_params* params, res_stats stats[],
+                                             int nscount, bool valid_servers[]);
