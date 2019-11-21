@@ -194,6 +194,11 @@ int ResolverController::createNetworkCache(unsigned netId) {
     return resolv_create_cache_for_net(netId);
 }
 
+int ResolverController::flushNetworkCache(unsigned netId) {
+    LOG(VERBOSE) << __func__ << ": netId = " << netId;
+    return resolv_flush_cache_for_net(netId);
+}
+
 int ResolverController::setResolverConfiguration(const ResolverParamsParcel& resolverParams) {
     using aidl::android::net::IDnsResolver;
 

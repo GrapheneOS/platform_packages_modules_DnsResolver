@@ -25,6 +25,7 @@
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
 #include <android/multinetwork.h>
+#include <arpa/inet.h>
 #include <cutils/properties.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -39,6 +40,7 @@ using namespace std::chrono_literals;
 
 constexpr int TEST_NETID = 30;
 constexpr int TEST_NETID_2 = 31;
+constexpr int DNS_PORT = 53;
 
 // Constant values sync'd from res_cache.cpp
 constexpr int DNS_HEADER_SIZE = 12;
@@ -187,6 +189,13 @@ class ResolvCacheTest : public ::testing::Test {
     int cacheSetupResolver(uint32_t netId, const SetupParams& setup) {
         return resolv_set_nameservers(netId, setup.servers, setup.domains, setup.params);
     }
+
+    void cacheAddStats(uint32_t netId, int revision_id, const sockaddr* sa,
+                       const res_sample& sample, int max_samples) {
+        resolv_cache_add_resolver_stats_sample(netId, revision_id, sa, sample, max_samples);
+    }
+
+    int cacheFlush(uint32_t netId) { return resolv_flush_cache_for_net(netId); }
 
     void expectCacheStats(const std::string& msg, uint32_t netId, const CacheStats& expected) {
         int nscount = -1;
@@ -711,6 +720,38 @@ TEST_F(ResolvCacheTest, GetStats) {
             .pendingReqTimeoutCount = 0,
     };
     expectCacheStats("GetStats", TEST_NETID, cacheStats);
+}
+
+TEST_F(ResolvCacheTest, FlushCache) {
+    EXPECT_EQ(0, cacheCreate(TEST_NETID));
+    const SetupParams setup = {
+            .servers = {"127.0.0.1", "::127.0.0.2", "fe80::3"},
+            .domains = {"domain1.com", "domain2.com"},
+            .params = kParams,
+    };
+    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID, setup));
+    EXPECT_TRUE(resolv_has_nameservers(TEST_NETID));
+
+    res_sample sample = {.at = time(NULL), .rtt = 100, .rcode = ns_r_noerror};
+    sockaddr_in sin = {.sin_family = AF_INET, .sin_port = htons(DNS_PORT)};
+    ASSERT_TRUE(inet_pton(AF_INET, setup.servers[0].c_str(), &sin.sin_addr));
+    cacheAddStats(TEST_NETID, 1 /*revision_id*/, (const sockaddr*)&sin, sample,
+                  setup.params.max_samples);
+
+    const CacheStats cacheStats = {
+            .setup = setup,
+            .stats = {{{sample}, 1 /*sample_count*/, 1 /*sample_next*/}},
+            .pendingReqTimeoutCount = 0,
+    };
+    expectCacheStats("FlushCache: a record in cache stats", TEST_NETID, cacheStats);
+
+    EXPECT_EQ(0, cacheFlush(TEST_NETID));
+    const CacheStats cacheStats_empty = {
+            .setup = setup,
+            .stats = {},
+            .pendingReqTimeoutCount = 0,
+    };
+    expectCacheStats("FlushCache: no record in cache stats", TEST_NETID, cacheStats_empty);
 }
 
 TEST_F(ResolvCacheTest, GetHostByAddrFromCache_InvalidArgs) {

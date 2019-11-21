@@ -3532,6 +3532,101 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
     EXPECT_LE(timeTakenMs, expectedTimeout);
 }
 
+TEST_F(ResolverTest, FlushNetworkCache) {
+    test::DNSResponder dns;
+    StartDns(dns, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    const hostent* result = gethostbyname("hello");
+    EXPECT_EQ(1U, GetNumQueriesForType(dns, ns_type::ns_t_a, kHelloExampleCom));
+
+    // get result from cache
+    result = gethostbyname("hello");
+    EXPECT_EQ(1U, GetNumQueriesForType(dns, ns_type::ns_t_a, kHelloExampleCom));
+
+    EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+
+    result = gethostbyname("hello");
+    EXPECT_EQ(2U, GetNumQueriesForType(dns, ns_type::ns_t_a, kHelloExampleCom));
+}
+
+TEST_F(ResolverTest, FlushNetworkCache_random) {
+    constexpr int num_flush = 10;
+    constexpr int num_queries = 20;
+    test::DNSResponder dns;
+    StartDns(dns, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+    const addrinfo hints = {.ai_family = AF_INET};
+
+    std::thread t([this]() {
+        for (int i = 0; i < num_flush; ++i) {
+            unsigned delay = arc4random_uniform(10 * 1000);  // 10ms
+            usleep(delay);
+            EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+        }
+    });
+
+    for (int i = 0; i < num_queries; ++i) {
+        ScopedAddrinfo result = safe_getaddrinfo("hello", nullptr, &hints);
+        EXPECT_TRUE(result != nullptr);
+        EXPECT_EQ(kHelloExampleComAddrV4, ToString(result));
+    }
+    t.join();
+}
+
+// flush cache while one query is wait-for-response, another is pending.
+TEST_F(ResolverTest, FlushNetworkCache_concurrent) {
+    const char* listen_addr1 = "127.0.0.9";
+    const char* listen_addr2 = "127.0.0.10";
+    test::DNSResponder dns1(listen_addr1);
+    test::DNSResponder dns2(listen_addr2);
+    StartDns(dns1, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+    StartDns(dns2, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+    addrinfo hints = {.ai_family = AF_INET};
+
+    // step 1: set server#1 into deferred responding mode
+    dns1.setDeferredResp(true);
+    std::thread t1([&listen_addr1, &hints, this]() {
+        ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr1}));
+        // step 3: query
+        ScopedAddrinfo result = safe_getaddrinfo("hello", nullptr, &hints);
+        // step 9: check result
+        EXPECT_TRUE(result != nullptr);
+        EXPECT_EQ(kHelloExampleComAddrV4, ToString(result));
+    });
+
+    // step 2: wait for the query to reach the server
+    while (GetNumQueries(dns1, kHelloExampleCom) == 0) {
+        usleep(1000);  // 1ms
+    }
+
+    std::thread t2([&listen_addr2, &hints, &dns2, this]() {
+        ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr2}));
+        // step 5: query (should be blocked in resolver)
+        ScopedAddrinfo result = safe_getaddrinfo("hello", nullptr, &hints);
+        // step 7: check result
+        EXPECT_TRUE(result != nullptr);
+        EXPECT_EQ(kHelloExampleComAddrV4, ToString(result));
+        EXPECT_EQ(1U, GetNumQueriesForType(dns2, ns_type::ns_t_a, kHelloExampleCom));
+    });
+
+    // step 4: wait a bit for the 2nd query to enter pending state
+    usleep(100 * 1000);  // 100ms
+    // step 6: flush cache (will unblock pending queries)
+    EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+    t2.join();
+
+    // step 8: resume server#1
+    dns1.setDeferredResp(false);
+    t1.join();
+
+    // step 10: verify if result is correctly cached
+    dns2.clearQueries();
+    ScopedAddrinfo result = safe_getaddrinfo("hello", nullptr, &hints);
+    EXPECT_EQ(0U, GetNumQueries(dns2, kHelloExampleCom));
+    EXPECT_EQ(kHelloExampleComAddrV4, ToString(result));
+}
+
 // Parameterized tests.
 // TODO: Merge the existing tests as parameterized test if possible.
 // TODO: Perhaps move parameterized tests to an independent file.

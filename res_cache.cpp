@@ -1485,6 +1485,20 @@ void resolv_delete_cache_for_net(unsigned netid) {
     }
 }
 
+int resolv_flush_cache_for_net(unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+
+    resolv_cache_info* cache_info = find_cache_info_locked(netid);
+    if (cache_info == nullptr) {
+        return -ENONET;
+    }
+    cache_info->cache->flush();
+
+    // Also clear the NS statistics.
+    res_cache_clear_stats_locked(cache_info);
+    return 0;
+}
+
 std::vector<unsigned> resolv_list_caches() {
     std::lock_guard guard(cache_mutex);
     struct resolv_cache_info* cache_info = res_cache_list.next;

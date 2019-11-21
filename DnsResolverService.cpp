@@ -249,5 +249,14 @@ binder_status_t DnsResolverService::dump(int fd, const char**, uint32_t) {
     return statusFromErrcode(res);
 }
 
+::ndk::ScopedAStatus DnsResolverService::flushNetworkCache(int netId) {
+    // Locking happens in res_cache.cpp functions.
+    ENFORCE_NETWORK_STACK_PERMISSIONS();
+
+    int res = gDnsResolv->resolverCtrl.flushNetworkCache(netId);
+
+    return statusFromErrcode(res);
+}
+
 }  // namespace net
 }  // namespace android

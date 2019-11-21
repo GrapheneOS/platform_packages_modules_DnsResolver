@@ -369,6 +369,12 @@ TEST_F(DnsResolverBinderTest, CreateDestroyNetworkCache) {
     EXPECT_TRUE(mDnsResolver->destroyNetworkCache(ANOTHER_TEST_NETID).isOk());
 }
 
+TEST_F(DnsResolverBinderTest, FlushNetworkCache) {
+    // cache has beed created in DnsResolverBinderTest constructor
+    EXPECT_TRUE(mDnsResolver->flushNetworkCache(TEST_NETID).isOk());
+    EXPECT_EQ(ENONET, mDnsResolver->flushNetworkCache(-1).serviceSpecificErrorCode());
+}
+
 TEST_F(DnsResolverBinderTest, setLogSeverity) {
     // Expect fail
     EXPECT_EQ(EINVAL, mDnsResolver->setLogSeverity(-1).serviceSpecificErrorCode());
