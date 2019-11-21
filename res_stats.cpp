@@ -21,8 +21,7 @@
 
 #include <android-base/logging.h>
 
-#include "netd_resolv/stats.h"
-
+#include "stats.h"
 
 // Calculate the round-trip-time from start time t0 and end time t1.
 int _res_stats_calculate_rtt(const timespec* t1, const timespec* t0) {

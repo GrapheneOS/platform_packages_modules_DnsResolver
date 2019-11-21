@@ -27,7 +27,7 @@
 
 #include "ResolverStats.h"
 #include "dns_responder/dns_responder_client.h"
-#include "netd_resolv/params.h"  // MAX_NS
+#include "params.h"  // MAX_NS
 #include "resolv_test_utils.h"
 
 using android::base::StringPrintf;

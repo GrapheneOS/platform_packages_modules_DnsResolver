@@ -58,8 +58,8 @@
 #include "ResolverStats.h"
 #include "android/net/IDnsResolver.h"
 #include "binder/IServiceManager.h"
-#include "netd_resolv/params.h"  // MAXNS
 #include "netid_client.h"        // NETID_UNSET
+#include "params.h"              // MAXNS
 #include "test_utils.h"
 #include "tests/dns_metrics_listener/dns_metrics_listener.h"
 #include "tests/dns_responder/dns_responder.h"
