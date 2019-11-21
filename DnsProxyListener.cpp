@@ -54,10 +54,10 @@
 #include "ResolverEventReporter.h"
 #include "getaddrinfo.h"
 #include "gethnamaddr.h"
-#include "netd_resolv/stats.h"  // RCODE_TIMEOUT
 #include "res_send.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
+#include "stats.h"  // RCODE_TIMEOUT
 #include "stats.pb.h"
 
 using aidl::android::net::metrics::INetdEventListener;

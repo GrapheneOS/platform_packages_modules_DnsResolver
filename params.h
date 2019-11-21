@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef NETD_RESOLV_PARAMS_H
-#define NETD_RESOLV_PARAMS_H
+#pragma once
 
 #include <stdint.h>
 
@@ -34,7 +33,3 @@ struct res_params {
     int base_timeout_msec;      // base query retry timeout (if 0, use RES_TIMEOUT)
     int retry_count;            // number of retries
 };
-
-#define LIBNETD_RESOLV_PUBLIC extern "C" [[gnu::visibility("default")]]
-
-#endif  // NETD_RESOLV_PARAMS_H
