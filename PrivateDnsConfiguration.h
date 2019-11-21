@@ -53,8 +53,7 @@ struct PrivateDnsStatus {
 class PrivateDnsConfiguration {
   public:
     int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
-            const std::string& name, const std::string& caCert, int32_t connectTimeoutMs)
-            EXCLUDES(mPrivateDnsLock);
+            const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
 
     PrivateDnsStatus getStatus(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
