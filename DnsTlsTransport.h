@@ -57,12 +57,14 @@ class DnsTlsTransport : public IDnsTlsSocketObserver {
     // on networks where it doesn't actually work.
     static bool validate(const DnsTlsServer& server, unsigned netid, uint32_t mark);
 
+    uint32_t getConnectCounter() const EXCLUDES(mLock);
+
     // Implement IDnsTlsSocketObserver
     void onResponse(std::vector<uint8_t> response) override;
     void onClosed() override EXCLUDES(mLock);
 
   private:
-    std::mutex mLock;
+    mutable std::mutex mLock;
 
     DnsTlsSessionCache mCache;
     DnsTlsQueryMap mQueries;
@@ -85,6 +87,9 @@ class DnsTlsTransport : public IDnsTlsSocketObserver {
 
     // Send a query to the socket.
     bool sendQuery(const DnsTlsQueryMap::Query q) REQUIRES(mLock);
+
+    // The number of times an attempt to connect the nameserver.
+    uint32_t mConnectCounter GUARDED_BY(mLock) = 0;
 };
 
 }  // end of namespace net
