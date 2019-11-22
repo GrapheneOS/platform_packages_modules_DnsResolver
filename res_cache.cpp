@@ -980,7 +980,6 @@ struct NetConfig {
     explicit NetConfig(unsigned netId) : netid(netId) {
         cache = std::make_unique<Cache>();
         dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
-        dnsStats = std::make_unique<DnsStats>();
     }
 
     const unsigned netid;
@@ -995,7 +994,7 @@ struct NetConfig {
     int wait_for_pending_req_timeout_count = 0;
     // Map format: ReturnCode:rate_denom
     std::unordered_map<int, uint32_t> dns_event_subsampling_map;
-    std::unique_ptr<DnsStats> dnsStats;
+    DnsStats dnsStats;
 };
 
 /* gets cache associated with a network, or NULL if none exists */
@@ -1599,8 +1598,8 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     netconfig->search_domains = filter_domains(domains);
 
     // Setup stats for cleartext dns servers.
-    if (!netconfig->dnsStats->setServers(netconfig->nameserverSockAddrs, PROTO_TCP) ||
-        !netconfig->dnsStats->setServers(netconfig->nameserverSockAddrs, PROTO_UDP)) {
+    if (!netconfig->dnsStats.setServers(netconfig->nameserverSockAddrs, PROTO_TCP) ||
+        !netconfig->dnsStats.setServers(netconfig->nameserverSockAddrs, PROTO_UDP)) {
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
@@ -1847,7 +1846,7 @@ int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::stri
         serverSockAddrs.push_back(IPSockAddr::toIPSockAddr(server, 853));
     }
 
-    if (!info->dnsStats->setServers(serverSockAddrs, android::net::PROTO_DOT)) {
+    if (!info->dnsStats.setServers(serverSockAddrs, android::net::PROTO_DOT)) {
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
@@ -1861,7 +1860,7 @@ bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& serv
 
     std::lock_guard guard(cache_mutex);
     if (const auto info = find_netconfig_locked(netid); info != nullptr) {
-        return info->dnsStats->addStats(server, *record);
+        return info->dnsStats.addStats(server, *record);
     }
     return false;
 }
@@ -1869,6 +1868,6 @@ bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& serv
 void resolv_stats_dump(DumpWriter& dw, unsigned netid) {
     std::lock_guard guard(cache_mutex);
     if (const auto info = find_netconfig_locked(netid); info != nullptr) {
-        info->dnsStats->dump(dw);
+        info->dnsStats.dump(dw);
     }
 }
