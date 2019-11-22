@@ -25,9 +25,6 @@
 
 #include <netdutils/InternetAddresses.h>
 
-#include "ResolverStats.h"
-
-#include "android/net/IDnsResolver.h"
 #include "dns_responder/dns_responder.h"
 #include "params.h"
 
@@ -110,9 +107,3 @@ std::string ToString(const addrinfo* ai);
 std::string ToString(const android::netdutils::ScopedAddrinfo& ai);
 std::vector<std::string> ToStrings(const addrinfo* ai);
 std::vector<std::string> ToStrings(const android::netdutils::ScopedAddrinfo& ai);
-
-bool GetResolverInfo(android::net::IDnsResolver* dnsResolverService, unsigned netId,
-                     std::vector<std::string>* servers, std::vector<std::string>* domains,
-                     std::vector<std::string>* tlsServers, res_params* params,
-                     std::vector<android::net::ResolverStats>* stats,
-                     int* wait_for_pending_req_timeout_count);
