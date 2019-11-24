@@ -29,7 +29,7 @@
 
 #include "android/net/IDnsResolver.h"
 #include "dns_responder/dns_responder.h"
-#include "netd_resolv/params.h"
+#include "params.h"
 
 // TODO: make this dynamic and stop depending on implementation details.
 constexpr int TEST_NETID = 30;

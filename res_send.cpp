@@ -103,11 +103,11 @@
 #include "DnsTlsTransport.h"
 #include "PrivateDnsConfiguration.h"
 #include "netd_resolv/resolv.h"
-#include "netd_resolv/stats.h"
 #include "private/android_filesystem_config.h"
 #include "res_debug.h"
 #include "res_init.h"
 #include "resolv_cache.h"
+#include "stats.h"
 #include "stats.pb.h"
 #include "util.h"
 

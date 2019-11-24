@@ -26,11 +26,9 @@
  * SUCH DAMAGE.
  */
 
-#ifndef NETD_RESOLV_RESOLV_STUB_H
-#define NETD_RESOLV_RESOLV_STUB_H
+#pragma once
 
 #include "resolv.h"
-#include "stats.h"
 
 // Struct containing function pointers for every function exported by libnetd_resolv.
 extern struct ResolvStub {
@@ -44,5 +42,3 @@ extern struct ResolvStub {
 } RESOLV_STUB;
 
 int resolv_stub_init();
-
-#endif  // NETD_RESOLV_RESOLV_STUB_H

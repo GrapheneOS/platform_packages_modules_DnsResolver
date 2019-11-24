@@ -36,7 +36,7 @@
 #include <stats.pb.h>
 
 #include "ResolverStats.h"
-#include "netd_resolv/params.h"
+#include "params.h"
 
 // Sets the name server addresses to the provided ResState.
 // The name servers are retrieved from the cache which is associated
@@ -77,6 +77,9 @@ int resolv_create_cache_for_net(unsigned netid);
 
 // Deletes the cache associated with the given network.
 void resolv_delete_cache_for_net(unsigned netid);
+
+// Flushes the cache associated with the given network.
+int resolv_flush_cache_for_net(unsigned netid);
 
 // For test only.
 // Return true if the cache is existent in the given network, false otherwise.
