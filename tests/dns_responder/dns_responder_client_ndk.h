@@ -37,6 +37,15 @@ inline const std::vector<int> kDefaultParams = {
         2,        // retry count
 };
 
+#define SKIP_IF_REMOTE_VERSION_LESS_THAN(service, version)                                         \
+    do {                                                                                           \
+        if (!DnsResponderClient::isRemoteVersionSupported(service, version)) {                     \
+            std::cerr << "    Skip test. Remote version is too old, required version: " << version \
+                      << std::endl;                                                                \
+            return;                                                                                \
+        }                                                                                          \
+    } while (0)
+
 class DnsResponderClient {
   public:
     struct Mapping {
@@ -73,6 +82,9 @@ class DnsResponderClient {
                              const std::vector<std::string>& tlsServers, const std::string& name);
 
     bool SetResolversFromParcel(const aidl::android::net::ResolverParamsParcel& resolverParams);
+
+    static bool isRemoteVersionSupported(aidl::android::net::IDnsResolver* dnsResolverService,
+                                         int enabledVersion);
 
     static bool GetResolverInfo(aidl::android::net::IDnsResolver* dnsResolverService,
                                 unsigned netId, std::vector<std::string>* servers,

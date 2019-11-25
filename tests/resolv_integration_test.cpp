@@ -3553,6 +3553,7 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
 }
 
 TEST_F(ResolverTest, FlushNetworkCache) {
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
     test::DNSResponder dns;
     StartDns(dns, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
@@ -3571,6 +3572,7 @@ TEST_F(ResolverTest, FlushNetworkCache) {
 }
 
 TEST_F(ResolverTest, FlushNetworkCache_random) {
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
     constexpr int num_flush = 10;
     constexpr int num_queries = 20;
     test::DNSResponder dns;
@@ -3596,6 +3598,7 @@ TEST_F(ResolverTest, FlushNetworkCache_random) {
 
 // flush cache while one query is wait-for-response, another is pending.
 TEST_F(ResolverTest, FlushNetworkCache_concurrent) {
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
     const char* listen_addr1 = "127.0.0.9";
     const char* listen_addr2 = "127.0.0.10";
     test::DNSResponder dns1(listen_addr1);

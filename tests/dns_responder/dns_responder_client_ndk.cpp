@@ -139,6 +139,20 @@ bool DnsResponderClient::GetResolverInfo(aidl::android::net::IDnsResolver* dnsRe
     return ResolverStats::decodeAll(stats32, stats);
 }
 
+bool DnsResponderClient::isRemoteVersionSupported(
+        aidl::android::net::IDnsResolver* dnsResolverService, int requiredVersion) {
+    int remoteVersion = 0;
+    if (!dnsResolverService->getInterfaceVersion(&remoteVersion).isOk()) {
+        LOG(FATAL) << "Can't get 'dnsresolver' remote version";
+    }
+    if (remoteVersion < requiredVersion) {
+        LOG(WARNING) << StringPrintf("Remote version: %d < Required version: %d", remoteVersion,
+                                     requiredVersion);
+        return false;
+    }
+    return true;
+}
+
 bool DnsResponderClient::SetResolversForNetwork(const std::vector<std::string>& servers,
                                                 const std::vector<std::string>& domains,
                                                 const std::vector<int>& params) {
