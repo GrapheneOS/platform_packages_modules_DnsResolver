@@ -322,6 +322,7 @@ TEST_F(DnsResolverBinderTest, CreateDestroyNetworkCache) {
 }
 
 TEST_F(DnsResolverBinderTest, FlushNetworkCache) {
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsResolver.get(), 4);
     // cache has beed created in DnsResolverBinderTest constructor
     EXPECT_TRUE(mDnsResolver->flushNetworkCache(TEST_NETID).isOk());
     EXPECT_EQ(ENONET, mDnsResolver->flushNetworkCache(-1).getServiceSpecificError());
