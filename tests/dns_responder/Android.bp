@@ -17,3 +17,32 @@ cc_library_static {
     ],
     export_include_dirs: ["."],
 }
+
+cc_library {
+    name: "libnetd_test_dnsresponder_ndk",
+    defaults: ["netd_defaults"],
+    shared_libs: [
+        "libbinder_ndk",
+        "libnetd_client",
+    ],
+    header_libs: [
+        "libnetd_resolv_headers",
+        "libnetd_resolv_internal_headers",
+    ],
+    static_libs: [
+        "dnsresolver_aidl_interface-unstable-ndk_platform",
+        "libbase",
+        "libcrypto_static",
+        "liblog",
+        "libnetdutils",
+        "libssl",
+        "netd_event_listener_interface-ndk_platform",
+        "netd_aidl_interface-ndk_platform",
+    ],
+    srcs: [
+        "dns_responder.cpp",
+        "dns_responder_client_ndk.cpp",
+        "dns_tls_frontend.cpp",
+    ],
+    export_include_dirs: ["."],
+}
