@@ -83,10 +83,10 @@ class TestOnDnsEvent : public BaseTestMetricsEvent {
     bool isVerified() override { return (getVerified() & EventFlag::onDnsEvent) != 0; }
 
     // Override for testing verification.
-    android::binder::Status onDnsEvent(int32_t netId, int32_t eventType, int32_t returnCode,
-                                       int32_t /*latencyMs*/, const std::string& hostname,
-                                       const std::vector<std::string>& ipAddresses,
-                                       int32_t ipAddressesCount, int32_t /*uid*/) override;
+    ::ndk::ScopedAStatus onDnsEvent(int32_t netId, int32_t eventType, int32_t returnCode,
+                                    int32_t /*latencyMs*/, const std::string& hostname,
+                                    const std::vector<std::string>& ipAddresses,
+                                    int32_t ipAddressesCount, int32_t /*uid*/) override;
 
   private:
     const std::vector<TestResult>& mResults;  // Expected results for test verification.

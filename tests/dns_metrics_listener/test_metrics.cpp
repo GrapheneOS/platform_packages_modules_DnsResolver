@@ -33,11 +33,11 @@ void BaseTestMetricsEvent::setVerified(EventFlag event) {
 }
 
 // Derived class TestOnDnsEvent.
-android::binder::Status TestOnDnsEvent::onDnsEvent(int32_t netId, int32_t eventType,
-                                                   int32_t returnCode, int32_t /*latencyMs*/,
-                                                   const std::string& hostname,
-                                                   const ::std::vector<std::string>& ipAddresses,
-                                                   int32_t ipAddressesCount, int32_t /*uid*/) {
+::ndk::ScopedAStatus TestOnDnsEvent::onDnsEvent(int32_t netId, int32_t eventType,
+                                                int32_t returnCode, int32_t /*latencyMs*/,
+                                                const std::string& hostname,
+                                                const ::std::vector<std::string>& ipAddresses,
+                                                int32_t ipAddressesCount, int32_t /*uid*/) {
     // A bitwise-OR combination of all expected test cases.
     // Currently, the maximum number of test case is 32 because a 32-bits bitwise-OR combination
     // is used for checking and recording verified test cases.
@@ -77,7 +77,7 @@ android::binder::Status TestOnDnsEvent::onDnsEvent(int32_t netId, int32_t eventT
         notify();
     }
 
-    return android::binder::Status::ok();
+    return ::ndk::ScopedAStatus(AStatus_newOk());
 };
 
 }  // namespace metrics
