@@ -19,43 +19,45 @@
 #include <string>
 #include <vector>
 
-#include "android/net/metrics/BnNetdEventListener.h"
+#include <aidl/android/net/metrics/BnNetdEventListener.h>
 
 namespace android {
 namespace net {
 namespace metrics {
 
-class BaseMetricsListener : public BnNetdEventListener {
+class BaseMetricsListener : public aidl::android::net::metrics::BnNetdEventListener {
   public:
     BaseMetricsListener() = default;
     ~BaseMetricsListener() = default;
 
-    virtual android::binder::Status onDnsEvent(int32_t /*netId*/, int32_t /*eventType*/,
-                                               int32_t /*returnCode*/, int32_t /*latencyMs*/,
-                                               const std::string& /*hostname*/,
-                                               const ::std::vector<std::string>& /*ipAddresses*/,
-                                               int32_t /*ipAddressesCount*/,
-                                               int32_t /*uid*/) override;
-    virtual android::binder::Status onPrivateDnsValidationEvent(
-            int32_t /*netId*/, const ::android::String16& /*ipAddress*/,
-            const ::android::String16& /*hostname*/, bool /*validated*/) override;
-    virtual android::binder::Status onConnectEvent(int32_t /*netId*/, int32_t /*error*/,
-                                                   int32_t /*latencyMs*/,
-                                                   const ::android::String16& /*ipAddr*/,
-                                                   int32_t /*port*/, int32_t /*uid*/) override;
-    virtual android::binder::Status onWakeupEvent(
-            const ::android::String16& /*prefix*/, int32_t /*uid*/, int32_t /*ethertype*/,
-            int32_t /*ipNextHeader*/, const ::std::vector<uint8_t>& /*dstHw*/,
-            const ::android::String16& /*srcIp*/, const ::android::String16& /*dstIp*/,
-            int32_t /*srcPort*/, int32_t /*dstPort*/, int64_t /*timestampNs*/) override;
-    virtual android::binder::Status onTcpSocketStatsEvent(
+    virtual ::ndk::ScopedAStatus onDnsEvent(int32_t /*netId*/, int32_t /*eventType*/,
+                                            int32_t /*returnCode*/, int32_t /*latencyMs*/,
+                                            const std::string& /*hostname*/,
+                                            const ::std::vector<std::string>& /*ipAddresses*/,
+                                            int32_t /*ipAddressesCount*/, int32_t /*uid*/) override;
+    virtual ::ndk::ScopedAStatus onPrivateDnsValidationEvent(int32_t /*netId*/,
+                                                             const std::string& /*ipAddress*/,
+                                                             const std::string& /*hostname*/,
+                                                             bool /*validated*/) override;
+    virtual ::ndk::ScopedAStatus onConnectEvent(int32_t /*netId*/, int32_t /*error*/,
+                                                int32_t /*latencyMs*/,
+                                                const std::string& /*ipAddr*/, int32_t /*port*/,
+                                                int32_t /*uid*/) override;
+    virtual ::ndk::ScopedAStatus onWakeupEvent(const std::string& /*prefix*/, int32_t /*uid*/,
+                                               int32_t /*ethertype*/, int32_t /*ipNextHeader*/,
+                                               const ::std::vector<int8_t>& /*dstHw*/,
+                                               const std::string& /*srcIp*/,
+                                               const std::string& /*dstIp*/, int32_t /*srcPort*/,
+                                               int32_t /*dstPort*/,
+                                               int64_t /*timestampNs*/) override;
+    virtual ::ndk::ScopedAStatus onTcpSocketStatsEvent(
             const ::std::vector<int32_t>& /*networkIds*/,
             const ::std::vector<int32_t>& /*sentPackets*/,
             const ::std::vector<int32_t>& /*lostPackets*/, const ::std::vector<int32_t>& /*rttUs*/,
             const ::std::vector<int32_t>& /*sentAckDiffMs*/) override;
-    virtual android::binder::Status onNat64PrefixEvent(int32_t /*netId*/, bool /*added*/,
-                                                       const ::std::string& /*prefixString*/,
-                                                       int32_t /*prefixLength*/) override;
+    virtual ::ndk::ScopedAStatus onNat64PrefixEvent(int32_t /*netId*/, bool /*added*/,
+                                                    const ::std::string& /*prefixString*/,
+                                                    int32_t /*prefixLength*/) override;
 };
 
 }  // namespace metrics
