@@ -46,6 +46,8 @@ inline const std::vector<int> kDefaultParams = {
         }                                                                                          \
     } while (0)
 
+// TODO: Remove dns_responder_client_ndk.{h,cpp} after replacing the binder usage of
+// dns_responder_client.*
 class DnsResponderClient {
   public:
     struct Mapping {
@@ -63,10 +65,6 @@ class DnsResponderClient {
     bool SetResolversForNetwork(const std::vector<std::string>& servers = kDefaultServers,
                                 const std::vector<std::string>& domains = kDefaultSearchDomains,
                                 const std::vector<int>& params = kDefaultParams);
-
-    bool SetResolversForNetwork(const std::vector<std::string>& servers,
-                                const std::vector<std::string>& searchDomains,
-                                const std::string& params);
 
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
@@ -91,12 +89,12 @@ class DnsResponderClient {
                                 std::vector<std::string>* domains,
                                 std::vector<std::string>* tlsServers, res_params* params,
                                 std::vector<android::net::ResolverStats>* stats,
-                                int* wait_for_pending_req_timeout_count);
+                                int* waitForPendingReqTimeoutCount);
 
     // Return a default resolver configuration for opportunistic mode.
     static aidl::android::net::ResolverParamsParcel GetDefaultResolverParamsParcel();
 
-    static void SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,
+    static void SetupDNSServers(unsigned numServers, const std::vector<Mapping>& mappings,
                                 std::vector<std::unique_ptr<test::DNSResponder>>* dns,
                                 std::vector<std::string>* servers);
 

@@ -1,3 +1,4 @@
+// TODO: Remove libnetd_test_dnsresponder after eliminating all users.
 cc_library_static {
     name: "libnetd_test_dnsresponder",
     defaults: ["netd_defaults"],
