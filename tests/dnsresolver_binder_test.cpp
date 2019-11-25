@@ -23,33 +23,27 @@
 #include <iostream>
 #include <vector>
 
+#include <aidl/android/net/IDnsResolver.h>
+#include <android-base/stringprintf.h>
 #include <android-base/strings.h>
-#include <android/net/IDnsResolver.h>
-#include <binder/IPCThreadState.h>
-#include <binder/IServiceManager.h>
+#include <android/binder_manager.h>
+#include <android/binder_process.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 #include <netdutils/Stopwatch.h>
 
-#include "tests/dns_metrics_listener/base_metrics_listener.h"
-#include "tests/dns_metrics_listener/test_metrics.h"
+#include "dns_metrics_listener/base_metrics_listener.h"
+#include "dns_metrics_listener/test_metrics.h"
 
 #include "ResolverStats.h"
 #include "dns_responder.h"
-#include "dns_responder_client.h"
+#include "dns_responder_client_ndk.h"
 
-namespace binder = android::binder;
-
-using android::IBinder;
-using android::IServiceManager;
-using android::ProcessState;
-using android::sp;
-using android::String16;
-using android::String8;
-using android::net::IDnsResolver;
-using android::net::ResolverParamsParcel;
+using aidl::android::net::IDnsResolver;
+using aidl::android::net::ResolverParamsParcel;
+using aidl::android::net::metrics::INetdEventListener;
+using android::base::StringPrintf;
 using android::net::ResolverStats;
-using android::net::metrics::INetdEventListener;
 using android::net::metrics::TestOnDnsEvent;
 using android::netdutils::Stopwatch;
 
@@ -60,11 +54,9 @@ constexpr int TEST_NETID = 30;
 class DnsResolverBinderTest : public ::testing::Test {
   public:
     DnsResolverBinderTest() {
-        sp<IServiceManager> sm = android::defaultServiceManager();
-        sp<IBinder> binder = sm->getService(String16("dnsresolver"));
-        if (binder != nullptr) {
-            mDnsResolver = android::interface_cast<IDnsResolver>(binder);
-        }
+        ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));
+
+        mDnsResolver = IDnsResolver::fromBinder(resolvBinder);
         // This could happen when the test isn't running as root, or if netd isn't running.
         assert(nullptr != mDnsResolver.get());
         // Create cache for test
@@ -77,7 +69,7 @@ class DnsResolverBinderTest : public ::testing::Test {
     }
 
   protected:
-    sp<IDnsResolver> mDnsResolver;
+    std::shared_ptr<aidl::android::net::IDnsResolver> mDnsResolver;
 };
 
 class TimedOperation : public Stopwatch {
@@ -91,43 +83,6 @@ class TimedOperation : public Stopwatch {
     std::string mName;
 };
 
-namespace {
-
-// TODO: Convert tests to ResolverParamsParcel and delete this stub.
-ResolverParamsParcel makeResolverParamsParcel(int netId, const std::vector<int>& params,
-                                              const std::vector<std::string>& servers,
-                                              const std::vector<std::string>& domains,
-                                              const std::string& tlsHostname,
-                                              const std::vector<std::string>& tlsServers) {
-    using android::net::IDnsResolver;
-    ResolverParamsParcel paramsParcel;
-
-    paramsParcel.netId = netId;
-    paramsParcel.sampleValiditySeconds = params[IDnsResolver::RESOLVER_PARAMS_SAMPLE_VALIDITY];
-    paramsParcel.successThreshold = params[IDnsResolver::RESOLVER_PARAMS_SUCCESS_THRESHOLD];
-    paramsParcel.minSamples = params[IDnsResolver::RESOLVER_PARAMS_MIN_SAMPLES];
-    paramsParcel.maxSamples = params[IDnsResolver::RESOLVER_PARAMS_MAX_SAMPLES];
-    if (params.size() > IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC) {
-        paramsParcel.baseTimeoutMsec = params[IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC];
-    } else {
-        paramsParcel.baseTimeoutMsec = 0;
-    }
-    if (params.size() > IDnsResolver::RESOLVER_PARAMS_RETRY_COUNT) {
-        paramsParcel.retryCount = params[IDnsResolver::RESOLVER_PARAMS_RETRY_COUNT];
-    } else {
-        paramsParcel.retryCount = 0;
-    }
-    paramsParcel.servers = servers;
-    paramsParcel.domains = domains;
-    paramsParcel.tlsName = tlsHostname;
-    paramsParcel.tlsServers = tlsServers;
-    paramsParcel.tlsFingerprints = {};
-
-    return paramsParcel;
-}
-
-}  // namespace
-
 TEST_F(DnsResolverBinderTest, IsAlive) {
     TimedOperation t("isAlive RPC");
     bool isAlive = false;
@@ -136,26 +91,23 @@ TEST_F(DnsResolverBinderTest, IsAlive) {
 }
 
 TEST_F(DnsResolverBinderTest, RegisterEventListener_NullListener) {
-    android::binder::Status status = mDnsResolver->registerEventListener(
-            android::interface_cast<INetdEventListener>(nullptr));
+    ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(nullptr);
     ASSERT_FALSE(status.isOk());
-    ASSERT_EQ(EINVAL, status.serviceSpecificErrorCode());
+    ASSERT_EQ(EINVAL, status.getServiceSpecificError());
 }
 
 TEST_F(DnsResolverBinderTest, RegisterEventListener_DuplicateSubscription) {
     class DummyListener : public android::net::metrics::BaseMetricsListener {};
 
     // Expect to subscribe successfully.
-    android::sp<DummyListener> dummyListener = new DummyListener();
-    android::binder::Status status = mDnsResolver->registerEventListener(
-            android::interface_cast<INetdEventListener>(dummyListener));
-    ASSERT_TRUE(status.isOk()) << status.exceptionMessage();
+    std::shared_ptr<DummyListener> dummyListener = ndk::SharedRefBase::make<DummyListener>();
+    ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(dummyListener);
+    ASSERT_TRUE(status.isOk()) << status.getExceptionCode();
 
     // Expect to subscribe failed with registered listener instance.
-    status = mDnsResolver->registerEventListener(
-            android::interface_cast<INetdEventListener>(dummyListener));
+    status = mDnsResolver->registerEventListener(dummyListener);
     ASSERT_FALSE(status.isOk());
-    ASSERT_EQ(EEXIST, status.serviceSpecificErrorCode());
+    ASSERT_EQ(EEXIST, status.getServiceSpecificError());
 }
 
 // TODO: Move this test to resolv_integration_test.cpp
@@ -178,7 +130,7 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_onDnsEvent) {
 
     // Start the Binder thread pool.
     // TODO: Consider doing this once if there has another event listener unit test.
-    android::ProcessState::self()->startThreadPool();
+    ABinderProcess_startThreadPool();
 
     // Setup network.
     // TODO: Setup device configuration and DNS responser server as resolver test does.
@@ -204,10 +156,10 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_onDnsEvent) {
     dns.clearQueries();
 
     // Register event listener.
-    android::sp<TestOnDnsEvent> testOnDnsEvent = new TestOnDnsEvent(expectedResults);
-    android::binder::Status status = mDnsResolver->registerEventListener(
-            android::interface_cast<INetdEventListener>(testOnDnsEvent));
-    ASSERT_TRUE(status.isOk()) << status.exceptionMessage();
+    std::shared_ptr<TestOnDnsEvent> testOnDnsEvent =
+            ndk::SharedRefBase::make<TestOnDnsEvent>(expectedResults);
+    ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(testOnDnsEvent);
+    ASSERT_TRUE(status.isOk()) << status.getExceptionCode();
 
     // DNS queries.
     // Once all expected events of expectedResults are received by the listener, the unit test will
@@ -277,18 +229,18 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_Tls) {
     for (size_t i = 0; i < std::size(kTlsTestData); i++) {
         const auto& td = kTlsTestData[i];
 
-        const auto resolverParams = makeResolverParamsParcel(
+        const auto resolverParams = DnsResponderClient::makeResolverParamsParcel(
                 TEST_NETID, test_params, LOCALLY_ASSIGNED_DNS, {}, td.tlsName, td.servers);
-        binder::Status status = mDnsResolver->setResolverConfiguration(resolverParams);
+        ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
 
         if (td.expectedReturnCode == 0) {
-            SCOPED_TRACE(String8::format("test case %zu should have passed", i));
-            SCOPED_TRACE(status.toString8());
-            EXPECT_EQ(0, status.exceptionCode());
+            SCOPED_TRACE(StringPrintf("test case %zu should have passed", i));
+            SCOPED_TRACE(status.getExceptionCode());
+            EXPECT_EQ(0, status.getExceptionCode());
         } else {
-            SCOPED_TRACE(String8::format("test case %zu should have failed", i));
-            EXPECT_EQ(binder::Status::EX_SERVICE_SPECIFIC, status.exceptionCode());
-            EXPECT_EQ(td.expectedReturnCode, status.serviceSpecificErrorCode());
+            SCOPED_TRACE(StringPrintf("test case %zu should have failed", i));
+            EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+            EXPECT_EQ(td.expectedReturnCode, status.getServiceSpecificError());
         }
     }
 }
@@ -303,10 +255,10 @@ TEST_F(DnsResolverBinderTest, GetResolverInfo) {
             100,     // BASE_TIMEOUT_MSEC
             3,       // retry count
     };
-    const auto resolverParams =
-            makeResolverParamsParcel(TEST_NETID, testParams, servers, domains, "", {});
-    binder::Status status = mDnsResolver->setResolverConfiguration(resolverParams);
-    EXPECT_TRUE(status.isOk()) << status.exceptionMessage();
+    const auto resolverParams = DnsResponderClient::makeResolverParamsParcel(
+            TEST_NETID, testParams, servers, domains, "", {});
+    ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
+    EXPECT_TRUE(status.isOk()) << status.getExceptionCode();
 
     std::vector<std::string> res_servers;
     std::vector<std::string> res_domains;
@@ -318,7 +270,7 @@ TEST_F(DnsResolverBinderTest, GetResolverInfo) {
                                            &params32, &stats32,
                                            &wait_for_pending_req_timeout_count32);
 
-    EXPECT_TRUE(status.isOk()) << status.exceptionMessage();
+    EXPECT_TRUE(status.isOk()) << status.getExceptionCode();
     EXPECT_EQ(servers.size(), res_servers.size());
     EXPECT_EQ(domains.size(), res_domains.size());
     EXPECT_EQ(0U, res_tls_servers.size());
@@ -354,7 +306,7 @@ TEST_F(DnsResolverBinderTest, CreateDestroyNetworkCache) {
 
     // create it again, expect a EEXIST.
     EXPECT_EQ(EEXIST,
-              mDnsResolver->createNetworkCache(ANOTHER_TEST_NETID).serviceSpecificErrorCode());
+              mDnsResolver->createNetworkCache(ANOTHER_TEST_NETID).getServiceSpecificError());
 
     // destroy it.
     EXPECT_TRUE(mDnsResolver->destroyNetworkCache(ANOTHER_TEST_NETID).isOk());
@@ -372,12 +324,12 @@ TEST_F(DnsResolverBinderTest, CreateDestroyNetworkCache) {
 TEST_F(DnsResolverBinderTest, FlushNetworkCache) {
     // cache has beed created in DnsResolverBinderTest constructor
     EXPECT_TRUE(mDnsResolver->flushNetworkCache(TEST_NETID).isOk());
-    EXPECT_EQ(ENONET, mDnsResolver->flushNetworkCache(-1).serviceSpecificErrorCode());
+    EXPECT_EQ(ENONET, mDnsResolver->flushNetworkCache(-1).getServiceSpecificError());
 }
 
 TEST_F(DnsResolverBinderTest, setLogSeverity) {
     // Expect fail
-    EXPECT_EQ(EINVAL, mDnsResolver->setLogSeverity(-1).serviceSpecificErrorCode());
+    EXPECT_EQ(EINVAL, mDnsResolver->setLogSeverity(-1).getServiceSpecificError());
 
     // Test set different log level
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_VERBOSE).isOk());

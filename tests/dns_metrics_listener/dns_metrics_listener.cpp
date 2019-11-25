@@ -29,26 +29,24 @@ using std::chrono::milliseconds;
 constexpr milliseconds kRetryIntervalMs{20};
 constexpr milliseconds kEventTimeoutMs{5000};
 
-android::binder::Status DnsMetricsListener::onNat64PrefixEvent(int32_t netId, bool added,
-                                                               const std::string& prefixString,
-                                                               int32_t /*prefixLength*/) {
+::ndk::ScopedAStatus DnsMetricsListener::onNat64PrefixEvent(int32_t netId, bool added,
+                                                            const std::string& prefixString,
+                                                            int32_t /*prefixLength*/) {
     std::lock_guard lock(mMutex);
     if (netId == mNetId) mNat64Prefix = added ? prefixString : "";
-    return android::binder::Status::ok();
+    return ::ndk::ScopedAStatus(AStatus_newOk());
 }
 
-android::binder::Status DnsMetricsListener::onPrivateDnsValidationEvent(
-        int32_t netId, const ::android::String16& ipAddress,
-        const ::android::String16& /*hostname*/, bool validated) {
+::ndk::ScopedAStatus DnsMetricsListener::onPrivateDnsValidationEvent(
+        int32_t netId, const std::string& ipAddress, const std::string& /*hostname*/,
+        bool validated) {
     {
         std::lock_guard lock(mMutex);
-        std::string serverAddr(String8(ipAddress.string()));
-
         // keep updating the server to have latest validation status.
-        mValidationRecords.insert_or_assign({netId, serverAddr}, validated);
+        mValidationRecords.insert_or_assign({netId, ipAddress}, validated);
     }
     mCv.notify_one();
-    return android::binder::Status::ok();
+    return ::ndk::ScopedAStatus(AStatus_newOk());
 }
 
 bool DnsMetricsListener::waitForNat64Prefix(ExpectNat64PrefixStatus status,
