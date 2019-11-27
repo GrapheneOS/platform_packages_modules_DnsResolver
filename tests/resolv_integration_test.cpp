@@ -4715,3 +4715,43 @@ TEST_P(ResolverParameterizedTest, TruncatedResponse) {
     EXPECT_EQ(1U, GetNumQueriesForProtocol(dns, IPPROTO_UDP, kHelloExampleCom));
     EXPECT_EQ(1U, GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom));
 }
+
+TEST_F(ResolverTest, KeepListeningUDP) {
+    constexpr char listen_addr1[] = "127.0.0.4";
+    constexpr char listen_addr2[] = "127.0.0.5";
+    constexpr char host_name[] = "howdy.example.com.";
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
+    };
+    const std::vector<int> params = {300, 25, 8, 8, 1000 /* BASE_TIMEOUT_MSEC */,
+                                     1 /* retry count */};
+    const int delayTimeMs = 1500;
+
+    test::DNSResponder neverRespondDns(listen_addr2, "53", static_cast<ns_rcode>(-1));
+    neverRespondDns.setResponseProbability(0.0);
+    StartDns(neverRespondDns, records);
+
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr1, listen_addr2},
+                                                  kDefaultSearchDomains, params));
+    // There are 2 DNS servers for this test.
+    // |delayedDns| will be blocked for |delayTimeMs|, then start to respond to requests.
+    // |neverRespondDns| will never respond.
+    // In the first try, resolver will send query to |delayedDns| but get timeout error
+    // because |delayTimeMs| > DNS timeout.
+    // Then it's the second try, resolver will send query to |neverRespondDns| and
+    // listen on both servers. Resolver will receive the answer coming from |delayedDns|.
+    const std::string udpKeepListeningFlag("persist.device_config.netd_native.keep_listening_udp");
+
+    ScopedSystemProperties scopedSystemProperties(udpKeepListeningFlag, "1");
+    test::DNSResponder delayedDns(listen_addr1);
+    delayedDns.setResponseDelayMs(delayTimeMs);
+    StartDns(delayedDns, records);
+
+    // Specify hints to ensure resolver doing query only 1 round.
+    const addrinfo hints = {.ai_family = AF_INET6, .ai_socktype = SOCK_DGRAM};
+    ScopedAddrinfo result = safe_getaddrinfo(host_name, nullptr, &hints);
+    EXPECT_TRUE(result != nullptr);
+
+    std::string result_str = ToString(result);
+    EXPECT_TRUE(result_str == "::1.2.3.4") << ", result_str='" << result_str << "'";
+}
