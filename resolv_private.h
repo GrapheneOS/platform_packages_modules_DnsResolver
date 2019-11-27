@@ -49,6 +49,7 @@
 #pragma once
 
 #include <android-base/logging.h>
+#include <android-base/unique_fd.h>
 #include <net/if.h>
 #include <time.h>
 #include <string>
@@ -73,6 +74,10 @@
 #define RES_TIMEOUT 5000 /* min. milliseconds between retries */
 #define RES_DFLRETRY 2    /* Default #/tries. */
 
+// Flags for res_state->_flags
+#define RES_F_VC 0x00000001        // socket is TCP
+#define RES_F_EDNS0ERR 0x00000004  // EDNS0 caused errors
+
 // Holds either a sockaddr_in or a sockaddr_in6.
 union sockaddr_union {
     struct sockaddr sa;
@@ -82,21 +87,31 @@ union sockaddr_union {
 constexpr int MAXPACKET = 8 * 1024;
 
 struct ResState {
-    unsigned netid;                           // NetId: cache key and socket mark
-    uid_t uid;                                // uid of the app that sent the DNS lookup
-    pid_t pid;                                // pid of the app that sent the DNS lookup
-    int nscount;                              // number of name srvers
-    uint16_t id;                              // current message id
-    std::vector<std::string> search_domains;  // domains to search
+    void closeSockets() {
+        tcp_nssock.reset();
+        _flags &= ~RES_F_VC;
+
+        for (auto& sock : nssocks) {
+            sock.reset();
+        }
+    }
+    // clang-format off
+    unsigned netid;                             // NetId: cache key and socket mark
+    uid_t uid;                                  // uid of the app that sent the DNS lookup
+    pid_t pid;                                  // pid of the app that sent the DNS lookup
+    int nscount;                                // number of name srvers
+    uint16_t id;                                // current message id
+    std::vector<std::string> search_domains{};  // domains to search
     sockaddr_union nsaddrs[MAXNS];
-    int nssocks[MAXNS];                       // UDP sockets to nameservers
-    unsigned ndots : 4;                       // threshold for initial abs. query
-    unsigned _mark;                           // If non-0 SET_MARK to _mark on all request sockets
-    int _vcsock;                              // TCP socket (but why not one per nameserver?)
-    uint32_t _flags;                          // See RES_F_* defines below
+    android::base::unique_fd nssocks[MAXNS];    // UDP sockets to nameservers
+    unsigned ndots : 4;                         // threshold for initial abs. query
+    unsigned _mark;                             // If non-0 SET_MARK to _mark on all request sockets
+    android::base::unique_fd tcp_nssock;        // TCP socket (but why not one per nameserver?)
+    uint32_t _flags = 0;                        // See RES_F_* defines below
     android::net::NetworkDnsEventReported* event;
     uint32_t netcontext_flags;
-    int tc_mode;
+    int tc_mode = 0;
+    // clang-format on
 };
 
 // TODO: remove these legacy aliases
@@ -121,10 +136,6 @@ void _res_stats_set_sample(res_sample* sample, time_t now, int rcode, int rtt);
 
 /* End of stats related definitions */
 
-// Flags for res_state->_flags
-#define RES_F_VC 0x00000001        // socket is TCP
-#define RES_F_EDNS0ERR 0x00000004  // EDNS0 caused errors
-
 /*
  * Error code extending h_errno codes defined in bionic/libc/include/netdb.h.
  *
@@ -146,7 +157,6 @@ int res_nquerydomain(res_state, const char*, const char*, int, int, uint8_t*, in
 int res_nmkquery(int op, const char* qname, int cl, int type, const uint8_t* data, int datalen,
                  uint8_t* buf, int buflen, int netcontext_flags);
 int res_nsend(res_state, const uint8_t*, int, uint8_t*, int, int*, uint32_t);
-void res_nclose(res_state);
 int res_nopt(res_state, int, uint8_t*, int, int);
 
 int getaddrinfo_numeric(const char* hostname, const char* servname, addrinfo hints,
