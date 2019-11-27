@@ -36,7 +36,8 @@ inline const std::vector<int> kDefaultParams = {
         2,        // retry count
 };
 
-// TODO: Remove this after finishing all tests migration from libbinder to libbinder_ndk
+// TODO: Replace binder service related code to ndk version after finishing all tests migration
+// from libbinder to libbinder_ndk.
 class DnsResponderClient {
   public:
     struct Mapping {
@@ -76,7 +77,7 @@ class DnsResponderClient {
     // Return a default resolver configuration for opportunistic mode.
     static android::net::ResolverParamsParcel GetDefaultResolverParamsParcel();
 
-    static void SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,
+    static void SetupDNSServers(unsigned numServers, const std::vector<Mapping>& mappings,
                                 std::vector<std::unique_ptr<test::DNSResponder>>* dns,
                                 std::vector<std::string>* servers);
 

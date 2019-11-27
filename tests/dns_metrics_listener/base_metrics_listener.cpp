@@ -22,17 +22,17 @@ namespace metrics {
 
 ::ndk::ScopedAStatus BaseMetricsListener::onDnsEvent(
         int32_t /*netId*/, int32_t /*eventType*/, int32_t /*returnCode*/, int32_t /*latencyMs*/,
-        const std::string& /*hostname*/, const ::std::vector<std::string>& /*ipAddresses*/,
+        const std::string& /*hostname*/, const std::vector<std::string>& /*ipAddresses*/,
         int32_t /*ipAddressesCount*/, int32_t /*uid*/) {
     // default no-op
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 };
 
 ::ndk::ScopedAStatus BaseMetricsListener::onPrivateDnsValidationEvent(
         int32_t /*netId*/, const std::string& /*ipAddress*/, const std::string& /*hostname*/,
         bool /*validated*/) {
     // default no-op
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 };
 
 ::ndk::ScopedAStatus BaseMetricsListener::onConnectEvent(int32_t /*netId*/, int32_t /*error*/,
@@ -40,31 +40,31 @@ namespace metrics {
                                                          const std::string& /*ipAddr*/,
                                                          int32_t /*port*/, int32_t /*uid*/) {
     // default no-op
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 };
 
 ::ndk::ScopedAStatus BaseMetricsListener::onWakeupEvent(
         const std::string& /*prefix*/, int32_t /*uid*/, int32_t /*ethertype*/,
-        int32_t /*ipNextHeader*/, const ::std::vector<int8_t>& /*dstHw*/,
+        int32_t /*ipNextHeader*/, const std::vector<int8_t>& /*dstHw*/,
         const std::string& /*srcIp*/, const std::string& /*dstIp*/, int32_t /*srcPort*/,
         int32_t /*dstPort*/, int64_t /*timestampNs*/) {
     // default no-op
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 };
 
 ::ndk::ScopedAStatus BaseMetricsListener::onTcpSocketStatsEvent(
-        const ::std::vector<int32_t>& /*networkIds*/, const ::std::vector<int32_t>& /*sentPackets*/,
-        const ::std::vector<int32_t>& /*lostPackets*/, const ::std::vector<int32_t>& /*rttUs*/,
-        const ::std::vector<int32_t>& /*sentAckDiffMs*/) {
+        const std::vector<int32_t>& /*networkIds*/, const std::vector<int32_t>& /*sentPackets*/,
+        const std::vector<int32_t>& /*lostPackets*/, const std::vector<int32_t>& /*rttUs*/,
+        const std::vector<int32_t>& /*sentAckDiffMs*/) {
     // default no-op
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 };
 
 ::ndk::ScopedAStatus BaseMetricsListener::onNat64PrefixEvent(int32_t /*netId*/, bool /*added*/,
-                                                             const ::std::string& /*prefixString*/,
+                                                             const std::string& /*prefixString*/,
                                                              int32_t /*prefixLength*/) {
     // default no-op
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 };
 
 }  // namespace metrics

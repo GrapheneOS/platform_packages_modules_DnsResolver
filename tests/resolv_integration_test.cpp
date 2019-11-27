@@ -86,6 +86,7 @@ extern "C" int android_getaddrinfofornet(const char* hostname, const char* servn
                                          const addrinfo* hints, unsigned netid, unsigned mark,
                                          struct addrinfo** result);
 
+using aidl::android::net::IDnsResolver;
 using aidl::android::net::INetd;
 using android::base::ParseInt;
 using android::base::StringPrintf;
@@ -136,6 +137,10 @@ class ResolverTest : public ::testing::Test {
         ASSERT_NE(nullptr, resolvService.get());
 
         // Subscribe the death recipient to the service IDnsResolver for detecting Netd death.
+        // GTEST assertion macros are not invoked for generating a test failure in the death
+        // recipient because the macros can't indicate failed test if Netd died between tests.
+        // Moreover, continuing testing may have no meaningful after Netd death. Therefore, the
+        // death recipient aborts process by GTEST_LOG_(FATAL) once Netd died.
         sResolvDeathRecipient = AIBinder_DeathRecipient_new([](void*) {
             constexpr char errorMessage[] = "Netd died";
             LOG(ERROR) << errorMessage;
@@ -159,21 +164,6 @@ class ResolverTest : public ::testing::Test {
         std::string host_name;  // host name
         ns_type type;           // record type
         std::string addr;       // ipv4/v6 address
-    };
-
-    class ResolvDeathRecipient : public android::IBinder::DeathRecipient {
-      public:
-        ~ResolvDeathRecipient() override = default;
-
-        // GTEST assertion macros are not invoked for generating a test failure in the death
-        // recipient because the macros can't indicate failed test if Netd died between tests.
-        // Moreover, continuing testing may have no meaningful after Netd death. Therefore, the
-        // death recipient aborts process by GTEST_LOG_(FATAL) once Netd died.
-        void binderDied(const android::wp<android::IBinder>& /*who*/) override {
-            constexpr char errorMessage[] = "Netd died";
-            LOG(ERROR) << errorMessage;
-            GTEST_LOG_(FATAL) << errorMessage;
-        }
     };
 
     void SetUp() { mDnsClient.SetUp(); }
@@ -414,7 +404,6 @@ TEST_F(ResolverTest, GetHostByName_numeric) {
 }
 
 TEST_F(ResolverTest, BinderSerialization) {
-    using aidl::android::net::IDnsResolver;
     std::vector<int> params_offsets = {
             IDnsResolver::RESOLVER_PARAMS_SAMPLE_VALIDITY,
             IDnsResolver::RESOLVER_PARAMS_SUCCESS_THRESHOLD,
@@ -432,8 +421,6 @@ TEST_F(ResolverTest, BinderSerialization) {
 }
 
 TEST_F(ResolverTest, GetHostByName_Binder) {
-    using aidl::android::net::IDnsResolver;
-
     std::vector<std::string> domains = {"example.com"};
     std::vector<std::unique_ptr<test::DNSResponder>> dns;
     std::vector<std::string> servers;
@@ -930,7 +917,6 @@ TEST_F(ResolverTest, GetAddrInfoV6_concurrent) {
 }
 
 TEST_F(ResolverTest, EmptySetup) {
-    using aidl::android::net::IDnsResolver;
     std::vector<std::string> servers;
     std::vector<std::string> domains;
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers, domains));

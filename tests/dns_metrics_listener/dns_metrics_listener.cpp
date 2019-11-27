@@ -34,7 +34,7 @@ constexpr milliseconds kEventTimeoutMs{5000};
                                                             int32_t /*prefixLength*/) {
     std::lock_guard lock(mMutex);
     if (netId == mNetId) mNat64Prefix = added ? prefixString : "";
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 }
 
 ::ndk::ScopedAStatus DnsMetricsListener::onPrivateDnsValidationEvent(
@@ -46,7 +46,7 @@ constexpr milliseconds kEventTimeoutMs{5000};
         mValidationRecords.insert_or_assign({netId, ipAddress}, validated);
     }
     mCv.notify_one();
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 }
 
 bool DnsMetricsListener::waitForNat64Prefix(ExpectNat64PrefixStatus status,

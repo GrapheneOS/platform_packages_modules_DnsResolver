@@ -102,7 +102,7 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_DuplicateSubscription) {
     // Expect to subscribe successfully.
     std::shared_ptr<DummyListener> dummyListener = ndk::SharedRefBase::make<DummyListener>();
     ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(dummyListener);
-    ASSERT_TRUE(status.isOk()) << status.getExceptionCode();
+    ASSERT_TRUE(status.isOk()) << status.getMessage();
 
     // Expect to subscribe failed with registered listener instance.
     status = mDnsResolver->registerEventListener(dummyListener);
@@ -159,7 +159,7 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_onDnsEvent) {
     std::shared_ptr<TestOnDnsEvent> testOnDnsEvent =
             ndk::SharedRefBase::make<TestOnDnsEvent>(expectedResults);
     ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(testOnDnsEvent);
-    ASSERT_TRUE(status.isOk()) << status.getExceptionCode();
+    ASSERT_TRUE(status.isOk()) << status.getMessage();
 
     // DNS queries.
     // Once all expected events of expectedResults are received by the listener, the unit test will
@@ -235,8 +235,8 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_Tls) {
 
         if (td.expectedReturnCode == 0) {
             SCOPED_TRACE(StringPrintf("test case %zu should have passed", i));
-            SCOPED_TRACE(status.getExceptionCode());
-            EXPECT_EQ(0, status.getExceptionCode());
+            SCOPED_TRACE(status.getMessage());
+            EXPECT_EQ(0, status.getServiceSpecificError());
         } else {
             SCOPED_TRACE(StringPrintf("test case %zu should have failed", i));
             EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
@@ -258,7 +258,7 @@ TEST_F(DnsResolverBinderTest, GetResolverInfo) {
     const auto resolverParams = DnsResponderClient::makeResolverParamsParcel(
             TEST_NETID, testParams, servers, domains, "", {});
     ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
-    EXPECT_TRUE(status.isOk()) << status.getExceptionCode();
+    EXPECT_TRUE(status.isOk()) << status.getMessage();
 
     std::vector<std::string> res_servers;
     std::vector<std::string> res_domains;
@@ -270,7 +270,7 @@ TEST_F(DnsResolverBinderTest, GetResolverInfo) {
                                            &params32, &stats32,
                                            &wait_for_pending_req_timeout_count32);
 
-    EXPECT_TRUE(status.isOk()) << status.getExceptionCode();
+    EXPECT_TRUE(status.isOk()) << status.getMessage();
     EXPECT_EQ(servers.size(), res_servers.size());
     EXPECT_EQ(domains.size(), res_domains.size());
     EXPECT_EQ(0U, res_tls_servers.size());
