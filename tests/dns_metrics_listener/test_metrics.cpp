@@ -77,7 +77,7 @@ void BaseTestMetricsEvent::setVerified(EventFlag event) {
         notify();
     }
 
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return ::ndk::ScopedAStatus::ok();
 };
 
 }  // namespace metrics

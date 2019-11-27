@@ -56,17 +56,17 @@ Pwl59DlzlHHJhmOL+SCGciBX4X7p
 -----END CERTIFICATE-----
 )";
 
-void DnsResponderClient::SetupMappings(unsigned num_hosts, const std::vector<std::string>& domains,
+void DnsResponderClient::SetupMappings(unsigned numHosts, const std::vector<std::string>& domains,
                                        std::vector<Mapping>* mappings) {
-    mappings->resize(num_hosts * domains.size());
-    auto mappings_it = mappings->begin();
-    for (unsigned i = 0; i < num_hosts; ++i) {
+    mappings->resize(numHosts * domains.size());
+    auto mappingsIt = mappings->begin();
+    for (unsigned i = 0; i < numHosts; ++i) {
         for (const auto& domain : domains) {
-            mappings_it->host = StringPrintf("host%u", i);
-            mappings_it->entry = StringPrintf("%s.%s.", mappings_it->host.c_str(), domain.c_str());
-            mappings_it->ip4 = StringPrintf("192.0.2.%u", i % 253 + 1);
-            mappings_it->ip6 = StringPrintf("2001:db8::%x", i % 65534 + 1);
-            ++mappings_it;
+            mappingsIt->host = StringPrintf("host%u", i);
+            mappingsIt->entry = StringPrintf("%s.%s.", mappingsIt->host.c_str(), domain.c_str());
+            mappingsIt->ip4 = StringPrintf("192.0.2.%u", i % 253 + 1);
+            mappingsIt->ip6 = StringPrintf("2001:db8::%x", i % 65534 + 1);
+            ++mappingsIt;
         }
     }
 }
@@ -140,17 +140,17 @@ ResolverParamsParcel DnsResponderClient::GetDefaultResolverParamsParcel() {
                                     kCaCert);
 }
 
-void DnsResponderClient::SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,
+void DnsResponderClient::SetupDNSServers(unsigned numServers, const std::vector<Mapping>& mappings,
                                          std::vector<std::unique_ptr<test::DNSResponder>>* dns,
                                          std::vector<std::string>* servers) {
-    const char* listen_srv = "53";
-    dns->resize(num_servers);
-    servers->resize(num_servers);
-    for (unsigned i = 0; i < num_servers; ++i) {
+    const char* listenSrv = "53";
+    dns->resize(numServers);
+    servers->resize(numServers);
+    for (unsigned i = 0; i < numServers; ++i) {
         auto& server = (*servers)[i];
         auto& d = (*dns)[i];
         server = StringPrintf("127.0.0.%u", i + 100);
-        d = std::make_unique<test::DNSResponder>(server, listen_srv, ns_rcode::ns_r_servfail);
+        d = std::make_unique<test::DNSResponder>(server, listenSrv, ns_rcode::ns_r_servfail);
         for (const auto& mapping : mappings) {
             d->addMapping(mapping.entry.c_str(), ns_type::ns_t_a, mapping.ip4.c_str());
             d->addMapping(mapping.entry.c_str(), ns_type::ns_t_aaaa, mapping.ip6.c_str());

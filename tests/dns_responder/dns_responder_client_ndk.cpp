@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2019 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,17 +58,17 @@ Pwl59DlzlHHJhmOL+SCGciBX4X7p
 -----END CERTIFICATE-----
 )";
 
-void DnsResponderClient::SetupMappings(unsigned num_hosts, const std::vector<std::string>& domains,
+void DnsResponderClient::SetupMappings(unsigned numHosts, const std::vector<std::string>& domains,
                                        std::vector<Mapping>* mappings) {
-    mappings->resize(num_hosts * domains.size());
-    auto mappings_it = mappings->begin();
-    for (unsigned i = 0; i < num_hosts; ++i) {
+    mappings->resize(numHosts * domains.size());
+    auto mappingsIt = mappings->begin();
+    for (unsigned i = 0; i < numHosts; ++i) {
         for (const auto& domain : domains) {
-            mappings_it->host = StringPrintf("host%u", i);
-            mappings_it->entry = StringPrintf("%s.%s.", mappings_it->host.c_str(), domain.c_str());
-            mappings_it->ip4 = StringPrintf("192.0.2.%u", i % 253 + 1);
-            mappings_it->ip6 = StringPrintf("2001:db8::%x", i % 65534 + 1);
-            ++mappings_it;
+            mappingsIt->host = StringPrintf("host%u", i);
+            mappingsIt->entry = StringPrintf("%s.%s.", mappingsIt->host.c_str(), domain.c_str());
+            mappingsIt->ip4 = StringPrintf("192.0.2.%u", i % 253 + 1);
+            mappingsIt->ip6 = StringPrintf("2001:db8::%x", i % 65534 + 1);
+            ++mappingsIt;
         }
     }
 }
@@ -102,6 +102,10 @@ ResolverParamsParcel DnsResponderClient::makeResolverParamsParcel(
     paramsParcel.tlsServers = tlsServers;
     paramsParcel.tlsFingerprints = {};
     paramsParcel.caCertificate = caCert;
+
+    // Note, do not remove this otherwise the ResolverTest#ConnectTlsServerTimeout won't pass in M4
+    // module.
+    // TODO: remove after 2020-01 rolls out.
     paramsParcel.tlsConnectTimeoutMs = 1000;
 
     return paramsParcel;
@@ -112,13 +116,13 @@ bool DnsResponderClient::GetResolverInfo(aidl::android::net::IDnsResolver* dnsRe
                                          std::vector<std::string>* domains,
                                          std::vector<std::string>* tlsServers, res_params* params,
                                          std::vector<ResolverStats>* stats,
-                                         int* wait_for_pending_req_timeout_count) {
+                                         int* waitForPendingReqTimeoutCount) {
     using aidl::android::net::IDnsResolver;
     std::vector<int32_t> params32;
     std::vector<int32_t> stats32;
-    std::vector<int32_t> wait_for_pending_req_timeout_count32{0};
+    std::vector<int32_t> waitForPendingReqTimeoutCount32{0};
     auto rv = dnsResolverService->getResolverInfo(netId, servers, domains, tlsServers, &params32,
-                                                  &stats32, &wait_for_pending_req_timeout_count32);
+                                                  &stats32, &waitForPendingReqTimeoutCount32);
 
     if (!rv.isOk() || params32.size() != static_cast<size_t>(IDnsResolver::RESOLVER_PARAMS_COUNT)) {
         return false;
@@ -135,7 +139,7 @@ bool DnsResponderClient::GetResolverInfo(aidl::android::net::IDnsResolver* dnsRe
             .base_timeout_msec = params32[IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC],
             .retry_count = params32[IDnsResolver::RESOLVER_PARAMS_RETRY_COUNT],
     };
-    *wait_for_pending_req_timeout_count = wait_for_pending_req_timeout_count32[0];
+    *waitForPendingReqTimeoutCount = waitForPendingReqTimeoutCount32[0];
     return ResolverStats::decodeAll(stats32, stats);
 }
 
@@ -170,13 +174,13 @@ bool DnsResponderClient::SetResolversWithTls(const std::vector<std::string>& ser
     const auto& resolverParams = makeResolverParamsParcel(TEST_NETID, params, servers, domains,
                                                           name, tlsServers, kCaCert);
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
-    if (!rv.isOk()) LOG(ERROR) << "SetResolversWithTls() -> " << rv.getExceptionCode();
+    if (!rv.isOk()) LOG(ERROR) << "SetResolversWithTls() -> " << rv.getMessage();
     return rv.isOk();
 }
 
 bool DnsResponderClient::SetResolversFromParcel(const ResolverParamsParcel& resolverParams) {
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
-    if (!rv.isOk()) LOG(ERROR) << "SetResolversFromParcel() -> " << rv.getExceptionCode();
+    if (!rv.isOk()) LOG(ERROR) << "SetResolversFromParcel() -> " << rv.getMessage();
     return rv.isOk();
 }
 
@@ -186,17 +190,17 @@ ResolverParamsParcel DnsResponderClient::GetDefaultResolverParamsParcel() {
                                     kCaCert);
 }
 
-void DnsResponderClient::SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,
+void DnsResponderClient::SetupDNSServers(unsigned numServers, const std::vector<Mapping>& mappings,
                                          std::vector<std::unique_ptr<test::DNSResponder>>* dns,
                                          std::vector<std::string>* servers) {
-    const char* listen_srv = "53";
-    dns->resize(num_servers);
-    servers->resize(num_servers);
-    for (unsigned i = 0; i < num_servers; ++i) {
+    const char* listenSrv = "53";
+    dns->resize(numServers);
+    servers->resize(numServers);
+    for (unsigned i = 0; i < numServers; ++i) {
         auto& server = (*servers)[i];
         auto& d = (*dns)[i];
         server = StringPrintf("127.0.0.%u", i + 100);
-        d = std::make_unique<test::DNSResponder>(server, listen_srv, ns_rcode::ns_r_servfail);
+        d = std::make_unique<test::DNSResponder>(server, listenSrv, ns_rcode::ns_r_servfail);
         for (const auto& mapping : mappings) {
             d->addMapping(mapping.entry.c_str(), ns_type::ns_t_a, mapping.ip4.c_str());
             d->addMapping(mapping.entry.c_str(), ns_type::ns_t_aaaa, mapping.ip6.c_str());
@@ -210,14 +214,12 @@ int DnsResponderClient::SetupOemNetwork() {
     mDnsResolvSrv->destroyNetworkCache(TEST_NETID);
     auto ret = mNetdSrv->networkCreatePhysical(TEST_NETID, INetd::PERMISSION_NONE);
     if (!ret.isOk()) {
-        fprintf(stderr, "Creating physical network %d failed, %d\n", TEST_NETID,
-                ret.getExceptionCode());
+        fprintf(stderr, "Creating physical network %d failed, %s\n", TEST_NETID, ret.getMessage());
         return -1;
     }
     ret = mDnsResolvSrv->createNetworkCache(TEST_NETID);
     if (!ret.isOk()) {
-        fprintf(stderr, "Creating network cache %d failed, %d\n", TEST_NETID,
-                ret.getExceptionCode());
+        fprintf(stderr, "Creating network cache %d failed, %s\n", TEST_NETID, ret.getMessage());
         return -1;
     }
     setNetworkForProcess(TEST_NETID);
@@ -238,13 +240,10 @@ void DnsResponderClient::SetUp() {
     // binder setup
     ndk::SpAIBinder netdBinder = ndk::SpAIBinder(AServiceManager_getService("netd"));
     mNetdSrv = INetd::fromBinder(netdBinder);
-    // mNetdSrv = android::interface_cast<aidl::android::net::INetd>(netdBinder);
     if (mNetdSrv.get() == nullptr) {
         LOG(FATAL) << "Can't connect to service 'netd'. Missing root privileges? uid=" << getuid();
     }
 
-    // auto resolvBinder = AServiceManager_getService("dnsresolver");
-    // mDnsResolvSrv = android::interface_cast<aidl::android::net::IDnsResolver>(resolvBinder);
     ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));
     mDnsResolvSrv = IDnsResolver::fromBinder(resolvBinder);
     if (mDnsResolvSrv.get() == nullptr) {
