@@ -21,7 +21,6 @@
 
 #include <netdutils/InternetAddresses.h>
 
-using android::net::ResolverStats;
 using android::netdutils::ScopedAddrinfo;
 
 std::string ToString(const hostent* he) {
@@ -95,34 +94,4 @@ size_t GetNumQueriesForType(const test::DNSResponder& dns, ns_type type, const c
         }
     }
     return found;
-}
-
-bool GetResolverInfo(android::net::IDnsResolver* dnsResolverService, unsigned netId,
-                     std::vector<std::string>* servers, std::vector<std::string>* domains,
-                     std::vector<std::string>* tlsServers, res_params* params,
-                     std::vector<ResolverStats>* stats, int* wait_for_pending_req_timeout_count) {
-    using android::net::IDnsResolver;
-    std::vector<int32_t> params32;
-    std::vector<int32_t> stats32;
-    std::vector<int32_t> wait_for_pending_req_timeout_count32{0};
-    auto rv = dnsResolverService->getResolverInfo(netId, servers, domains, tlsServers, &params32,
-                                                  &stats32, &wait_for_pending_req_timeout_count32);
-
-    if (!rv.isOk() || params32.size() != static_cast<size_t>(IDnsResolver::RESOLVER_PARAMS_COUNT)) {
-        return false;
-    }
-    *params = res_params{
-            .sample_validity =
-                    static_cast<uint16_t>(params32[IDnsResolver::RESOLVER_PARAMS_SAMPLE_VALIDITY]),
-            .success_threshold =
-                    static_cast<uint8_t>(params32[IDnsResolver::RESOLVER_PARAMS_SUCCESS_THRESHOLD]),
-            .min_samples =
-                    static_cast<uint8_t>(params32[IDnsResolver::RESOLVER_PARAMS_MIN_SAMPLES]),
-            .max_samples =
-                    static_cast<uint8_t>(params32[IDnsResolver::RESOLVER_PARAMS_MAX_SAMPLES]),
-            .base_timeout_msec = params32[IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC],
-            .retry_count = params32[IDnsResolver::RESOLVER_PARAMS_RETRY_COUNT],
-    };
-    *wait_for_pending_req_timeout_count = wait_for_pending_req_timeout_count32[0];
-    return ResolverStats::decodeAll(stats32, stats);
 }

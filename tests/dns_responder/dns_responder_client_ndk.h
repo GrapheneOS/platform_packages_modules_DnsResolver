@@ -15,16 +15,17 @@
  *
  */
 
-#ifndef DNS_RESPONDER_CLIENT_H
-#define DNS_RESPONDER_CLIENT_H
+#pragma once
 
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "android/net/IDnsResolver.h"
-#include "android/net/INetd.h"
+#include <aidl/android/net/IDnsResolver.h>
+#include <aidl/android/net/INetd.h>
+#include "ResolverStats.h"
 #include "dns_responder.h"
+#include "params.h"
 
 inline const std::vector<std::string> kDefaultServers = {"127.0.0.3"};
 inline const std::vector<std::string> kDefaultSearchDomains = {"example.com"};
@@ -36,7 +37,15 @@ inline const std::vector<int> kDefaultParams = {
         2,        // retry count
 };
 
-// TODO: Remove this after finishing all tests migration from libbinder to libbinder_ndk
+#define SKIP_IF_REMOTE_VERSION_LESS_THAN(service, version)                                         \
+    do {                                                                                           \
+        if (!DnsResponderClient::isRemoteVersionSupported(service, version)) {                     \
+            std::cerr << "    Skip test. Remote version is too old, required version: " << version \
+                      << std::endl;                                                                \
+            return;                                                                                \
+        }                                                                                          \
+    } while (0)
+
 class DnsResponderClient {
   public:
     struct Mapping {
@@ -51,12 +60,14 @@ class DnsResponderClient {
     static void SetupMappings(unsigned num_hosts, const std::vector<std::string>& domains,
                               std::vector<Mapping>* mappings);
 
-    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversForNetwork(const std::vector<std::string>& servers = kDefaultServers,
                                 const std::vector<std::string>& domains = kDefaultSearchDomains,
                                 const std::vector<int>& params = kDefaultParams);
 
-    // This function is deprecated. Please use SetResolversFromParcel() instead.
+    bool SetResolversForNetwork(const std::vector<std::string>& servers,
+                                const std::vector<std::string>& searchDomains,
+                                const std::string& params);
+
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
                              const std::vector<int>& params, const std::string& name) {
@@ -65,20 +76,34 @@ class DnsResponderClient {
         return SetResolversWithTls(servers, searchDomains, params, servers, name);
     }
 
-    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
                              const std::vector<int>& params,
                              const std::vector<std::string>& tlsServers, const std::string& name);
 
-    bool SetResolversFromParcel(const android::net::ResolverParamsParcel& resolverParams);
+    bool SetResolversFromParcel(const aidl::android::net::ResolverParamsParcel& resolverParams);
+
+    static bool isRemoteVersionSupported(aidl::android::net::IDnsResolver* dnsResolverService,
+                                         int enabledVersion);
+
+    static bool GetResolverInfo(aidl::android::net::IDnsResolver* dnsResolverService,
+                                unsigned netId, std::vector<std::string>* servers,
+                                std::vector<std::string>* domains,
+                                std::vector<std::string>* tlsServers, res_params* params,
+                                std::vector<android::net::ResolverStats>* stats,
+                                int* wait_for_pending_req_timeout_count);
 
     // Return a default resolver configuration for opportunistic mode.
-    static android::net::ResolverParamsParcel GetDefaultResolverParamsParcel();
+    static aidl::android::net::ResolverParamsParcel GetDefaultResolverParamsParcel();
 
     static void SetupDNSServers(unsigned num_servers, const std::vector<Mapping>& mappings,
                                 std::vector<std::unique_ptr<test::DNSResponder>>* dns,
                                 std::vector<std::string>* servers);
+
+    static aidl::android::net::ResolverParamsParcel makeResolverParamsParcel(
+            int netId, const std::vector<int>& params, const std::vector<std::string>& servers,
+            const std::vector<std::string>& domains, const std::string& tlsHostname,
+            const std::vector<std::string>& tlsServers, const std::string& caCert = "");
 
     int SetupOemNetwork();
 
@@ -87,13 +112,11 @@ class DnsResponderClient {
     virtual void SetUp();
     virtual void TearDown();
 
-    android::net::IDnsResolver* resolvService() const { return mDnsResolvSrv.get(); }
-    android::net::INetd* netdService() const { return mNetdSrv.get(); }
+    aidl::android::net::IDnsResolver* resolvService() const { return mDnsResolvSrv.get(); }
+    aidl::android::net::INetd* netdService() const { return mNetdSrv.get(); }
 
   private:
-    android::sp<android::net::INetd> mNetdSrv = nullptr;
-    android::sp<android::net::IDnsResolver> mDnsResolvSrv = nullptr;
+    std::shared_ptr<aidl::android::net::INetd> mNetdSrv;
+    std::shared_ptr<aidl::android::net::IDnsResolver> mDnsResolvSrv;
     int mOemNetId = -1;
 };
-
-#endif  // DNS_RESPONDER_CLIENT_H

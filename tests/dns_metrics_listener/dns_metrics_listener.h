@@ -42,14 +42,13 @@ class DnsMetricsListener : public BaseMetricsListener {
     DnsMetricsListener(int32_t netId) : mNetId(netId){};
 
     // Override DNS metrics event(s).
-    android::binder::Status onNat64PrefixEvent(int32_t netId, bool added,
-                                               const std::string& prefixString,
-                                               int32_t /*prefixLength*/) override;
+    ::ndk::ScopedAStatus onNat64PrefixEvent(int32_t netId, bool added,
+                                            const std::string& prefixString,
+                                            int32_t /*prefixLength*/) override;
 
-    android::binder::Status onPrivateDnsValidationEvent(int32_t netId,
-                                                        const ::android::String16& ipAddress,
-                                                        const ::android::String16& /*hostname*/,
-                                                        bool validated) override;
+    ::ndk::ScopedAStatus onPrivateDnsValidationEvent(int32_t netId, const std::string& ipAddress,
+                                                     const std::string& /*hostname*/,
+                                                     bool validated) override;
 
     // Wait for expected NAT64 prefix status until timeout.
     bool waitForNat64Prefix(ExpectNat64PrefixStatus status,
