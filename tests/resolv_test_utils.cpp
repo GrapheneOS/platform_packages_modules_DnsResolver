@@ -48,6 +48,15 @@ std::string ToString(const ScopedAddrinfo& ai) {
     return ToString(ai.get());
 }
 
+std::string ToString(const sockaddr_storage* addr) {
+    if (!addr) return "<null>";
+    char host[NI_MAXHOST];
+    int rv = getnameinfo((const sockaddr*)addr, sizeof(sockaddr_storage), host, sizeof(host),
+                         nullptr, 0, NI_NUMERICHOST);
+    if (rv != 0) return gai_strerror(rv);
+    return host;
+}
+
 std::vector<std::string> ToStrings(const addrinfo* ai) {
     std::vector<std::string> hosts;
     if (!ai) {

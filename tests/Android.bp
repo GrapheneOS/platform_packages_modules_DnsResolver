@@ -40,15 +40,17 @@ cc_test {
         "resolv_gold_test.cpp",
     ],
     header_libs: [
+        "libnetd_client_headers",
         "libnetd_resolv_internal_headers",
     ],
     shared_libs: [
+        "libbinder_ndk",
         "libcrypto",
         "libprotobuf-cpp-full",
         "libssl",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-cpp",
+        "dnsresolver_aidl_interface-unstable-cpp",
         "golddata_proto",
         "libbase",
         "libgmock",
@@ -57,6 +59,8 @@ cc_test {
         "libnetd_test_dnsresponder",
         "libnetd_test_resolv_utils",
         "libnetdutils",
+        "netd_aidl_interface-cpp",
+        "netd_event_listener_interface-ndk_platform",
         "server_configurable_flags",
         "stats_proto",
     ],
