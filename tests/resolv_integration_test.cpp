@@ -65,6 +65,7 @@
 #include "tests/dns_metrics_listener/dns_metrics_listener.h"
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_responder_client_ndk.h"
+#include "tests/dns_responder/dns_tls_certificate.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
 #include "tests/resolv_test_utils.h"
 
@@ -74,11 +75,6 @@ constexpr int MAXPACKET = (8 * 1024);
 
 // Use maximum reserved appId for applications to avoid conflict with existing uids.
 static const int TEST_UID = 99999;
-
-// Currently the hostname of TLS server must match the CN filed on the server's certificate.
-// Inject a test CA whose hostname is "example.com" for DNS-OVER-TLS tests.
-static const std::string kDefaultPrivateDnsHostName = "example.com";
-static const std::string kDefaultIncorrectPrivateDnsHostName = "www.example.com";
 
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.

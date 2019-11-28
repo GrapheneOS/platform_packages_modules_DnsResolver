@@ -105,5 +105,6 @@ size_t GetNumQueriesForType(const test::DNSResponder& dns, ns_type type, const c
 std::string ToString(const hostent* he);
 std::string ToString(const addrinfo* ai);
 std::string ToString(const android::netdutils::ScopedAddrinfo& ai);
+std::string ToString(const sockaddr_storage* addr);
 std::vector<std::string> ToStrings(const addrinfo* ai);
 std::vector<std::string> ToStrings(const android::netdutils::ScopedAddrinfo& ai);
