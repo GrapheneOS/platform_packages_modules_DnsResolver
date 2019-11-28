@@ -17,21 +17,29 @@
 
 #define LOG_TAG "resolv_gold_test"
 
+#include <Fwmark.h>
+#include <android-base/chrono_utils.h>
 #include <android-base/file.h>
 #include <gmock/gmock-matchers.h>
 #include <google/protobuf/text_format.h>
 #include <gtest/gtest.h>
 
+#include "PrivateDnsConfiguration.h"
 #include "dns_responder/dns_responder.h"
+#include "dns_responder_client.h"
 #include "getaddrinfo.h"
 #include "golddata.pb.h"
 #include "resolv_cache.h"
 #include "resolv_test_utils.h"
+#include "tests/dns_responder/dns_tls_certificate.h"
+#include "tests/dns_responder/dns_tls_frontend.h"
 
 namespace android {
 namespace net {
-using android::net::NetworkDnsEventReported;
 using android::netdutils::ScopedAddrinfo;
+using std::chrono::milliseconds;
+
+const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/";
 
 // Fixture test class definition.
 class TestBase : public ::testing::Test {
@@ -42,18 +50,60 @@ class TestBase : public ::testing::Test {
     }
 
     void TearDown() override {
+        // Clear TLS configuration for test
+        gPrivateDnsConfiguration.clear(TEST_NETID);
         // Delete cache for test
         resolv_delete_cache_for_net(TEST_NETID);
     }
 
-    int SetResolvers() {
-        const std::vector<std::string> servers = {test::kDefaultListenAddr};
-        const std::vector<std::string> domains = {"example.com"};
-        return resolv_set_nameservers(TEST_NETID, servers, domains, kParams);
+    void SetResolverConfiguration(const std::vector<std::string>& servers = {},
+                                  const std::vector<std::string>& domains = {},
+                                  const std::vector<std::string>& tlsServers = {},
+                                  const std::string& tlsHostname = "",
+                                  const std::string& caCert = "") {
+        // Determine the DNS configuration steps from setResolverConfiguration() in
+        // packages/modules/DnsResolver/ResolverController.cpp. The gold test just needs to setup
+        // simply DNS and DNS-over-TLS server configuration. Some implementation in
+        // setResolverConfiguration() are not required. For example, limiting TLS server amount is
+        // not necessary for gold test because gold test has only one TLS server for testing
+        // so far.
+        Fwmark fwmark;
+        fwmark.netId = TEST_NETID;
+        fwmark.explicitlySelected = true;
+        fwmark.protectedFromVpn = true;
+        fwmark.permission = PERMISSION_SYSTEM;
+        ASSERT_EQ(gPrivateDnsConfiguration.set(TEST_NETID, fwmark.intValue, tlsServers, tlsHostname,
+                                               caCert),
+                  0);
+        ASSERT_EQ(resolv_set_nameservers(TEST_NETID, servers, domains, kParams), 0);
     }
 
-    const std::string kTestPath = android::base::GetExecutableDirectory();
-    const std::string kTestDataPath = kTestPath + "/testdata/";
+    void SetResolvers() { SetResolverConfiguration(kDefaultServers, kDefaultSearchDomains); }
+
+    void SetResolversWithTls() {
+        // Pass servers as both network-assigned and TLS servers. Tests can
+        // determine on which server and by which protocol queries arrived.
+        // See also DnsClient::SetResolversWithTls() in
+        // packages/modules/DnsResolver/tests/dns_responder/dns_responder_client.h.
+        SetResolverConfiguration(kDefaultServers, kDefaultSearchDomains, kDefaultServers,
+                                 kDefaultPrivateDnsHostName, kCaCert);
+    }
+
+    bool WaitForPrivateDnsValidation(const std::string& serverAddr) {
+        constexpr milliseconds retryIntervalMs{20};
+        constexpr milliseconds timeoutMs{3000};
+        android::base::Timer t;
+        while (t.duration() < timeoutMs) {
+            const auto& validatedServers =
+                    gPrivateDnsConfiguration.getStatus(TEST_NETID).validatedServers();
+            for (const auto& server : validatedServers) {
+                if (serverAddr == ToString(&server.ss)) return true;
+            }
+            std::this_thread::sleep_for(retryIntervalMs);
+        }
+        return false;
+    }
+
     static constexpr res_params kParams = {
             .sample_validity = 300,
             .success_threshold = 25,
@@ -68,6 +118,16 @@ class TestBase : public ::testing::Test {
             .dns_netid = TEST_NETID,
             .dns_mark = MARK_UNSET,
             .uid = NET_CONTEXT_INVALID_UID,
+    };
+    static constexpr android_net_context kNetcontextTls = {
+            .app_netid = TEST_NETID,
+            .app_mark = MARK_UNSET,
+            .dns_netid = TEST_NETID,
+            .dns_mark = MARK_UNSET,
+            .uid = NET_CONTEXT_INVALID_UID,
+            // Set TLS flags. See also maybeFixupNetContext() in
+            // packages/modules/DnsResolver/DnsProxyListener.cpp.
+            .flags = NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS,
     };
 };
 class ResolvGetAddrInfo : public TestBase {};
@@ -90,7 +150,7 @@ INSTANTIATE_TEST_SUITE_P(GetAddrInfo, ResolvGoldTest,
 TEST_F(ResolvGetAddrInfo, RemovePacketMapping) {
     test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, SetResolvers());
+    ASSERT_NO_FATAL_FAILURE(SetResolvers());
 
     dns.addMappingBinaryPacket(kHelloExampleComQueryV4, kHelloExampleComResponseV4);
 
@@ -99,9 +159,9 @@ TEST_F(ResolvGetAddrInfo, RemovePacketMapping) {
     NetworkDnsEventReported event;
     int rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
     ScopedAddrinfo result(res);
-    ASSERT_NE(nullptr, result);
-    ASSERT_EQ(0, rv);
-    EXPECT_EQ("1.2.3.4", ToString(result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_EQ(rv, 0);
+    EXPECT_EQ(ToString(result), "1.2.3.4");
 
     // Remove existing DNS record.
     dns.removeMappingBinaryPacket(kHelloExampleComQueryV4);
@@ -109,14 +169,14 @@ TEST_F(ResolvGetAddrInfo, RemovePacketMapping) {
     // Expect to have no answer in DNS query result.
     rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
     result.reset(res);
-    ASSERT_EQ(nullptr, result);
-    ASSERT_EQ(EAI_NODATA, rv);
+    ASSERT_EQ(result, nullptr);
+    ASSERT_EQ(rv, EAI_NODATA);
 }
 
 TEST_F(ResolvGetAddrInfo, ReplacePacketMapping) {
     test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, SetResolvers());
+    ASSERT_NO_FATAL_FAILURE(SetResolvers());
 
     // Register the record which uses IPv4 address 1.2.3.4.
     dns.addMappingBinaryPacket(kHelloExampleComQueryV4, kHelloExampleComResponseV4);
@@ -127,9 +187,9 @@ TEST_F(ResolvGetAddrInfo, ReplacePacketMapping) {
     NetworkDnsEventReported event;
     int rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
     ScopedAddrinfo result(res);
-    ASSERT_NE(nullptr, result);
-    ASSERT_EQ(0, rv);
-    EXPECT_EQ("1.2.3.4", ToString(result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_EQ(rv, 0);
+    EXPECT_EQ(ToString(result), "1.2.3.4");
 
     // Replace the registered record with a record which uses new IPv4 address 5.6.7.8.
     std::vector<uint8_t> newHelloExampleComResponseV4 = {
@@ -159,9 +219,37 @@ TEST_F(ResolvGetAddrInfo, ReplacePacketMapping) {
     // Expect that DNS query returns new IPv4 address 5.6.7.8.
     rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
     result.reset(res);
-    ASSERT_NE(nullptr, result);
-    ASSERT_EQ(0, rv);
-    EXPECT_EQ("5.6.7.8", ToString(result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_EQ(rv, 0);
+    EXPECT_EQ(ToString(result), "5.6.7.8");
+}
+
+TEST_F(ResolvGetAddrInfo, BasicTlsQuery) {
+    test::DNSResponder dns;
+    dns.addMapping(kHelloExampleCom, ns_type::ns_t_a, "1.2.3.4");
+    dns.addMapping(kHelloExampleCom, ns_type::ns_t_aaaa, "::1.2.3.4");
+    ASSERT_TRUE(dns.startServer());
+
+    test::DnsTlsFrontend tls;
+    ASSERT_TRUE(tls.startServer());
+    ASSERT_NO_FATAL_FAILURE(SetResolversWithTls());
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address()));
+
+    dns.clearQueries();
+    addrinfo* res = nullptr;
+    // If the socket type is not specified, every address will appear twice, once for
+    // SOCK_STREAM and one for SOCK_DGRAM. Just pick one because the addresses for
+    // the second query of different socket type are responded by the cache.
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
+    NetworkDnsEventReported event;
+    const int rv =
+            resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontextTls, &res, &event);
+    ScopedAddrinfo result(res);
+    ASSERT_EQ(rv, 0);
+    EXPECT_EQ(GetNumQueries(dns, kHelloExampleCom), 2U);
+    const std::vector<std::string> result_strs = ToStrings(result);
+    EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray({"1.2.3.4", "::1.2.3.4"}));
+    EXPECT_EQ(tls.queries(), 3);
 }
 
 // Parameterized tests.
@@ -179,7 +267,7 @@ TEST_P(ResolvGoldTest, GoldData) {
 
     test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
     ASSERT_TRUE(dns.startServer());
-    ASSERT_EQ(0, SetResolvers());
+    ASSERT_NO_FATAL_FAILURE(SetResolvers());
 
     // Register packet mapping (query, response) from proto.
     for (const auto& m : goldtest.packet_mapping()) {
@@ -204,20 +292,21 @@ TEST_P(ResolvGoldTest, GoldData) {
             .ai_protocol = args.protocol(),
     };
     NetworkDnsEventReported event;
-    int rv = resolv_getaddrinfo(args.host().c_str(), nullptr, &hints, &kNetcontext, &res, &event);
+    const int rv =
+            resolv_getaddrinfo(args.host().c_str(), nullptr, &hints, &kNetcontext, &res, &event);
     ScopedAddrinfo result(res);
     ASSERT_EQ(goldtest.result().return_code(), rv);
 
     if (goldtest.result().return_code() != GT_EAI_NO_ERROR) {
-        ASSERT_EQ(nullptr, result);
+        ASSERT_EQ(result, nullptr);
     } else {
-        ASSERT_NE(nullptr, result);
+        ASSERT_NE(result, nullptr);
         const auto& addresses = goldtest.result().addresses();
         EXPECT_THAT(ToStrings(result),
                     ::testing::UnorderedElementsAreArray(
                             std::vector<std::string>(addresses.begin(), addresses.end())));
     }
-    EXPECT_EQ((hints.ai_family == AF_UNSPEC) ? 2U : 1U, GetNumQueries(dns, args.host().c_str()));
+    EXPECT_EQ(GetNumQueries(dns, args.host().c_str()), (hints.ai_family == AF_UNSPEC) ? 2U : 1U);
 }
 
 }  // end of namespace net
