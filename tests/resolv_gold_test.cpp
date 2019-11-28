@@ -40,6 +40,12 @@ using android::netdutils::ScopedAddrinfo;
 using std::chrono::milliseconds;
 
 const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/";
+const std::vector<std::string> kGoldFilesGetAddrInfo = {
+        "getaddrinfo.topsite.google.pbtxt",    "getaddrinfo.topsite.youtube.pbtxt",
+        "getaddrinfo.topsite.amazon.pbtxt",    "getaddrinfo.topsite.yahoo.pbtxt",
+        "getaddrinfo.topsite.facebook.pbtxt",  "getaddrinfo.topsite.reddit.pbtxt",
+        "getaddrinfo.topsite.wikipedia.pbtxt", "getaddrinfo.topsite.ebay.pbtxt",
+        "getaddrinfo.topsite.netflix.pbtxt",   "getaddrinfo.topsite.bing.pbtxt"};
 
 // Fixture test class definition.
 class TestBase : public ::testing::Test {
@@ -136,8 +142,7 @@ class ResolvGetAddrInfo : public TestBase {};
 class ResolvGoldTest : public TestBase, public ::testing::WithParamInterface<std::string> {};
 
 // GetAddrInfo tests.
-INSTANTIATE_TEST_SUITE_P(GetAddrInfo, ResolvGoldTest,
-                         ::testing::Values(std::string("getaddrinfo.topsite.google.pbtxt")),
+INSTANTIATE_TEST_SUITE_P(GetAddrInfo, ResolvGoldTest, ::testing::ValuesIn(kGoldFilesGetAddrInfo),
                          [](const ::testing::TestParamInfo<std::string>& info) {
                              std::string name = info.param;
                              std::replace_if(
