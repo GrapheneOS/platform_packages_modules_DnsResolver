@@ -25,6 +25,7 @@
 #include "android/net/IDnsResolver.h"
 #include "android/net/INetd.h"
 #include "dns_responder.h"
+#include "dns_tls_certificate.h"
 
 inline const std::vector<std::string> kDefaultServers = {"127.0.0.3"};
 inline const std::vector<std::string> kDefaultSearchDomains = {"example.com"};
