@@ -63,10 +63,12 @@ class DnsResponderClient {
     static void SetupMappings(unsigned num_hosts, const std::vector<std::string>& domains,
                               std::vector<Mapping>* mappings);
 
+    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversForNetwork(const std::vector<std::string>& servers = kDefaultServers,
                                 const std::vector<std::string>& domains = kDefaultSearchDomains,
                                 const std::vector<int>& params = kDefaultParams);
 
+    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
                              const std::vector<int>& params, const std::string& name) {
@@ -75,6 +77,7 @@ class DnsResponderClient {
         return SetResolversWithTls(servers, searchDomains, params, servers, name);
     }
 
+    // This function is deprecated. Please use SetResolversFromParcel() instead.
     bool SetResolversWithTls(const std::vector<std::string>& servers,
                              const std::vector<std::string>& searchDomains,
                              const std::vector<int>& params,
