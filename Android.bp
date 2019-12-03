@@ -85,7 +85,7 @@ cc_library {
         "libnetdutils",
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
-        "libstatssocket",
+        "libstatspush_compat",
         "libsysutils",
         "libutils", // Used by libstatslog_resolv
         "netd_event_listener_interface-ndk_platform",
@@ -144,7 +144,7 @@ genrule {
 genrule {
     name: "statslog_resolv.cpp",
     tools: ["stats-log-api-gen"],
-    cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_resolv.cpp --module resolv --namespace android,net,stats --importHeader statslog_resolv.h",
+    cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_resolv.cpp --module resolv --namespace android,net,stats --importHeader statslog_resolv.h --supportQ",
     out: [
         "statslog_resolv.cpp",
     ],
@@ -158,6 +158,8 @@ cc_library_static {
     export_generated_headers: ["statslog_resolv.h"],
     static_libs: [
         "libcutils",
+        "libgtest_prod", // Used by libstatspush_compat
+        "libstatspush_compat",
         "libstatssocket",
     ],
 }
