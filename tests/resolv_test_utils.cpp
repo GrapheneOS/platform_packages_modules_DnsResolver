@@ -57,6 +57,27 @@ std::string ToString(const sockaddr_storage* addr) {
     return host;
 }
 
+std::vector<std::string> ToStrings(const hostent* he) {
+    std::vector<std::string> hosts;
+    if (he == nullptr) {
+        hosts.push_back("<null>");
+        return hosts;
+    }
+    uint32_t i = 0;
+    while (he->h_addr_list[i] != nullptr) {
+        char host[INET6_ADDRSTRLEN];
+        if (!inet_ntop(he->h_addrtype, he->h_addr_list[i], host, sizeof(host))) {
+            hosts.push_back("<invalid>");
+            return hosts;
+        } else {
+            hosts.push_back(host);
+        }
+        i++;
+    }
+    if (hosts.empty()) hosts.push_back("<invalid>");
+    return hosts;
+}
+
 std::vector<std::string> ToStrings(const addrinfo* ai) {
     std::vector<std::string> hosts;
     if (!ai) {
