@@ -38,6 +38,12 @@ aidl_interface {
 cc_library {
     name: "libnetd_resolv",
     version_script: "libnetd_resolv.map.txt",
+    stubs: {
+        versions: [
+            "1",
+        ],
+        symbol_file: "libnetd_resolv.map.txt",
+    },
     defaults: ["netd_defaults"],
     srcs: [
         "getaddrinfo.cpp",
