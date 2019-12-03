@@ -20,24 +20,33 @@
 #include <Fwmark.h>
 #include <android-base/chrono_utils.h>
 #include <android-base/file.h>
+#include <android-base/stringprintf.h>
 #include <gmock/gmock-matchers.h>
 #include <google/protobuf/text_format.h>
 #include <gtest/gtest.h>
 
 #include "PrivateDnsConfiguration.h"
-#include "dns_responder/dns_responder.h"
-#include "dns_responder_client.h"
 #include "getaddrinfo.h"
+#include "gethnamaddr.h"
 #include "golddata.pb.h"
 #include "resolv_cache.h"
 #include "resolv_test_utils.h"
+#include "tests/dns_responder/dns_responder.h"
+#include "tests/dns_responder/dns_responder_client_ndk.h"
 #include "tests/dns_responder/dns_tls_certificate.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
 
-namespace android {
-namespace net {
+namespace android::net {
+
+using android::base::StringPrintf;
 using android::netdutils::ScopedAddrinfo;
 using std::chrono::milliseconds;
+
+enum class DnsProtocol { CLEARTEXT, TLS };
+
+// The buffer size of resolv_gethostbyname().
+// TODO: Consider moving to packages/modules/DnsResolver/tests/resolv_test_utils.h.
+constexpr unsigned int MAXPACKET = 8 * 1024;
 
 const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/";
 const std::vector<std::string> kGoldFilesGetAddrInfo = {
@@ -46,6 +55,10 @@ const std::vector<std::string> kGoldFilesGetAddrInfo = {
         "getaddrinfo.topsite.facebook.pbtxt",  "getaddrinfo.topsite.reddit.pbtxt",
         "getaddrinfo.topsite.wikipedia.pbtxt", "getaddrinfo.topsite.ebay.pbtxt",
         "getaddrinfo.topsite.netflix.pbtxt",   "getaddrinfo.topsite.bing.pbtxt"};
+const std::vector<std::string> kGoldFilesGetAddrInfoTls = {"getaddrinfo.tls.topsite.google.pbtxt"};
+const std::vector<std::string> kGoldFilesGetHostByName = {"gethostbyname.topsite.youtube.pbtxt"};
+const std::vector<std::string> kGoldFilesGetHostByNameTls = {
+        "gethostbyname.tls.topsite.youtube.pbtxt"};
 
 // Fixture test class definition.
 class TestBase : public ::testing::Test {
@@ -62,8 +75,8 @@ class TestBase : public ::testing::Test {
         resolv_delete_cache_for_net(TEST_NETID);
     }
 
-    void SetResolverConfiguration(const std::vector<std::string>& servers = {},
-                                  const std::vector<std::string>& domains = {},
+    void SetResolverConfiguration(const std::vector<std::string>& servers,
+                                  const std::vector<std::string>& domains,
                                   const std::vector<std::string>& tlsServers = {},
                                   const std::string& tlsHostname = "",
                                   const std::string& caCert = "") {
@@ -110,6 +123,111 @@ class TestBase : public ::testing::Test {
         return false;
     }
 
+    GoldTest ToProto(const std::string& file) {
+        // Convert the testing configuration from .pbtxt file to proto.
+        std::string file_content;
+        EXPECT_TRUE(android::base::ReadFileToString(kTestDataPath + file, &file_content))
+                << strerror(errno);
+        android::net::GoldTest goldtest;
+        EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(file_content, &goldtest));
+        return goldtest;
+    }
+
+    void SetupMappings(const android::net::GoldTest& goldtest, test::DNSResponder& dns) {
+        for (const auto& m : goldtest.packet_mapping()) {
+            // Convert string to bytes because .proto type "bytes" is "string" type in C++.
+            // See also the section "Scalar Value Types" in "Language Guide (proto3)".
+            // TODO: Use C++20 std::span in addMappingBinaryPacket. It helps to take both
+            // std::string and std::vector without conversions.
+            dns.addMappingBinaryPacket(
+                    std::vector<uint8_t>(m.query().begin(), m.query().end()),
+                    std::vector<uint8_t>(m.response().begin(), m.response().end()));
+        }
+    }
+
+    android_net_context GetNetContext(const DnsProtocol protocol) {
+        return protocol == DnsProtocol::TLS ? kNetcontextTls : kNetcontext;
+    }
+
+    template <class AddressType>
+    void VerifyAddress(const android::net::GoldTest& goldtest, const AddressType& result) {
+        if (goldtest.result().return_code() != GT_EAI_NO_ERROR) {
+            EXPECT_EQ(result, nullptr);
+        } else {
+            ASSERT_NE(result, nullptr);
+            const auto& addresses = goldtest.result().addresses();
+            EXPECT_THAT(ToStrings(result), ::testing::UnorderedElementsAreArray(addresses));
+        }
+    }
+
+    void VerifyGetAddrInfo(const android::net::GoldTest& goldtest, const DnsProtocol protocol) {
+        ASSERT_TRUE(goldtest.config().has_addrinfo());
+        const auto& args = goldtest.config().addrinfo();
+        const addrinfo hints = {
+                // Clear the flag AI_ADDRCONFIG to avoid flaky test because AI_ADDRCONFIG looks at
+                // whether connectivity is available. It makes that the resolver may send only A
+                // or AAAA DNS query per connectivity even AF_UNSPEC has been assigned. See also
+                // have_ipv6() and have_ipv4() in packages/modules/DnsResolver/getaddrinfo.cpp.
+                // TODO: Consider keeping the configuration flag AI_ADDRCONFIG once the unit
+                // test can treat the IPv4 and IPv6 connectivity.
+                .ai_flags = args.ai_flags() & ~AI_ADDRCONFIG,
+                .ai_family = args.family(),
+                .ai_socktype = args.socktype(),
+                .ai_protocol = args.protocol(),
+        };
+        addrinfo* res = nullptr;
+        const android_net_context netcontext = GetNetContext(protocol);
+        NetworkDnsEventReported event;
+        const int rv =
+                resolv_getaddrinfo(args.host().c_str(), nullptr, &hints, &netcontext, &res, &event);
+        ScopedAddrinfo result(res);
+        ASSERT_EQ(rv, goldtest.result().return_code());
+        VerifyAddress(goldtest, result);
+    }
+
+    void VerifyGetHostByName(const android::net::GoldTest& goldtest, const DnsProtocol protocol) {
+        ASSERT_TRUE(goldtest.config().has_hostbyname());
+        const auto& args = goldtest.config().hostbyname();
+        hostent* hp = nullptr;
+        hostent hbuf;
+        char tmpbuf[MAXPACKET];
+        const android_net_context netcontext = GetNetContext(protocol);
+        NetworkDnsEventReported event;
+        const int rv = resolv_gethostbyname(args.host().c_str(), args.family(), &hbuf, tmpbuf,
+                                            sizeof(tmpbuf), &netcontext, &hp, &event);
+        ASSERT_EQ(rv, goldtest.result().return_code());
+        VerifyAddress(goldtest, hp);
+    }
+
+    void VerifyResolver(const android::net::GoldTest& goldtest, const test::DNSResponder& dns,
+                        const test::DnsTlsFrontend& tls, const DnsProtocol protocol) {
+        size_t queries;
+        std::string name;
+
+        // Verify DNS query calls and results by proto. Then, determine expected query times and
+        // queried name for checking server query status later.
+        switch (const auto calltype = goldtest.config().call()) {
+            case android::net::CallType::CALL_GETADDRINFO:
+                ASSERT_TRUE(goldtest.config().has_addrinfo());
+                ASSERT_NO_FATAL_FAILURE(VerifyGetAddrInfo(goldtest, protocol));
+                queries = goldtest.config().addrinfo().family() == AF_UNSPEC ? 2U : 1U;
+                name = goldtest.config().addrinfo().host();
+                break;
+            case android::net::CallType::CALL_GETHOSTBYNAME:
+                ASSERT_TRUE(goldtest.config().has_hostbyname());
+                ASSERT_NO_FATAL_FAILURE(VerifyGetHostByName(goldtest, protocol));
+                queries = 1U;
+                name = goldtest.config().hostbyname().host();
+                break;
+            default:
+                FAIL() << "Unsupported call type: " << calltype;
+        }
+
+        // Verify DNS server query status.
+        EXPECT_EQ(GetNumQueries(dns, name.c_str()), queries);
+        if (protocol == DnsProtocol::TLS) EXPECT_EQ(tls.queries(), static_cast<int>(queries));
+    }
+
     static constexpr res_params kParams = {
             .sample_validity = 300,
             .success_threshold = 25,
@@ -138,19 +256,6 @@ class TestBase : public ::testing::Test {
 };
 class ResolvGetAddrInfo : public TestBase {};
 
-// Parameterized test class definition.
-class ResolvGoldTest : public TestBase, public ::testing::WithParamInterface<std::string> {};
-
-// GetAddrInfo tests.
-INSTANTIATE_TEST_SUITE_P(GetAddrInfo, ResolvGoldTest, ::testing::ValuesIn(kGoldFilesGetAddrInfo),
-                         [](const ::testing::TestParamInfo<std::string>& info) {
-                             std::string name = info.param;
-                             std::replace_if(
-                                     std::begin(name), std::end(name),
-                                     [](char ch) { return !std::isalnum(ch); }, '_');
-                             return name;
-                         });
-
 // Fixture tests.
 TEST_F(ResolvGetAddrInfo, RemovePacketMapping) {
     test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
@@ -166,7 +271,7 @@ TEST_F(ResolvGetAddrInfo, RemovePacketMapping) {
     ScopedAddrinfo result(res);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(rv, 0);
-    EXPECT_EQ(ToString(result), "1.2.3.4");
+    EXPECT_EQ(ToString(result), kHelloExampleComAddrV4);
 
     // Remove existing DNS record.
     dns.removeMappingBinaryPacket(kHelloExampleComQueryV4);
@@ -231,8 +336,8 @@ TEST_F(ResolvGetAddrInfo, ReplacePacketMapping) {
 
 TEST_F(ResolvGetAddrInfo, BasicTlsQuery) {
     test::DNSResponder dns;
-    dns.addMapping(kHelloExampleCom, ns_type::ns_t_a, "1.2.3.4");
-    dns.addMapping(kHelloExampleCom, ns_type::ns_t_aaaa, "::1.2.3.4");
+    dns.addMapping(kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4);
+    dns.addMapping(kHelloExampleCom, ns_type::ns_t_aaaa, kHelloExampleComAddrV6);
     ASSERT_TRUE(dns.startServer());
 
     test::DnsTlsFrontend tls;
@@ -253,66 +358,71 @@ TEST_F(ResolvGetAddrInfo, BasicTlsQuery) {
     ASSERT_EQ(rv, 0);
     EXPECT_EQ(GetNumQueries(dns, kHelloExampleCom), 2U);
     const std::vector<std::string> result_strs = ToStrings(result);
-    EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray({"1.2.3.4", "::1.2.3.4"}));
+    EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray(
+                                     {kHelloExampleComAddrV4, kHelloExampleComAddrV6}));
     EXPECT_EQ(tls.queries(), 3);
 }
 
-// Parameterized tests.
+// Parameterized test class definition.
+using GoldTestParamType = std::tuple<DnsProtocol, std::string /* filename */>;
+class ResolvGoldTest : public TestBase, public ::testing::WithParamInterface<GoldTestParamType> {
+  public:
+    // Generate readable string for test name from test parameters.
+    static std::string Name(::testing::TestParamInfo<GoldTestParamType> info) {
+        const auto& [protocol, file] = info.param;
+        std::string name = StringPrintf(
+                "%s_%s", protocol == DnsProtocol::CLEARTEXT ? "CLEARTEXT" : "TLS", file.c_str());
+        std::replace_if(
+                std::begin(name), std::end(name), [](char ch) { return !std::isalnum(ch); }, '_');
+        return name;
+    }
+};
+
+// GetAddrInfo tests.
+INSTANTIATE_TEST_SUITE_P(GetAddrInfo, ResolvGoldTest,
+                         ::testing::Combine(::testing::Values(DnsProtocol::CLEARTEXT),
+                                            ::testing::ValuesIn(kGoldFilesGetAddrInfo)),
+                         ResolvGoldTest::Name);
+INSTANTIATE_TEST_SUITE_P(GetAddrInfoTls, ResolvGoldTest,
+                         ::testing::Combine(::testing::Values(DnsProtocol::TLS),
+                                            ::testing::ValuesIn(kGoldFilesGetAddrInfoTls)),
+                         ResolvGoldTest::Name);
+
+// GetHostByName tests.
+INSTANTIATE_TEST_SUITE_P(GetHostByName, ResolvGoldTest,
+                         ::testing::Combine(::testing::Values(DnsProtocol::CLEARTEXT),
+                                            ::testing::ValuesIn(kGoldFilesGetHostByName)),
+                         ResolvGoldTest::Name);
+INSTANTIATE_TEST_SUITE_P(GetHostByNameTls, ResolvGoldTest,
+                         ::testing::Combine(::testing::Values(DnsProtocol::TLS),
+                                            ::testing::ValuesIn(kGoldFilesGetHostByNameTls)),
+                         ResolvGoldTest::Name);
+
 TEST_P(ResolvGoldTest, GoldData) {
-    const auto& testFile = GetParam();
+    const auto& [protocol, file] = GetParam();
 
-    // Convert the testing configuration from .pbtxt file to proto.
-    std::string file_content;
-    ASSERT_TRUE(android::base::ReadFileToString(kTestDataPath + testFile, &file_content))
-            << strerror(errno);
-    android::net::GoldTest goldtest;
-    ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(file_content, &goldtest));
-    ASSERT_EQ(android::net::CallType::CALL_GETADDRINFO, goldtest.config().call());
-    ASSERT_TRUE(goldtest.config().has_addrinfo());
-
+    // Setup DNS server configuration.
     test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
     ASSERT_TRUE(dns.startServer());
-    ASSERT_NO_FATAL_FAILURE(SetResolvers());
+    test::DnsTlsFrontend tls;
 
-    // Register packet mapping (query, response) from proto.
-    for (const auto& m : goldtest.packet_mapping()) {
-        // Convert string to bytes because .proto type "bytes" is "string" type in C++.
-        // See also the section "Scalar Value Types" in "Language Guide (proto3)".
-        dns.addMappingBinaryPacket(std::vector<uint8_t>(m.query().begin(), m.query().end()),
-                                   std::vector<uint8_t>(m.response().begin(), m.response().end()));
+    if (protocol == DnsProtocol::CLEARTEXT) {
+        ASSERT_NO_FATAL_FAILURE(SetResolvers());
+    } else if (protocol == DnsProtocol::TLS) {
+        ASSERT_TRUE(tls.startServer());
+        ASSERT_NO_FATAL_FAILURE(SetResolversWithTls());
+        EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address()));
+        tls.clearQueries();
     }
 
-    addrinfo* res = nullptr;
-    const auto& args = goldtest.config().addrinfo();
-    const addrinfo hints = {
-            // Clear the flag AI_ADDRCONFIG to avoid flaky test because AI_ADDRCONFIG looks at
-            // whether connectivity is available. It makes that the resolver may send only A
-            // or AAAA DNS query per connectivity even AF_UNSPEC has been assigned. See also
-            // have_ipv6() and have_ipv4() in packages/modules/DnsResolver/getaddrinfo.cpp.
-            // TODO: Consider keeping the configuration flag AI_ADDRCONFIG once the unit
-            // test can treat the IPv4 and IPv6 connectivity.
-            .ai_flags = args.ai_flags() & ~AI_ADDRCONFIG,
-            .ai_family = args.family(),
-            .ai_socktype = args.socktype(),
-            .ai_protocol = args.protocol(),
-    };
-    NetworkDnsEventReported event;
-    const int rv =
-            resolv_getaddrinfo(args.host().c_str(), nullptr, &hints, &kNetcontext, &res, &event);
-    ScopedAddrinfo result(res);
-    ASSERT_EQ(goldtest.result().return_code(), rv);
+    // Read test configuration from proto text file to proto.
+    const auto goldtest = ToProto(file);
 
-    if (goldtest.result().return_code() != GT_EAI_NO_ERROR) {
-        ASSERT_EQ(result, nullptr);
-    } else {
-        ASSERT_NE(result, nullptr);
-        const auto& addresses = goldtest.result().addresses();
-        EXPECT_THAT(ToStrings(result),
-                    ::testing::UnorderedElementsAreArray(
-                            std::vector<std::string>(addresses.begin(), addresses.end())));
-    }
-    EXPECT_EQ(GetNumQueries(dns, args.host().c_str()), (hints.ai_family == AF_UNSPEC) ? 2U : 1U);
+    // Register packet mappings (query, response) from proto.
+    SetupMappings(goldtest, dns);
+
+    // Verify the resolver by proto.
+    VerifyResolver(goldtest, dns, tls, protocol);
 }
 
-}  // end of namespace net
-}  // end of namespace android
+}  // namespace android::net
