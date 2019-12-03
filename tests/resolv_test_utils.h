@@ -41,6 +41,7 @@ static constexpr char kIp6LocalHost[] = "ip6-localhost";
 static constexpr char kIp6LocalHostAddr[] = "::1";
 static constexpr char kHelloExampleCom[] = "hello.example.com.";
 static constexpr char kHelloExampleComAddrV4[] = "1.2.3.4";
+static constexpr char kHelloExampleComAddrV6[] = "::1.2.3.4";
 
 static const std::vector<uint8_t> kHelloExampleComQueryV4 = {
         /* Header */
@@ -106,5 +107,6 @@ std::string ToString(const hostent* he);
 std::string ToString(const addrinfo* ai);
 std::string ToString(const android::netdutils::ScopedAddrinfo& ai);
 std::string ToString(const sockaddr_storage* addr);
+std::vector<std::string> ToStrings(const hostent* he);
 std::vector<std::string> ToStrings(const addrinfo* ai);
 std::vector<std::string> ToStrings(const android::netdutils::ScopedAddrinfo& ai);
