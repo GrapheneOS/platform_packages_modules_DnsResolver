@@ -180,9 +180,9 @@ TEST_F(TransportTest, IdReuse) {
     DnsTlsTransport transport(SERVER1, MARK, &factory);
     for (int i = 0; i < 100; ++i) {
         // Send a query.
-        std::future<DnsTlsServer::Result> f = transport.query(makeSlice(QUERY));
+        std::future<DnsTlsTransport::Result> f = transport.query(makeSlice(QUERY));
         // Wait for the response.
-        DnsTlsServer::Result r = f.get();
+        DnsTlsTransport::Result r = f.get();
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
 
         // All queries should have an observed ID of zero, because it is returned to the ID pool
