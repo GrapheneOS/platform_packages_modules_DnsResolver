@@ -160,6 +160,12 @@ message GoldTest {
             int32 ai_flags = 5;
         }
 
+        // The arguments used to send a DNS query by call type CALL_GETHOSTBYNAME.
+        message HostByName {
+            string host = 1;
+            AddressFamily family = 2;
+        }
+
         // The call is used to send DNS lookups.
         CallType call = 1;
 
@@ -167,6 +173,7 @@ message GoldTest {
         oneof Arg {
             // The arguments of call type CALL_GETADDRINFO.
             AddrInfo addrinfo = 2;
+            HostByName hostbyname = 3;
         }
     };
 
