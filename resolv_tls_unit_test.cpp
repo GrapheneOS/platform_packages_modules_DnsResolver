@@ -148,6 +148,7 @@ TEST_F(TransportTest, Query) {
 
     EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
     EXPECT_EQ(QUERY, r.response);
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 // Fake Socket that echoes the observed query ID as the response body.
@@ -188,6 +189,7 @@ TEST_F(TransportTest, IdReuse) {
         // after each use.
         EXPECT_EQ(0, (r.response[2] << 8) | r.response[3]);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 // These queries might be handled in serial or parallel as they race the
@@ -207,6 +209,7 @@ TEST_F(TransportTest, RacingQueries_10000) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(QUERY, r.response);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 // A server that waits until sDelay queries are queued before responding.
@@ -272,6 +275,7 @@ TEST_F(TransportTest, ParallelColliding) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(QUERY, r.response);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 TEST_F(TransportTest, ParallelColliding_Max) {
@@ -291,6 +295,7 @@ TEST_F(TransportTest, ParallelColliding_Max) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(QUERY, r.response);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 TEST_F(TransportTest, ParallelUnique) {
@@ -310,6 +315,7 @@ TEST_F(TransportTest, ParallelUnique) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 TEST_F(TransportTest, ParallelUnique_Max) {
@@ -331,6 +337,7 @@ TEST_F(TransportTest, ParallelUnique_Max) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 TEST_F(TransportTest, IdExhaustion) {
@@ -358,6 +365,7 @@ TEST_F(TransportTest, IdExhaustion) {
         EXPECT_EQ(std::future_status::timeout,
                 result.wait_for(std::chrono::duration<int>::zero()));
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 // Responses can come back from the server in any order.  This should have no
@@ -379,6 +387,7 @@ TEST_F(TransportTest, ReverseOrder) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 TEST_F(TransportTest, ReverseOrder_Max) {
@@ -398,6 +407,7 @@ TEST_F(TransportTest, ReverseOrder_Max) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 // Returning null from the factory indicates a connection failure.
@@ -420,6 +430,7 @@ TEST_F(TransportTest, ConnectFail) {
 
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 // Simulate a socket that connects but then immediately receives a server
@@ -445,6 +456,9 @@ TEST_F(TransportTest, CloseRetryFail) {
 
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
+
+    // Reconnections are triggered since DnsTlsQueryMap is not empty.
+    EXPECT_EQ(transport.getConnectCounter(), static_cast<uint32_t>(DnsTlsQueryMap::kMaxTries));
 }
 
 // Simulate a server that occasionally closes the connection and silently
@@ -537,6 +551,9 @@ TEST_F(TransportTest, SilentDrop) {
         EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
         EXPECT_TRUE(r.response.empty());
     }
+
+    // Reconnections are triggered since DnsTlsQueryMap is not empty.
+    EXPECT_EQ(transport.getConnectCounter(), static_cast<uint32_t>(DnsTlsQueryMap::kMaxTries));
 }
 
 TEST_F(TransportTest, PartialDrop) {
@@ -561,6 +578,34 @@ TEST_F(TransportTest, PartialDrop) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
+
+    // TODO: transport.getConnectCounter() seems not stable in this test. Find how to check the
+    // connect attempts for this test.
+}
+
+TEST_F(TransportTest, ConnectCounter) {
+    FakeSocketLimited::sLimit = 2;       // Close the socket after 2 queries.
+    FakeSocketLimited::sMaxSize = SIZE;  // No query drops.
+    FakeSocketFactory<FakeSocketLimited> factory;
+    DnsTlsTransport transport(SERVER1, MARK, &factory);
+
+    // Connecting on demand.
+    EXPECT_EQ(transport.getConnectCounter(), 0U);
+
+    const int num_queries = 10;
+    std::vector<std::future<DnsTlsTransport::Result>> results;
+    results.reserve(num_queries);
+    for (int i = 0; i < num_queries; i++) {
+        // Reconnections take place every two queries.
+        results.push_back(transport.query(makeSlice(QUERY)));
+    }
+    for (int i = 0; i < num_queries; i++) {
+        auto r = results[i].get();
+        EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
+    }
+
+    EXPECT_EQ(transport.getConnectCounter(),
+              static_cast<uint32_t>(num_queries / FakeSocketLimited::sLimit));
 }
 
 // Simulate a malfunctioning server that injects extra miscellaneous
@@ -604,6 +649,7 @@ TEST_F(TransportTest, IgnoringGarbage) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         // Don't check the response because this server is malfunctioning.
     }
+    EXPECT_EQ(transport.getConnectCounter(), 1U);
 }
 
 // Dispatcher tests
@@ -612,28 +658,38 @@ class DispatcherTest : public BaseTest {};
 TEST_F(DispatcherTest, Query) {
     bytevec ans(4096);
     int resplen = 0;
+    bool connectTriggered = false;
 
     auto factory = std::make_unique<FakeSocketFactory<FakeSocketEcho>>();
     DnsTlsDispatcher dispatcher(std::move(factory));
-    auto r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY),
-                              makeSlice(ans), &resplen);
+    auto r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
+                              &connectTriggered);
 
     EXPECT_EQ(DnsTlsTransport::Response::success, r);
     EXPECT_EQ(int(QUERY.size()), resplen);
+    EXPECT_TRUE(connectTriggered);
     ans.resize(resplen);
     EXPECT_EQ(QUERY, ans);
+
+    // Expect to reuse the connection.
+    r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
+                         &connectTriggered);
+    EXPECT_EQ(DnsTlsTransport::Response::success, r);
+    EXPECT_FALSE(connectTriggered);
 }
 
 TEST_F(DispatcherTest, AnswerTooLarge) {
     bytevec ans(SIZE - 1);  // Too small to hold the answer
     int resplen = 0;
+    bool connectTriggered = false;
 
     auto factory = std::make_unique<FakeSocketFactory<FakeSocketEcho>>();
     DnsTlsDispatcher dispatcher(std::move(factory));
-    auto r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY),
-                              makeSlice(ans), &resplen);
+    auto r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
+                              &connectTriggered);
 
     EXPECT_EQ(DnsTlsTransport::Response::limit_error, r);
+    EXPECT_TRUE(connectTriggered);
 }
 
 template<class T>
@@ -678,10 +734,11 @@ TEST_F(DispatcherTest, Dispatching) {
             auto q = make_query(i, SIZE);
             bytevec ans(4096);
             int resplen = 0;
+            bool connectTriggered = false;
             unsigned mark = key.first;
             const DnsTlsServer& server = key.second;
-            auto r = dispatcher->query(server, mark, makeSlice(q),
-                                       makeSlice(ans), &resplen);
+            auto r = dispatcher->query(server, mark, makeSlice(q), makeSlice(ans), &resplen,
+                                       &connectTriggered);
             EXPECT_EQ(DnsTlsTransport::Response::success, r);
             EXPECT_EQ(int(q.size()), resplen);
             ans.resize(resplen);

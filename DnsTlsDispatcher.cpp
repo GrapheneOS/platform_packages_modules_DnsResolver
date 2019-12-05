@@ -101,14 +101,17 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
     for (const auto& server : orderedServers) {
         DnsQueryEvent* dnsQueryEvent =
                 statp->event->mutable_dns_query_events()->add_dns_query_event();
+
+        bool connectTriggered = false;
         Stopwatch queryStopwatch;
-        code = this->query(server, statp->_mark, query, ans, resplen);
+        code = this->query(server, statp->_mark, query, ans, resplen, &connectTriggered);
 
         dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
         dnsQueryEvent->set_dns_server_index(serverCount++);
         dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(server.ss.ss_family));
         dnsQueryEvent->set_protocol(PROTO_DOT);
         dnsQueryEvent->set_type(getQueryType(query.base(), query.size()));
+        dnsQueryEvent->set_connected(connectTriggered);
 
         switch (code) {
             // These response codes are valid responses and not expected to
@@ -141,8 +144,9 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
 }
 
 DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, unsigned mark,
-                                                  const Slice query,
-                                                  const Slice ans, int *resplen) {
+                                                  const Slice query, const Slice ans, int* resplen,
+                                                  bool* connectTriggered) {
+    uint32_t connectCounter;
     const Key key = std::make_pair(mark, server);
     Transport* xport;
     {
@@ -155,6 +159,7 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
             xport = it->second.get();
         }
         ++xport->useCount;
+        connectCounter = xport->transport.getConnectCounter();
     }
 
     LOG(DEBUG) << "Sending query of length " << query.size();
@@ -178,6 +183,7 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     auto now = std::chrono::steady_clock::now();
     {
         std::lock_guard guard(sLock);
+        *connectTriggered = (xport->transport.getConnectCounter() > connectCounter);
         --xport->useCount;
         xport->lastUsed = now;
         cleanup(now);
