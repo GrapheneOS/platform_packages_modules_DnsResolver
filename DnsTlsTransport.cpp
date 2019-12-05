@@ -51,6 +51,11 @@ std::future<DnsTlsTransport::Result> DnsTlsTransport::query(const netdutils::Sli
     return std::move(record->result);
 }
 
+uint32_t DnsTlsTransport::getConnectCounter() const {
+    std::lock_guard guard(mLock);
+    return mConnectCounter;
+}
+
 bool DnsTlsTransport::sendQuery(const DnsTlsQueryMap::Query q) {
     // Strip off the ID number and send the new ID instead.
     bool sent = mSocket->query(q.newId, netdutils::drop(q.query, 2));
@@ -63,6 +68,7 @@ bool DnsTlsTransport::sendQuery(const DnsTlsQueryMap::Query q) {
 void DnsTlsTransport::doConnect() {
     LOG(DEBUG) << "Constructing new socket";
     mSocket = mFactory->createDnsTlsSocket(mServer, mMark, this, &mCache);
+    mConnectCounter++;
 
     if (mSocket) {
         auto queries = mQueries.getAll();

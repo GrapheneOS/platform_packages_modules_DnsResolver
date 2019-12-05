@@ -54,11 +54,12 @@ class DnsTlsDispatcher {
                                     const netdutils::Slice ans, int* _Nonnull resplen);
 
     // Given a |query|, sends it to the server on the network indicated by |mark|,
-    // and writes the response into |ans|,  and indicates
-    // the number of bytes written in |resplen|.  Returns a success or error code.
+    // and writes the response into |ans|, and indicates the number of bytes written in |resplen|.
+    // If the whole procedure above triggers (or experiences) any new connection, |connectTriggered|
+    // is set. Returns a success or error code.
     DnsTlsTransport::Response query(const DnsTlsServer& server, unsigned mark,
                                     const netdutils::Slice query, const netdutils::Slice ans,
-                                    int* _Nonnull resplen);
+                                    int* _Nonnull resplen, bool* _Nonnull connectTriggered);
 
   private:
     // This lock is static so that it can be used to annotate the Transport struct.

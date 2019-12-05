@@ -74,6 +74,9 @@ class DnsTlsQueryMap {
     // Returns true if there are no pending queries.
     bool empty();
 
+    // The maximum number of times we will send a query before abandoning it.
+    static constexpr int kMaxTries = 3;
+
   private:
     std::mutex mLock;
 
@@ -86,9 +89,6 @@ class DnsTlsQueryMap {
         // It is fulfilled by onResponse().
         std::promise<Result> result;
     };
-
-    // The maximum number of times we will send a query before abandoning it.
-    static constexpr int kMaxTries = 3;
 
     // Outstanding queries by newId.
     std::map<uint16_t, QueryPromise> mQueries GUARDED_BY(mLock);
