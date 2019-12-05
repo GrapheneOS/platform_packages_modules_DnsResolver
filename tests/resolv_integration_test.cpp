@@ -84,6 +84,7 @@ extern "C" int android_getaddrinfofornet(const char* hostname, const char* servn
 
 using aidl::android::net::IDnsResolver;
 using aidl::android::net::INetd;
+using aidl::android::net::ResolverParamsParcel;
 using android::base::ParseInt;
 using android::base::StringPrintf;
 using android::base::unique_fd;
@@ -910,6 +911,94 @@ TEST_F(ResolverTest, GetAddrInfoV6_concurrent) {
             mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
             &res_params, &res_stats, &wait_for_pending_req_timeout_count));
     EXPECT_EQ(0, wait_for_pending_req_timeout_count);
+}
+
+TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
+    constexpr char listen_addr1[] = "fe80::1";
+    constexpr char listen_addr2[] = "255.255.255.255";
+    constexpr char listen_addr3[] = "127.0.0.3";
+
+    test::DNSResponder dns(listen_addr3);
+    ASSERT_TRUE(dns.startServer());
+
+    ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    parcel.servers = {listen_addr1, listen_addr2, listen_addr3};
+
+    // Bad servers can be distinguished after two attempts.
+    parcel.minSamples = 2;
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+
+    // Start querying five times.
+    for (int i = 0; i < 5; i++) {
+        std::string hostName = StringPrintf("hello%d.com.", i);
+        dns.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
+        const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+        EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
+    }
+
+    std::vector<std::string> res_servers;
+    std::vector<std::string> res_domains;
+    std::vector<std::string> res_tls_servers;
+    res_params res_params;
+    std::vector<ResolverStats> res_stats;
+    int wait_for_pending_req_timeout_count;
+    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
+            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
+            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
+
+    // Verify the result by means of the statistics.
+    EXPECT_EQ(res_stats[0].successes, 0);
+    EXPECT_EQ(res_stats[1].successes, 0);
+    EXPECT_EQ(res_stats[2].successes, 5);
+    EXPECT_EQ(res_stats[0].internal_errors, 2);
+    EXPECT_EQ(res_stats[1].internal_errors, 2);
+    EXPECT_EQ(res_stats[2].internal_errors, 0);
+}
+
+TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
+    constexpr char listen_addr1[] = "127.0.0.3";
+    constexpr char listen_addr2[] = "127.0.0.4";
+
+    // Set dns1 non-responsive and dns2 workable.
+    test::DNSResponder dns1(listen_addr1, test::kDefaultListenService, static_cast<ns_rcode>(-1));
+    test::DNSResponder dns2(listen_addr2);
+    dns1.setResponseProbability(0.0);
+    ASSERT_TRUE(dns1.startServer());
+    ASSERT_TRUE(dns2.startServer());
+
+    ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    parcel.servers = {listen_addr1, listen_addr2};
+
+    // Bad servers can be distinguished after two attempts.
+    parcel.minSamples = 2;
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+
+    // Start querying five times.
+    for (int i = 0; i < 5; i++) {
+        std::string hostName = StringPrintf("hello%d.com.", i);
+        dns1.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
+        dns2.addMapping(hostName, ns_type::ns_t_a, "1.2.3.5");
+        const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+        EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
+    }
+
+    std::vector<std::string> res_servers;
+    std::vector<std::string> res_domains;
+    std::vector<std::string> res_tls_servers;
+    res_params res_params;
+    std::vector<ResolverStats> res_stats;
+    int wait_for_pending_req_timeout_count;
+    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
+            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
+            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
+
+    // Verify the result by means of the statistics as well as the query counts.
+    EXPECT_EQ(res_stats[0].successes, 0);
+    EXPECT_EQ(res_stats[1].successes, 5);
+    EXPECT_EQ(res_stats[0].timeouts, 2);
+    EXPECT_EQ(res_stats[1].timeouts, 0);
+    EXPECT_EQ(dns1.queries().size(), 2U);
+    EXPECT_EQ(dns2.queries().size(), 5U);
 }
 
 TEST_F(ResolverTest, EmptySetup) {
@@ -3494,8 +3583,7 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
     ScopedSystemProperties scopedSystemProperties(kDotConnectTimeoutMsFlag, "100");
 
     // Set up resolver to opportunistic mode with the default configuration.
-    const aidl::android::net::ResolverParamsParcel parcel =
-            DnsResponderClient::GetDefaultResolverParamsParcel();
+    const ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
     EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
     dns.clearQueries();
