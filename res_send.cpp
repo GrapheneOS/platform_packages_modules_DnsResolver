@@ -1085,8 +1085,9 @@ PrivateDnsModes convertEnumType(PrivateDnsMode privateDnsmode) {
             return PrivateDnsModes::PDM_OPPORTUNISTIC;
         case PrivateDnsMode::STRICT:
             return PrivateDnsModes::PDM_STRICT;
+        default:
+            return PrivateDnsModes::PDM_UNKNOWN;
     }
-    return PrivateDnsModes::PDM_UNKNOWN;
 }
 
 static int res_tls_send(res_state statp, const Slice query, const Slice answer, int* rcode,
