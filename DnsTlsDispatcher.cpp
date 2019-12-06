@@ -146,7 +146,7 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
 DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, unsigned mark,
                                                   const Slice query, const Slice ans, int* resplen,
                                                   bool* connectTriggered) {
-    uint32_t connectCounter;
+    int connectCounter;
     const Key key = std::make_pair(mark, server);
     Transport* xport;
     {
