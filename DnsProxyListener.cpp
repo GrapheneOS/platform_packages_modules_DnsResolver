@@ -290,7 +290,23 @@ bool parseQuery(const uint8_t* msg, size_t msgLen, uint16_t* query_id, int* rr_t
     return true;
 }
 
-void initDnsEvent(NetworkDnsEventReported* event) {
+// Note: Even if it returns PDM_OFF, it doesn't mean there's no DoT stats in the message
+// because Private DNS mode can change at any time.
+PrivateDnsModes getPrivateDnsModeForMetrics(uint32_t netId) {
+    switch (gPrivateDnsConfiguration.getStatus(netId).mode) {
+        case PrivateDnsMode::OFF:
+            // It can also be due to netId not found.
+            return PrivateDnsModes::PDM_OFF;
+        case PrivateDnsMode::OPPORTUNISTIC:
+            return PrivateDnsModes::PDM_OPPORTUNISTIC;
+        case PrivateDnsMode::STRICT:
+            return PrivateDnsModes::PDM_STRICT;
+        default:
+            return PrivateDnsModes::PDM_UNKNOWN;
+    }
+}
+
+void initDnsEvent(NetworkDnsEventReported* event, const android_net_context& netContext) {
     // The value 0 has the special meaning of unset/unknown in Westworld atoms. So, we set both
     // flags to -1 as default value.
     //  1. The hints flag is only used in resolv_getaddrinfo. When user set it to -1 in
@@ -301,6 +317,7 @@ void initDnsEvent(NetworkDnsEventReported* event) {
     //     resolv_res_nsend,res_nsend will do nothing special by the setting.
     event->set_hints_ai_flags(-1);
     event->set_res_nsend_flags(-1);
+    event->set_private_dns_modes(getPrivateDnsModeForMetrics(netContext.dns_netid));
 }
 
 // Return 0 if the event should not be logged.
@@ -677,7 +694,7 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
     const uid_t uid = mClient->getUid();
     int32_t rv = 0;
     NetworkDnsEventReported event;
-    initDnsEvent(&event);
+    initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
         if (evaluate_domain_name(mNetContext, mHost)) {
             rv = resolv_getaddrinfo(mHost, mService, mHints, &mNetContext, &result,
@@ -897,7 +914,7 @@ void DnsProxyListener::ResNSendHandler::run() {
     int rcode = ns_r_noerror;
     int nsendAns = -1;
     NetworkDnsEventReported event;
-    initDnsEvent(&event);
+    initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
         if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
             nsendAns = resolv_res_nsend(&mNetContext, msg.data(), msgLen, ansBuf.data(), MAXPACKET,
@@ -1094,7 +1111,7 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     char tmpbuf[MAXPACKET];
     int32_t rv = 0;
     NetworkDnsEventReported event;
-    initDnsEvent(&event);
+    initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
         if (evaluate_domain_name(mNetContext, mName)) {
             rv = resolv_gethostbyname(mName, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
@@ -1261,7 +1278,7 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     char tmpbuf[MAXPACKET];
     int32_t rv = 0;
     NetworkDnsEventReported event;
-    initDnsEvent(&event);
+    initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
         rv = resolv_gethostbyaddr(mAddress, mAddressLen, mAddressFamily, &hbuf, tmpbuf,
                                   sizeof tmpbuf, &mNetContext, &hp, &event);
