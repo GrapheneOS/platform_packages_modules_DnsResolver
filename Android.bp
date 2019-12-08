@@ -166,6 +166,7 @@ cc_test {
     defaults: ["netd_defaults"],
     srcs: [
         "resolv_cache_unit_test.cpp",
+        "resolv_callback_unit_test.cpp",
         "resolv_tls_unit_test.cpp",
         "resolv_unit_test.cpp",
         "DnsStatsTest.cpp",
@@ -188,6 +189,10 @@ cc_test {
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libprotobuf-cpp-lite",
+        "libstatslog_resolv",
+        "libstatssocket",
+        "libsysutils",
+        "libutils",
         "server_configurable_flags",
         "stats_proto",
     ],
