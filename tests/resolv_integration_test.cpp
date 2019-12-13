@@ -38,7 +38,6 @@
 #include <netdutils/SocketOption.h>
 #include <netdutils/Stopwatch.h>
 #include <netinet/in.h>
-#include <openssl/base64.h>
 #include <poll.h> /* poll */
 #include <private/android_filesystem_config.h>
 #include <resolv.h>
