@@ -32,7 +32,7 @@ cc_library_static {
 
 cc_test {
     name: "resolv_gold_test",
-    test_suites: ["device-tests"],
+    test_suites: ["device-tests", "mts"],
     require_root: true,
     defaults: ["netd_defaults"],
     data: ["testdata/*.pbtxt"],
@@ -64,11 +64,12 @@ cc_test {
         "server_configurable_flags",
         "stats_proto",
     ],
+    compile_multilib: "first",
 }
 
 cc_test {
     name: "resolv_stress_test",
-    test_suites: ["device-tests"],
+    test_suites: ["device-tests", "mts"],
     // This won't work with test_config
     // require_root: true,
     test_config: "resolv_stress_test_config.xml",
@@ -95,12 +96,12 @@ cc_test {
         "netd_event_listener_interface-ndk_platform",
         "netd_aidl_interface-ndk_platform",
     ],
-    compile_multilib: "both",
+    compile_multilib: "first",
 }
 
 cc_test {
     name: "resolv_integration_test",
-    test_suites: ["device-tests"],
+    test_suites: ["device-tests", "mts"],
     require_root: true,
     defaults: ["netd_defaults"],
     tidy: false, // cuts test build time by > 1m30s
@@ -138,4 +139,12 @@ cc_test {
         "netd_event_listener_interface-ndk_platform",
     ],
     compile_multilib: "both",
+    multilib: {
+        lib32: {
+            suffix: "32",
+        },
+        lib64: {
+            suffix: "64",
+        },
+    },
 }
