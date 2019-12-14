@@ -113,6 +113,10 @@ cc_library {
             ],
         },
     },
+    header_abi_checker: {
+        enabled: true,
+        symbol_file: "libnetd_resolv.map.txt",
+    },
 }
 
 cc_library_static {
