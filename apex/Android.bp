@@ -26,6 +26,8 @@ apex {
 
     // Use a custom AndroidManifest.xml used for API targeting.
     androidManifest: "AndroidManifest.xml",
+
+    legacy_android10_support: true,
 }
 
 apex_key {
