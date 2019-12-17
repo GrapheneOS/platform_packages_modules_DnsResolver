@@ -126,8 +126,9 @@ class TestBase : public ::testing::Test {
     GoldTest ToProto(const std::string& file) {
         // Convert the testing configuration from .pbtxt file to proto.
         std::string file_content;
-        EXPECT_TRUE(android::base::ReadFileToString(kTestDataPath + file, &file_content))
-                << strerror(errno);
+        const std::string file_name = kTestDataPath + file;
+        EXPECT_TRUE(android::base::ReadFileToString(file_name, &file_content))
+                << "Failed to read " << file_name << ": " << strerror(errno);
         android::net::GoldTest goldtest;
         EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(file_content, &goldtest));
         return goldtest;
