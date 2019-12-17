@@ -60,6 +60,7 @@ cc_library {
         "util.cpp",
         "Dns64Configuration.cpp",
         "DnsProxyListener.cpp",
+        "DnsQueryLog.cpp",
         "DnsResolver.cpp",
         "DnsResolverService.cpp",
         "DnsStats.cpp",
@@ -174,6 +175,7 @@ cc_test {
         "resolv_tls_unit_test.cpp",
         "resolv_unit_test.cpp",
         "DnsStatsTest.cpp",
+        "DnsQueryLogTest.cpp",
     ],
     shared_libs: [
         "libbase",

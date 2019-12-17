@@ -92,7 +92,7 @@ binder_status_t DnsResolverService::start() {
     return STATUS_OK;
 }
 
-binder_status_t DnsResolverService::dump(int fd, const char**, uint32_t) {
+binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t numArgs) {
     auto dump_permission = checkAnyPermission({PERM_DUMP});
     if (!dump_permission.isOk()) {
         return STATUS_PERMISSION_DENIED;
@@ -101,6 +101,14 @@ binder_status_t DnsResolverService::dump(int fd, const char**, uint32_t) {
     // This method does not grab any locks. If individual classes need locking
     // their dump() methods MUST handle locking appropriately.
     DumpWriter dw(fd);
+
+    if (numArgs == 1 && std::string(args[0]) == DnsQueryLog::DUMP_KEYWORD) {
+        dw.blankline();
+        gDnsResolv->dnsQueryLog().dump(dw);
+        dw.blankline();
+        return STATUS_OK;
+    }
+
     for (auto netId : resolv_list_caches()) {
         dw.println("NetId: %u", netId);
         gDnsResolv->resolverCtrl.dump(dw, netId);
