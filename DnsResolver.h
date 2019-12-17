@@ -18,6 +18,7 @@
 #define _DNS_RESOLVER_H_
 
 #include "DnsProxyListener.h"
+#include "DnsQueryLog.h"
 #include "ResolverController.h"
 #include "netd_resolv/resolv.h"
 #include "netdutils/Log.h"
@@ -34,11 +35,14 @@ class DnsResolver {
     DnsResolver(DnsResolver const&) = delete;
     void operator=(DnsResolver const&) = delete;
 
+    DnsQueryLog& dnsQueryLog() { return mQueryLog; }
+
     ResolverController resolverCtrl;
 
   private:
     DnsResolver() {}
     DnsProxyListener mDnsProxyListener;
+    DnsQueryLog mQueryLog;
 };
 
 extern DnsResolver* gDnsResolv;
