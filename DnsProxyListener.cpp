@@ -329,6 +329,24 @@ uint32_t getDnsEventSubsamplingRate(int netid, int returnCode) {
     return (arc4random_uniform(subsampling_denom) == 0) ? subsampling_denom : 0;
 }
 
+void maybeLogQuery(int eventType, const android_net_context& netContext,
+                   const NetworkDnsEventReported& event, const std::string& query_name,
+                   const std::vector<std::string>& ip_addrs) {
+    // Skip reverse queries.
+    if (eventType == INetdEventListener::EVENT_GETHOSTBYADDR) return;
+
+    for (const auto& query : event.dns_query_events().dns_query_event()) {
+        // Log it when the cache misses.
+        if (query.cache_hit() != CS_FOUND) {
+            const int timeTakenMs = event.latency_micros() / 1000;
+            DnsQueryLog::Record record(netContext.dns_netid, netContext.uid, netContext.pid,
+                                       query_name, ip_addrs, timeTakenMs);
+            gDnsResolv->dnsQueryLog().push(std::move(record));
+            return;
+        }
+    }
+}
+
 void reportDnsEvent(int eventType, const android_net_context& netContext, int latencyUs,
                     int returnCode, NetworkDnsEventReported& event, const std::string& query_name,
                     const std::vector<std::string>& ip_addrs = {}, int total_ip_addr_count = 0) {
@@ -342,6 +360,8 @@ void reportDnsEvent(int eventType, const android_net_context& netContext, int la
                                          event.res_nsend_flags(), event.network_type(),
                                          event.private_dns_modes(), dnsQueryBytesField, rate);
     }
+
+    maybeLogQuery(eventType, netContext, event, query_name, ip_addrs);
 
     const auto& listeners = ResolverEventReporter::getInstance().getListeners();
     if (listeners.size() == 0) {
