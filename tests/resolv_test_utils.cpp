@@ -105,10 +105,22 @@ std::vector<std::string> ToStrings(const ScopedAddrinfo& ai) {
 }
 
 size_t GetNumQueries(const test::DNSResponder& dns, const char* name) {
-    auto queries = dns.queries();
+    std::vector<test::DNSResponder::QueryInfo> queries = dns.queries();
     size_t found = 0;
     for (const auto& p : queries) {
-        if (p.first == name) {
+        if (p.name == name) {
+            ++found;
+        }
+    }
+    return found;
+}
+
+size_t GetNumQueriesForProtocol(const test::DNSResponder& dns, const int protocol,
+                                const char* name) {
+    std::vector<test::DNSResponder::QueryInfo> queries = dns.queries();
+    size_t found = 0;
+    for (const auto& p : queries) {
+        if (p.protocol == protocol && p.name == name) {
             ++found;
         }
     }
@@ -116,10 +128,10 @@ size_t GetNumQueries(const test::DNSResponder& dns, const char* name) {
 }
 
 size_t GetNumQueriesForType(const test::DNSResponder& dns, ns_type type, const char* name) {
-    auto queries = dns.queries();
+    std::vector<test::DNSResponder::QueryInfo> queries = dns.queries();
     size_t found = 0;
     for (const auto& p : queries) {
-        if (p.second == type && p.first == name) {
+        if (p.type == type && p.name == name) {
             ++found;
         }
     }
