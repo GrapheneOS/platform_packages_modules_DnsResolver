@@ -101,7 +101,10 @@ static const test::DNSHeader kDefaultDnsHeader = {
         .ad = false,            // non-authenticated data is unacceptable
 };
 
+// TODO: Integrate GetNumQueries relevent functions
 size_t GetNumQueries(const test::DNSResponder& dns, const char* name);
+size_t GetNumQueriesForProtocol(const test::DNSResponder& dns, const int protocol,
+                                const char* name);
 size_t GetNumQueriesForType(const test::DNSResponder& dns, ns_type type, const char* name);
 std::string ToString(const hostent* he);
 std::string ToString(const addrinfo* ai);
