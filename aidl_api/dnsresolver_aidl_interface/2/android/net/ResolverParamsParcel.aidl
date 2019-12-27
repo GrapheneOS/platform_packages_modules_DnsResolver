@@ -28,5 +28,5 @@ parcelable ResolverParamsParcel {
   @utf8InCpp String[] domains;
   @utf8InCpp String tlsName;
   @utf8InCpp String[] tlsServers;
-  @utf8InCpp String[] tlsFingerprints;
+  @utf8InCpp String[] tlsFingerprints = {};
 }

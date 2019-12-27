@@ -1377,8 +1377,8 @@ TEST_F(ResolverTest, GetHostByName_Tls) {
     EXPECT_EQ("1.2.3.2", ToString(result));
     const auto queries = dns.queries();
     EXPECT_EQ(1U, queries.size());
-    EXPECT_EQ("tls2.example.com.", queries[0].first);
-    EXPECT_EQ(ns_t_a, queries[0].second);
+    EXPECT_EQ("tls2.example.com.", queries[0].name);
+    EXPECT_EQ(ns_t_a, queries[0].type);
 
     // Reset the resolvers without enabling TLS.  Queries should still be routed
     // to the UDP endpoint.
@@ -3717,6 +3717,42 @@ TEST_F(ResolverTest, FlushNetworkCache_concurrent) {
     ScopedAddrinfo result = safe_getaddrinfo("hello", nullptr, &hints);
     EXPECT_EQ(0U, GetNumQueries(dns2, kHelloExampleCom));
     EXPECT_EQ(kHelloExampleComAddrV4, ToString(result));
+}
+
+// TODO: Perhaps to have a boundary conditions test for TCP and UDP.
+TEST_F(ResolverTest, TcpQueryWithOversizePayload) {
+    test::DNSResponder dns;
+    StartDns(dns, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    int fd = dns_open_proxy();
+    ASSERT_TRUE(fd > 0);
+
+    // Sending DNS query over TCP once the packet sizes exceed 512 bytes.
+    // The raw data is combined with Question section and Additional section
+    // Question section : query "hello.example.com", type A, class IN
+    // Additional section : type OPT (41), Option PADDING, Option Length 546
+    // Padding option which allows DNS clients and servers to artificially
+    // increase the size of a DNS message by a variable number of bytes.
+    // See also RFC7830, section 3
+    const std::string query =
+            "+c0BAAABAAAAAAABBWhlbGxvB2V4YW1wbGUDY29tAAABAAEAACkgAAAAgAACJgAMAiIAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    const std::string cmd =
+            "resnsend " + std::to_string(TEST_NETID) + " 0 " /* ResNsendFlags */ + query + '\0';
+    ssize_t rc = TEMP_FAILURE_RETRY(write(fd, cmd.c_str(), cmd.size()));
+    EXPECT_EQ(rc, static_cast<ssize_t>(cmd.size()));
+    expectAnswersValid(fd, AF_INET, kHelloExampleComAddrV4);
+    EXPECT_EQ(1U, GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom));
+    EXPECT_EQ(0U, GetNumQueriesForProtocol(dns, IPPROTO_UDP, kHelloExampleCom));
 }
 
 // Parameterized tests.
