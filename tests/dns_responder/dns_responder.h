@@ -173,6 +173,7 @@ class DNSResponder {
     void removeMappingBinaryPacket(const std::vector<uint8_t>& query);
 
     void setResponseProbability(double response_probability);
+    void setResponseProbability(double response_probability, int protocol);
     void setEdns(Edns edns);
     bool running() const;
     bool startServer();
@@ -276,6 +277,8 @@ class DNSResponder {
     // TODO: Move createListeningSocket to resolv_test_utils.h
     android::base::unique_fd createListeningSocket(int socket_type);
 
+    double getResponseProbability(int protocol) const;
+
     // Address and service to listen on TCP and UDP.
     const std::string listen_address_;
     const std::string listen_service_;
@@ -283,9 +286,13 @@ class DNSResponder {
     const ns_rcode error_rcode_;
     // Mapping type the DNS server used to build the response.
     const MappingType mapping_type_;
-    // Probability that a valid response is being sent instead of being sent
-    // instead of returning error_rcode_.
-    std::atomic<double> response_probability_ = 1.0;
+    // Probability that a valid response on TCP is being sent instead of
+    // returning error_rcode_ or no response.
+    std::atomic<double> response_probability_tcp_ = 1.0;
+    // Probability that a valid response on UDP is being sent instead of
+    // returning error_rcode_ or no response.
+    std::atomic<double> response_probability_udp_ = 1.0;
+
     // Maximum number of fds for epoll.
     const int EPOLL_MAX_EVENTS = 2;
 
