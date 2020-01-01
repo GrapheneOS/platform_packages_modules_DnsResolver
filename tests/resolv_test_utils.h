@@ -28,6 +28,12 @@
 #include "dns_responder/dns_responder.h"
 #include "params.h"
 
+struct DnsRecord {
+    std::string host_name;  // host name
+    ns_type type;           // record type
+    std::string addr;       // ipv4/v6 address
+};
+
 // TODO: make this dynamic and stop depending on implementation details.
 constexpr int TEST_NETID = 30;
 
@@ -42,6 +48,9 @@ static constexpr char kIp6LocalHostAddr[] = "::1";
 static constexpr char kHelloExampleCom[] = "hello.example.com.";
 static constexpr char kHelloExampleComAddrV4[] = "1.2.3.4";
 static constexpr char kHelloExampleComAddrV6[] = "::1.2.3.4";
+static constexpr char kExampleComDomain[] = ".example.com";
+
+constexpr size_t kMaxmiumLabelSize = 63;  // see RFC 1035 section 2.3.4.
 
 static const std::vector<uint8_t> kHelloExampleComQueryV4 = {
         /* Header */
@@ -99,6 +108,31 @@ static const test::DNSHeader kDefaultDnsHeader = {
         .tr = false,            // message is not truncated
         .rd = false,            // unused. should be assigned from query to response
         .ad = false,            // non-authenticated data is unacceptable
+};
+
+// The CNAME chain records for building a response message which exceeds 512 bytes.
+//
+// Ignoring the other fields of the message, the response message has 8 CNAMEs in 5 answer RRs
+// and each CNAME has 77 bytes as the follows. The response message at least has 616 bytes in
+// answer section and has already exceeded 512 bytes totally.
+//
+// The CNAME is presented as:
+//   0   1            64  65                          72  73          76  77
+//   +---+--........--+---+---+---+---+---+---+---+---+---+---+---+---+---+
+//   | 63| {x, .., x} | 7 | e | x | a | m | p | l | e | 3 | c | o | m | 0 |
+//   +---+--........--+---+---+---+---+---+---+---+---+---+---+---+---+---+
+//          ^-- x = {a, b, c, d}
+//
+const std::string kCnameA = std::string(kMaxmiumLabelSize, 'a') + kExampleComDomain + ".";
+const std::string kCnameB = std::string(kMaxmiumLabelSize, 'b') + kExampleComDomain + ".";
+const std::string kCnameC = std::string(kMaxmiumLabelSize, 'c') + kExampleComDomain + ".";
+const std::string kCnameD = std::string(kMaxmiumLabelSize, 'd') + kExampleComDomain + ".";
+const std::vector<DnsRecord> kLargeCnameChainRecords = {
+        {kHelloExampleCom, ns_type::ns_t_cname, kCnameA},
+        {kCnameA, ns_type::ns_t_cname, kCnameB},
+        {kCnameB, ns_type::ns_t_cname, kCnameC},
+        {kCnameC, ns_type::ns_t_cname, kCnameD},
+        {kCnameD, ns_type::ns_t_a, kHelloExampleComAddrV4},
 };
 
 // TODO: Integrate GetNumQueries relevent functions
