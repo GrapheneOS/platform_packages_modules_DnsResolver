@@ -51,7 +51,7 @@ std::future<DnsTlsTransport::Result> DnsTlsTransport::query(const netdutils::Sli
     return std::move(record->result);
 }
 
-uint32_t DnsTlsTransport::getConnectCounter() const {
+int DnsTlsTransport::getConnectCounter() const {
     std::lock_guard guard(mLock);
     return mConnectCounter;
 }
