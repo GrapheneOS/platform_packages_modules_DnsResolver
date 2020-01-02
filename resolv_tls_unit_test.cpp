@@ -148,7 +148,7 @@ TEST_F(TransportTest, Query) {
 
     EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
     EXPECT_EQ(QUERY, r.response);
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 // Fake Socket that echoes the observed query ID as the response body.
@@ -189,7 +189,7 @@ TEST_F(TransportTest, IdReuse) {
         // after each use.
         EXPECT_EQ(0, (r.response[2] << 8) | r.response[3]);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 // These queries might be handled in serial or parallel as they race the
@@ -209,7 +209,7 @@ TEST_F(TransportTest, RacingQueries_10000) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(QUERY, r.response);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 // A server that waits until sDelay queries are queued before responding.
@@ -275,7 +275,7 @@ TEST_F(TransportTest, ParallelColliding) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(QUERY, r.response);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 TEST_F(TransportTest, ParallelColliding_Max) {
@@ -295,7 +295,7 @@ TEST_F(TransportTest, ParallelColliding_Max) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(QUERY, r.response);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 TEST_F(TransportTest, ParallelUnique) {
@@ -315,7 +315,7 @@ TEST_F(TransportTest, ParallelUnique) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 TEST_F(TransportTest, ParallelUnique_Max) {
@@ -337,7 +337,7 @@ TEST_F(TransportTest, ParallelUnique_Max) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 TEST_F(TransportTest, IdExhaustion) {
@@ -365,7 +365,7 @@ TEST_F(TransportTest, IdExhaustion) {
         EXPECT_EQ(std::future_status::timeout,
                 result.wait_for(std::chrono::duration<int>::zero()));
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 // Responses can come back from the server in any order.  This should have no
@@ -387,7 +387,7 @@ TEST_F(TransportTest, ReverseOrder) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 TEST_F(TransportTest, ReverseOrder_Max) {
@@ -407,7 +407,7 @@ TEST_F(TransportTest, ReverseOrder_Max) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         EXPECT_EQ(queries[i], r.response);
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 // Returning null from the factory indicates a connection failure.
@@ -430,7 +430,7 @@ TEST_F(TransportTest, ConnectFail) {
 
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 // Simulate a socket that connects but then immediately receives a server
@@ -458,7 +458,7 @@ TEST_F(TransportTest, CloseRetryFail) {
     EXPECT_TRUE(r.response.empty());
 
     // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), static_cast<uint32_t>(DnsTlsQueryMap::kMaxTries));
+    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
 }
 
 // Simulate a server that occasionally closes the connection and silently
@@ -553,7 +553,7 @@ TEST_F(TransportTest, SilentDrop) {
     }
 
     // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), static_cast<uint32_t>(DnsTlsQueryMap::kMaxTries));
+    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
 }
 
 TEST_F(TransportTest, PartialDrop) {
@@ -590,7 +590,7 @@ TEST_F(TransportTest, ConnectCounter) {
     DnsTlsTransport transport(SERVER1, MARK, &factory);
 
     // Connecting on demand.
-    EXPECT_EQ(transport.getConnectCounter(), 0U);
+    EXPECT_EQ(transport.getConnectCounter(), 0);
 
     const int num_queries = 10;
     std::vector<std::future<DnsTlsTransport::Result>> results;
@@ -604,8 +604,7 @@ TEST_F(TransportTest, ConnectCounter) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
     }
 
-    EXPECT_EQ(transport.getConnectCounter(),
-              static_cast<uint32_t>(num_queries / FakeSocketLimited::sLimit));
+    EXPECT_EQ(transport.getConnectCounter(), num_queries / FakeSocketLimited::sLimit);
 }
 
 // Simulate a malfunctioning server that injects extra miscellaneous
@@ -649,7 +648,7 @@ TEST_F(TransportTest, IgnoringGarbage) {
         EXPECT_EQ(DnsTlsTransport::Response::success, r.code);
         // Don't check the response because this server is malfunctioning.
     }
-    EXPECT_EQ(transport.getConnectCounter(), 1U);
+    EXPECT_EQ(transport.getConnectCounter(), 1);
 }
 
 // Dispatcher tests
