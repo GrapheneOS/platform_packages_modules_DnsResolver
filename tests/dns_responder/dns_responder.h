@@ -34,6 +34,10 @@
 // Default TTL of the DNS answer record.
 constexpr unsigned kAnswerRecordTtlSec = 5;
 
+// The maximum UDP response size in bytes the DNS responder allows to send. It is used in non-EDNS
+// case. See RFC 1035 section 4.2.1.
+constexpr unsigned kMaximumUdpSize = 512;
+
 namespace test {
 
 struct DNSName {
@@ -224,6 +228,9 @@ class DNSResponder {
 
     void requestHandler();
 
+    // Check if any OPT Pseudo RR in the additional section.
+    bool hasOptPseudoRR(DNSHeader* header) const;
+
     // Parses and generates a response message for incoming DNS requests.
     // Returns false to ignore the request, which might be due to either parsing error
     // or unresponsiveness.
@@ -235,14 +242,20 @@ class DNSResponder {
     bool generateErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                                size_t* response_len) const;
 
-    // TODO: Change writePacket, makeErrorResponse and
-    // makeResponse{, FromDnsHeader, FromBinaryPacket} to use C++ containers instead of the unsafe
-    // pointer + length buffer.
+    // TODO: Change writePacket, makeErrorResponse, makeTruncatedResponse and
+    // makeResponse{, FromAddressOrHostname, FromDnsHeader, FromBinaryPacket} to use C++ containers
+    // instead of the unsafe pointer + length buffer.
     bool writePacket(const DNSHeader* header, char* response, size_t* response_len) const;
+    // Build an error response with a given rcode.
     bool makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* response,
                            size_t* response_len) const;
-    // Build a response from mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER, BINARY_PACKET}.
-    bool makeResponse(DNSHeader* header, char* response, size_t* response_len) const;
+    // Build a truncated response.
+    bool makeTruncatedResponse(DNSHeader* header, char* response, size_t* response_len) const;
+    // Build a response.
+    bool makeResponse(DNSHeader* header, int protocol, char* response, size_t* response_len) const;
+    // Helper for building a response from mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER, BINARY_PACKET}.
+    bool makeResponseFromAddressOrHostname(DNSHeader* header, char* response,
+                                           size_t* response_len) const;
     bool makeResponseFromDnsHeader(DNSHeader* header, char* response, size_t* response_len) const;
     bool makeResponseFromBinaryPacket(DNSHeader* header, char* response,
                                       size_t* response_len) const;

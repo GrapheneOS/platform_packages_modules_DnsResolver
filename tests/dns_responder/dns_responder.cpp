@@ -623,6 +623,15 @@ void DNSResponder::clearQueries() {
     queries_.clear();
 }
 
+bool DNSResponder::hasOptPseudoRR(DNSHeader* header) const {
+    if (header->additionals.empty()) return false;
+
+    // OPT RR may be placed anywhere within the additional section. See RFC 6891 section 6.1.1.
+    auto found = std::find_if(header->additionals.begin(), header->additionals.end(),
+                              [](const auto& a) { return a.rtype == ns_type::ns_t_opt; });
+    return found != header->additionals.end();
+}
+
 void DNSResponder::requestHandler() {
     epoll_event evs[EPOLL_MAX_EVENTS];
     while (true) {
@@ -713,15 +722,7 @@ bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, int protoco
 
     // Make the response. The query has been read into |header| which is used to build and return
     // the response as well.
-    switch (mapping_type_) {
-        case MappingType::DNS_HEADER:
-            return makeResponseFromDnsHeader(&header, response, response_len);
-        case MappingType::BINARY_PACKET:
-            return makeResponseFromBinaryPacket(&header, response, response_len);
-        case MappingType::ADDRESS_OR_HOSTNAME:
-        default:
-            return makeResponse(&header, response, response_len);
-    }
+    return makeResponse(&header, protocol, response, response_len);
 }
 
 bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
@@ -841,7 +842,66 @@ bool DNSResponder::makeErrorResponse(DNSHeader* header, ns_rcode rcode, char* re
     return writePacket(header, response, response_len);
 }
 
-bool DNSResponder::makeResponse(DNSHeader* header, char* response, size_t* response_len) const {
+bool DNSResponder::makeTruncatedResponse(DNSHeader* header, char* response,
+                                         size_t* response_len) const {
+    // Build a minimal response for non-EDNS response over UDP. Truncate all stub RRs in answer,
+    // authority and additional section. EDNS response truncation has not supported here yet
+    // because the EDNS response must have an OPT record. See RFC 6891 section 7.
+    header->answers.clear();
+    header->authorities.clear();
+    header->additionals.clear();
+    header->qr = true;
+    header->tr = true;
+    return writePacket(header, response, response_len);
+}
+
+bool DNSResponder::makeResponse(DNSHeader* header, int protocol, char* response,
+                                size_t* response_len) const {
+    char buffer[4096];
+    size_t buffer_len = sizeof(buffer);
+    bool ret;
+
+    switch (mapping_type_) {
+        case MappingType::DNS_HEADER:
+            ret = makeResponseFromDnsHeader(header, buffer, &buffer_len);
+            break;
+        case MappingType::BINARY_PACKET:
+            ret = makeResponseFromBinaryPacket(header, buffer, &buffer_len);
+            break;
+        case MappingType::ADDRESS_OR_HOSTNAME:
+        default:
+            ret = makeResponseFromAddressOrHostname(header, buffer, &buffer_len);
+    }
+
+    if (!ret) return false;
+
+    // Return truncated response if the built non-EDNS response size which is larger than 512 bytes
+    // will be responded over UDP. The truncated response implementation here just simply set up
+    // the TC bit and truncate all stub RRs in answer, authority and additional section. It is
+    // because the resolver will retry DNS query over TCP and use the full TCP response. See also
+    // RFC 1035 section 4.2.1 for UDP response truncation and RFC 6891 section 4.3 for EDNS larger
+    // response size capability.
+    // TODO: Perhaps keep the stub RRs as possible.
+    // TODO: Perhaps truncate the EDNS based response over UDP. See also RFC 6891 section 4.3,
+    // section 6.2.5 and section 7.
+    if (protocol == IPPROTO_UDP && buffer_len > kMaximumUdpSize &&
+        !hasOptPseudoRR(header) /* non-EDNS */) {
+        LOG(INFO) << "Return truncated response because original response length " << buffer_len
+                  << " is larger than " << kMaximumUdpSize << " bytes.";
+        return makeTruncatedResponse(header, response, response_len);
+    }
+
+    if (buffer_len > *response_len) {
+        LOG(ERROR) << "buffer overflow on line " << __LINE__;
+        return false;
+    }
+    memcpy(response, buffer, buffer_len);
+    *response_len = buffer_len;
+    return true;
+}
+
+bool DNSResponder::makeResponseFromAddressOrHostname(DNSHeader* header, char* response,
+                                                     size_t* response_len) const {
     for (const DNSQuestion& question : header->questions) {
         if (question.qclass != ns_class::ns_c_in && question.qclass != ns_class::ns_c_any) {
             LOG(INFO) << "unsupported question class " << question.qclass;
@@ -894,9 +954,9 @@ bool DNSResponder::makeResponseFromDnsHeader(DNSHeader* header, char* response,
         LOG(INFO) << "no mapping found for " << name << " " << dnstype2str(qtype)
                   << ", couldn't build a response from DNSHeader mapping";
 
-        // Note that do nothing as makeResponse() if no mapping is found. It just changes the QR
-        // flag from query (0) to response (1) in the query. Then, send the modified query back as
-        // a response.
+        // Note that do nothing as makeResponseFromAddressOrHostname() if no mapping is found. It
+        // just changes the QR flag from query (0) to response (1) in the query. Then, send the
+        // modified query back as a response.
         header->qr = true;
     }
     return writePacket(header, response, response_len);
@@ -932,9 +992,9 @@ bool DNSResponder::makeResponseFromBinaryPacket(DNSHeader* header, char* respons
         // TODO: handle correctly. See also TODO in addAnswerRecords().
         // TODO: Perhaps dump packet content to indicate which query failed.
         LOG(INFO) << "no mapping found, couldn't build a response from BinaryPacket mapping";
-        // Note that do nothing as makeResponse() if no mapping is found. It just changes the QR
-        // flag from query (0) to response (1) in the query. Then, send the modified query back as
-        // a response.
+        // Note that do nothing as makeResponseFromAddressOrHostname() if no mapping is found. It
+        // just changes the QR flag from query (0) to response (1) in the query. Then, send the
+        // modified query back as a response.
         header->qr = true;
         return writePacket(header, response, response_len);
     }
@@ -1049,8 +1109,9 @@ void DNSResponder::handleQuery(int protocol) {
             LOG(ERROR) << method_str << " failed for " << host_str;
         }
         // Test that the response is actually a correct DNS message.
-        // TODO: Make DNS message test to support name compression. Or it throws a warning for
-        // a valid DNS message with name compression while the raw packet mapping is used.
+        // TODO: Perhaps make DNS message validation to support name compression. Or it throws
+        // a warning for a valid DNS message with name compression while the binary packet mapping
+        // is used.
         const char* response_end = response + len;
         DNSHeader header;
         const char* cur = header.read(response, response_end);
