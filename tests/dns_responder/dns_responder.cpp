@@ -509,8 +509,38 @@ void DNSResponder::removeMappingBinaryPacket(const std::vector<uint8_t>& query) 
     }
 }
 
+// Set response probability on all supported protocols.
 void DNSResponder::setResponseProbability(double response_probability) {
-    response_probability_ = response_probability;
+    setResponseProbability(response_probability, IPPROTO_TCP);
+    setResponseProbability(response_probability, IPPROTO_UDP);
+}
+
+// Set response probability on specific protocol. It's caller's duty to ensure that the |protocol|
+// can be supported by DNSResponder.
+void DNSResponder::setResponseProbability(double response_probability, int protocol) {
+    switch (protocol) {
+        case IPPROTO_TCP:
+            response_probability_tcp_ = response_probability;
+            break;
+        case IPPROTO_UDP:
+            response_probability_udp_ = response_probability;
+            break;
+        default:
+            LOG(FATAL) << "Unsupported protocol " << protocol;  // abort() by log level FATAL
+    }
+}
+
+double DNSResponder::getResponseProbability(int protocol) const {
+    switch (protocol) {
+        case IPPROTO_TCP:
+            return response_probability_tcp_;
+        case IPPROTO_UDP:
+            return response_probability_udp_;
+        default:
+            LOG(FATAL) << "Unsupported protocol " << protocol;  // abort() by log level FATAL
+            // unreachable
+            return -1;
+    }
 }
 
 void DNSResponder::setEdns(Edns edns) {
@@ -709,7 +739,7 @@ bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, int protoco
     }
     // Ignore requests with the preset probability.
     auto constexpr bound = std::numeric_limits<unsigned>::max();
-    if (arc4random_uniform(bound) > bound * response_probability_) {
+    if (arc4random_uniform(bound) > bound * getResponseProbability(protocol)) {
         if (error_rcode_ < 0) {
             LOG(ERROR) << "Returning no response";
             return false;
