@@ -418,6 +418,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         DnsQueryEvent* dnsQueryEvent = addDnsQueryEvent(statp->event);
         dnsQueryEvent->set_latency_micros(cacheLatencyUs);
         dnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(cache_status));
+        dnsQueryEvent->set_type(getQueryType(buf, buflen));
         return anslen;
     } else if (cache_status != RESOLV_CACHE_UNSUPPORTED) {
         // had a cache miss for a known network, so populate the thread private
