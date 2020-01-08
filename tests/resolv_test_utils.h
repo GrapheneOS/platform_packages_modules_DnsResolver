@@ -26,14 +26,9 @@
 #include <netdutils/InternetAddresses.h>
 
 #include "dns_responder/dns_responder.h"
-#include "params.h"
 
 // TODO: make this dynamic and stop depending on implementation details.
 constexpr int TEST_NETID = 30;
-
-// Specifying 0 in ai_socktype or ai_protocol of struct addrinfo indicates that any type or
-// protocol can be returned by getaddrinfo().
-constexpr unsigned int ANY = 0;
 
 static constexpr char kLocalHost[] = "localhost";
 static constexpr char kLocalHostAddr[] = "127.0.0.1";

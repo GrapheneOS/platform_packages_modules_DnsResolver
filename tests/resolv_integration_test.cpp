@@ -563,7 +563,6 @@ TEST_F(ResolverTest, GetAddrInfo_InvalidSocketType) {
     const addrinfo hints = {
             .ai_family = AF_UNSPEC,
             .ai_socktype = SOCK_PACKET,
-            .ai_protocol = ANY,
     };
     addrinfo* result = nullptr;
     // This is a valid hint, but the query won't be sent because the socket type is
