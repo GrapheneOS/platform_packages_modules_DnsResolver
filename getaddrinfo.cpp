@@ -140,7 +140,9 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 static void _sethtent(FILE**);
 static void _endhtent(FILE**);
 static struct addrinfo* _gethtent(FILE**, const char*, const struct addrinfo*);
-static bool files_getaddrinfo(const char* name, const addrinfo* pai, addrinfo** res);
+static struct addrinfo* getCustomHosts(const size_t netid, const char*, const struct addrinfo*);
+static bool files_getaddrinfo(const size_t netid, const char* name, const addrinfo* pai,
+                              addrinfo** res);
 static int _find_src_addr(const struct sockaddr*, struct sockaddr*, unsigned, uid_t);
 
 static int res_queryN(const char* name, res_target* target, res_state res, int* herrno);
@@ -464,7 +466,7 @@ static int explore_fqdn(const addrinfo* pai, const char* hostname, const char* s
     // If the servname does not match socktype/protocol, return error code.
     if ((error = get_portmatch(pai, servname))) return error;
 
-    if (!files_getaddrinfo(hostname, pai, &result)) {
+    if (!files_getaddrinfo(netcontext->dns_netid, hostname, pai, &result)) {
         error = dns_getaddrinfo(hostname, pai, netcontext, &result, event);
     }
     if (error) {
@@ -1527,22 +1529,43 @@ found:
     return res0;
 }
 
-static bool files_getaddrinfo(const char* name, const addrinfo* pai, addrinfo** res) {
+static struct addrinfo* getCustomHosts(const size_t netid, const char* _Nonnull name,
+                                       const struct addrinfo* _Nonnull pai) {
+    struct addrinfo sentinel = {};
+    struct addrinfo *res0, *res;
+    res = &sentinel;
+    std::vector<std::string> hosts = getCustomizedTableByName(netid, name);
+    for (const std::string& host : hosts) {
+        int error = getaddrinfo_numeric(host.c_str(), nullptr, *pai, &res0);
+        if (!error && res0 != nullptr) {
+            res->ai_next = res0;
+            res = res0;
+            res0 = nullptr;
+        }
+    }
+    return sentinel.ai_next;
+}
+
+static bool files_getaddrinfo(const size_t netid, const char* name, const addrinfo* pai,
+                              addrinfo** res) {
     struct addrinfo sentinel = {};
     struct addrinfo *p, *cur;
-    FILE* hostf = NULL;
+    FILE* hostf = nullptr;
 
     cur = &sentinel;
-
     _sethtent(&hostf);
-    while ((p = _gethtent(&hostf, name, pai)) != NULL) {
+    while ((p = _gethtent(&hostf, name, pai)) != nullptr) {
         cur->ai_next = p;
         while (cur && cur->ai_next) cur = cur->ai_next;
     }
     _endhtent(&hostf);
 
+    if ((p = getCustomHosts(netid, name, pai)) != nullptr) {
+        cur->ai_next = p;
+    }
+
     *res = sentinel.ai_next;
-    return sentinel.ai_next != NULL;
+    return sentinel.ai_next != nullptr;
 }
 
 /* resolver logic */
