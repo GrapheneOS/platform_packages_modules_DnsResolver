@@ -31,6 +31,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <aidl/android/net/ResolverHostsParcel.h>
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
 #include <stats.pb.h>
@@ -42,6 +43,9 @@
 // The name servers are retrieved from the cache which is associated
 // with the network to which ResState is associated.
 struct ResState;
+
+typedef std::multimap<std::string /* hostname */, std::string /* IPv4/IPv6 address */> HostMapping;
+
 void resolv_populate_res_for_net(ResState* statp);
 
 std::vector<unsigned> resolv_list_caches();
@@ -68,9 +72,14 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
 /* Notify the cache a request failed */
 void _resolv_cache_query_failed(unsigned netid, const void* query, int querylen, uint32_t flags);
 
+// Get a customized table for a given network.
+std::vector<std::string> getCustomizedTableByName(const size_t netid, const char* hostname);
+
 // Sets name servers for a given network.
-int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
-                           const std::vector<std::string>& domains, const res_params& params);
+int resolv_set_nameservers(
+        unsigned netid, const std::vector<std::string>& servers,
+        const std::vector<std::string>& domains, const res_params& params,
+        const std::vector<::aidl::android::net::ResolverHostsParcel>& customizedTable = {});
 
 // Creates the cache associated with the given network.
 int resolv_create_cache_for_net(unsigned netid);
