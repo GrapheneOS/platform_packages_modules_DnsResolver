@@ -106,10 +106,10 @@ class DnsStats {
     // TODO: Compatible support for getResolverInfo().
     // TODO: Support getSortedServers().
 
+    static constexpr size_t kLogSize = 128;
+
   private:
     std::map<Protocol, ServerStatsMap> mStats;
-
-    static constexpr size_t kLogSize = 128;
 };
 
 }  // namespace android::net

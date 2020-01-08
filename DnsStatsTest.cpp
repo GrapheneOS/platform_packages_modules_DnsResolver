@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+#include <array>
+
+#include <android-base/test_utils.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -81,10 +84,60 @@ TEST_F(StatsRecordsTest, PushRecord) {
 
 class DnsStatsTest : public ::testing::Test {
   protected:
+    std::string captureDumpOutput() {
+        netdutils::DumpWriter dw(STDOUT_FILENO);
+        CapturedStdout captured;
+        mDnsStats.dump(dw);
+        return captured.str();
+    }
+
+    // Get the output string from dump() and check the content.
+    void verifyDumpOutput(const std::vector<StatsData>& tcpData,
+                          const std::vector<StatsData>& udpData,
+                          const std::vector<StatsData>& dotData) {
+        // A simple pattern to capture two matches:
+        //     server address (empty allowed) and its statistics.
+        const std::regex pattern(R"(\s{4,}([0-9a-fA-F:\.]*) ([<(].*[>)]))");
+        std::string dumpString = captureDumpOutput();
+
+        const auto check = [&](const std::vector<StatsData>& statsData, const std::string& protocol,
+                               std::string* dumpString) {
+            SCOPED_TRACE(protocol);
+            ASSERT_NE(dumpString->find(protocol), std::string::npos);
+            std::smatch sm;
+
+            // Expect to show something even if none of servers is set.
+            if (statsData.empty()) {
+                ASSERT_TRUE(std::regex_search(*dumpString, sm, pattern));
+                EXPECT_TRUE(sm[1].str().empty());
+                EXPECT_EQ(sm[2], "<no server>");
+                *dumpString = sm.suffix();
+                return;
+            }
+
+            for (const auto& stats : statsData) {
+                ASSERT_TRUE(std::regex_search(*dumpString, sm, pattern));
+                EXPECT_EQ(sm[1], stats.serverSockAddr.ip().toString());
+                EXPECT_FALSE(sm[2].str().empty());
+                *dumpString = sm.suffix();
+            }
+        };
+
+        check(udpData, "UDP", &dumpString);
+        check(dotData, "TLS", &dumpString);
+        check(tcpData, "TCP", &dumpString);
+
+        // Ensure the whole string has been checked.
+        EXPECT_EQ(dumpString, "\n");
+    }
+
     DnsStats mDnsStats;
 };
 
 TEST_F(DnsStatsTest, SetServers) {
+    // Check before any operation to mDnsStats.
+    verifyDumpOutput({}, {}, {});
+
     static const struct {
         std::vector<std::string> servers;
         std::vector<std::string> expectation;
@@ -139,6 +192,8 @@ TEST_F(DnsStatsTest, SetServers) {
         EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStats));
         EXPECT_THAT(mDnsStats.getStats(PROTO_DOT), UnorderedElementsAreArray(expectedStats));
     }
+
+    verifyDumpOutput({}, {}, {});
 }
 
 TEST_F(DnsStatsTest, SetServersDifferentPorts) {
@@ -157,6 +212,7 @@ TEST_F(DnsStatsTest, SetServersDifferentPorts) {
     EXPECT_THAT(mDnsStats.getStats(PROTO_TCP), IsEmpty());
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), IsEmpty());
     EXPECT_THAT(mDnsStats.getStats(PROTO_DOT), IsEmpty());
+    verifyDumpOutput({}, {}, {});
 
     EXPECT_TRUE(mDnsStats.setServers(std::vector(servers.begin() + 2, servers.end()), PROTO_TCP));
     EXPECT_TRUE(mDnsStats.setServers(std::vector(servers.begin() + 2, servers.end()), PROTO_UDP));
@@ -171,6 +227,7 @@ TEST_F(DnsStatsTest, SetServersDifferentPorts) {
     EXPECT_THAT(mDnsStats.getStats(PROTO_TCP), UnorderedElementsAreArray(expectedStats));
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStats));
     EXPECT_THAT(mDnsStats.getStats(PROTO_DOT), UnorderedElementsAreArray(expectedStats));
+    verifyDumpOutput(expectedStats, expectedStats, expectedStats);
 }
 
 TEST_F(DnsStatsTest, AddStatsAndClear) {
@@ -203,6 +260,7 @@ TEST_F(DnsStatsTest, AddStatsAndClear) {
     EXPECT_THAT(mDnsStats.getStats(PROTO_TCP), UnorderedElementsAreArray(expectedStatsForTcp));
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStatsForUdp));
     EXPECT_THAT(mDnsStats.getStats(PROTO_DOT), IsEmpty());
+    verifyDumpOutput(expectedStatsForTcp, expectedStatsForUdp, {});
 
     // Clear stats.
     EXPECT_TRUE(mDnsStats.setServers({}, PROTO_TCP));
@@ -211,6 +269,7 @@ TEST_F(DnsStatsTest, AddStatsAndClear) {
     EXPECT_THAT(mDnsStats.getStats(PROTO_TCP), IsEmpty());
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), IsEmpty());
     EXPECT_THAT(mDnsStats.getStats(PROTO_DOT), IsEmpty());
+    verifyDumpOutput({}, {}, {});
 }
 
 TEST_F(DnsStatsTest, StatsRemainsInExistentServer) {
@@ -237,6 +296,7 @@ TEST_F(DnsStatsTest, StatsRemainsInExistentServer) {
             makeStatsData(servers[1], 4, 520ms, {{NS_R_NO_ERROR, 2}, {NS_R_TIMEOUT, 2}}),
     };
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStats));
+    verifyDumpOutput({}, expectedStats, {});
 
     // Update the server list, the stats of 127.0.0.2 will remain.
     servers = {
@@ -251,6 +311,7 @@ TEST_F(DnsStatsTest, StatsRemainsInExistentServer) {
             makeStatsData(servers[2], 0, 0ms, {}),
     };
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStats));
+    verifyDumpOutput({}, expectedStats, {});
 
     // Let's add a record to 127.0.0.2 again.
     EXPECT_TRUE(mDnsStats.addStats(servers[0], recordNoError));
@@ -260,10 +321,15 @@ TEST_F(DnsStatsTest, StatsRemainsInExistentServer) {
             makeStatsData(servers[2], 0, 0ms, {}),
     };
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStats));
+    verifyDumpOutput({}, expectedStats, {});
 }
 
 TEST_F(DnsStatsTest, AddStatsRecords_100000) {
-    constexpr int num = 100000;
+    constexpr size_t operations = 100000;
+    constexpr size_t logSize = DnsStats::kLogSize;
+    constexpr size_t rcodeNum = 4;  // A value by which kLogSize is divisible.
+    ASSERT_EQ(logSize % rcodeNum, 0U);
+
     const std::vector<IPSockAddr> servers = {
             IPSockAddr::toIPSockAddr("127.0.0.1", 53),
             IPSockAddr::toIPSockAddr("127.0.0.2", 53),
@@ -271,22 +337,46 @@ TEST_F(DnsStatsTest, AddStatsRecords_100000) {
             IPSockAddr::toIPSockAddr("127.0.0.4", 53),
     };
 
+    // To test unknown rcode in rcodeToName(), store the elements as type int.
+    const std::array<int, rcodeNum> rcodes = {
+            NS_R_NO_ERROR,        // NOERROR
+            NS_R_NXDOMAIN,        // NXDOMAIN
+            99,                   // UNKNOWN(99)
+            NS_R_INTERNAL_ERROR,  // INTERNAL_ERROR
+    };
+
     EXPECT_TRUE(mDnsStats.setServers(servers, PROTO_TCP));
     EXPECT_TRUE(mDnsStats.setServers(servers, PROTO_UDP));
     EXPECT_TRUE(mDnsStats.setServers(servers, PROTO_DOT));
 
-    for (int i = 0; i < num; i++) {
-        const auto eventTcp = makeDnsQueryEvent(PROTO_TCP, static_cast<NsRcode>(i % 10), 10ms);
-        const auto eventUdp = makeDnsQueryEvent(PROTO_UDP, static_cast<NsRcode>(i % 10), 10ms);
-        const auto eventDot = makeDnsQueryEvent(PROTO_DOT, static_cast<NsRcode>(i % 10), 10ms);
+    for (size_t i = 0; i < operations; i++) {
+        const NsRcode rcode = static_cast<NsRcode>(rcodes[i % rcodeNum]);
+        const auto eventTcp = makeDnsQueryEvent(PROTO_TCP, rcode, 10ms);
+        const auto eventUdp = makeDnsQueryEvent(PROTO_UDP, rcode, 10ms);
+        const auto eventDot = makeDnsQueryEvent(PROTO_DOT, rcode, 10ms);
         for (const auto& server : servers) {
-            const std::string trace = server.toString() + "-" + std::to_string(i);
-            SCOPED_TRACE(trace);
-            EXPECT_TRUE(mDnsStats.addStats(server, eventTcp));
-            EXPECT_TRUE(mDnsStats.addStats(server, eventUdp));
-            EXPECT_TRUE(mDnsStats.addStats(server, eventDot));
+            SCOPED_TRACE(server.toString() + "-" + std::to_string(i));
+            ASSERT_TRUE(mDnsStats.addStats(server, eventTcp));
+            ASSERT_TRUE(mDnsStats.addStats(server, eventUdp));
+            ASSERT_TRUE(mDnsStats.addStats(server, eventDot));
         }
     }
+
+    std::map<int, int> expectedRcodeCounts;
+    for (const auto& rcode : rcodes) {
+        expectedRcodeCounts.try_emplace(rcode, 32);
+    }
+    const std::vector<StatsData> expectedStats = {
+            makeStatsData(servers[0], logSize, logSize * 10ms, expectedRcodeCounts),
+            makeStatsData(servers[1], logSize, logSize * 10ms, expectedRcodeCounts),
+            makeStatsData(servers[2], logSize, logSize * 10ms, expectedRcodeCounts),
+            makeStatsData(servers[3], logSize, logSize * 10ms, expectedRcodeCounts),
+    };
+
+    EXPECT_THAT(mDnsStats.getStats(PROTO_TCP), UnorderedElementsAreArray(expectedStats));
+    EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStats));
+    EXPECT_THAT(mDnsStats.getStats(PROTO_DOT), UnorderedElementsAreArray(expectedStats));
+    verifyDumpOutput(expectedStats, expectedStats, expectedStats);
 }
 
 }  // namespace android::net
