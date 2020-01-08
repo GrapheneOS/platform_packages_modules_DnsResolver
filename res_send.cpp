@@ -506,6 +506,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             const bool shouldRecordStats = (attempt == 0);
             int resplen;
             Stopwatch queryStopwatch;
+            int retry_count_for_event = 0;
             if (useTcp) {
                 // TCP; at most one attempt per server.
                 attempt = retryTimes;
@@ -524,6 +525,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                 resplen = send_dg(statp, &params, buf, buflen, ans, anssiz, &terrno, ns, &useTcp,
                                   &gotsomewhere, &now, rcode, &delay);
                 fallbackTCP = useTcp ? true : false;
+                retry_count_for_event = attempt;
                 LOG(INFO) << __func__ << ": used send_dg " << resplen;
             }
 
@@ -532,7 +534,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
             dnsQueryEvent->set_dns_server_index(ns);
             dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(nsap->sa_family));
-            dnsQueryEvent->set_retry_times(attempt);
+            dnsQueryEvent->set_retry_times(retry_count_for_event);
             dnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
             dnsQueryEvent->set_protocol(query_proto);
             dnsQueryEvent->set_type(getQueryType(buf, buflen));
