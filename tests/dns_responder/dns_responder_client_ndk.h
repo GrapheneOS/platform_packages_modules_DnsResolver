@@ -23,7 +23,7 @@
 
 #include <aidl/android/net/IDnsResolver.h>
 #include <aidl/android/net/INetd.h>
-#include "ResolverStats.h"
+#include "ResolverStats.h"  // TODO: stop depending on this internal header
 #include "dns_responder.h"
 #include "dns_tls_certificate.h"
 #include "params.h"

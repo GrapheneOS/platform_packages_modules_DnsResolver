@@ -30,6 +30,9 @@ cc_library {
         "libnetd_resolv_headers",
         "libnetd_resolv_internal_headers",
     ],
+    export_header_lib_headers: [
+        "libnetd_resolv_internal_headers",
+    ],
     static_libs: [
         "dnsresolver_aidl_interface-unstable-ndk_platform",
         "libbase",
