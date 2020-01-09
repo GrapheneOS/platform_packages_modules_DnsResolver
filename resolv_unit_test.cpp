@@ -42,6 +42,10 @@ using android::netdutils::ScopedAddrinfo;
 // The buffer size of resolv_gethostbyname().
 constexpr unsigned int MAXPACKET = 8 * 1024;
 
+// Specifying 0 in ai_socktype or ai_protocol of struct addrinfo indicates
+// that any type or protocol can be returned by getaddrinfo().
+constexpr unsigned int ANY = 0;
+
 class TestBase : public ::testing::Test {
   protected:
     struct DnsMessage {
