@@ -232,7 +232,7 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     res_params.retry_count = resolverParams.retryCount;
 
     return resolv_set_nameservers(resolverParams.netId, resolverParams.servers,
-                                  resolverParams.domains, res_params);
+                                  resolverParams.domains, res_params, resolverParams.hosts);
 }
 
 int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>* servers,

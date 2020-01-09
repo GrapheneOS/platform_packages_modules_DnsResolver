@@ -995,6 +995,9 @@ struct NetConfig {
     // Map format: ReturnCode:rate_denom
     std::unordered_map<int, uint32_t> dns_event_subsampling_map;
     DnsStats dnsStats;
+    // Customized hostname/address table will be stored in customizedTable.
+    // If resolverParams.hosts is empty, the existing customized table will be erased.
+    HostMapping customizedTable = {};
 };
 
 /* gets cache associated with a network, or NULL if none exists */
@@ -1548,8 +1551,24 @@ bool isValidServer(const std::string& server) {
 
 }  // namespace
 
-int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
-                           const std::vector<std::string>& domains, const res_params& params) {
+std::vector<std::string> getCustomizedTableByName(const size_t netid, const char* hostname) {
+    std::lock_guard guard(cache_mutex);
+    NetConfig* netconfig = find_netconfig_locked(netid);
+
+    std::vector<std::string> result;
+    if (netconfig != nullptr) {
+        const auto& hosts = netconfig->customizedTable.equal_range(hostname);
+        for (auto i = hosts.first; i != hosts.second; ++i) {
+            result.push_back(i->second);
+        }
+    }
+    return result;
+}
+
+int resolv_set_nameservers(
+        unsigned netid, const std::vector<std::string>& servers,
+        const std::vector<std::string>& domains, const res_params& params,
+        const std::vector<::aidl::android::net::ResolverHostsParcel>& customizedTable) {
     std::vector<std::string> nameservers = filter_nameservers(servers);
     const int numservers = static_cast<int>(nameservers.size());
 
@@ -1602,6 +1621,11 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
         !netconfig->dnsStats.setServers(netconfig->nameserverSockAddrs, PROTO_UDP)) {
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
+    }
+    netconfig->customizedTable.clear();
+    for (const auto& host : customizedTable) {
+        if (!host.hostName.empty() && !host.ipAddr.empty())
+            netconfig->customizedTable.emplace(host.hostName, host.ipAddr);
     }
 
     return 0;
