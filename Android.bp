@@ -116,6 +116,12 @@ cc_library {
         enabled: true,
         symbol_file: "libnetd_resolv.map.txt",
     },
+    sanitize: {
+        cfi: true,
+        diag: {
+            cfi: true,
+        },
+    },
 }
 
 cc_library_static {
