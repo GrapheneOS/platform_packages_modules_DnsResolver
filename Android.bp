@@ -195,6 +195,7 @@ cc_test {
         "libnetdutils",
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
+        "libstatspush_compat",
         "libstatssocket",
         "libsysutils",
         "libutils",
