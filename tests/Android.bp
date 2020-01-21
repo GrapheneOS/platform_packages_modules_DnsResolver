@@ -144,3 +144,37 @@ cc_test {
         },
     },
 }
+
+cc_test_library {
+    name: "resolv_stats_test_utils",
+    srcs: [
+        "resolv_stats_test_utils.cpp"
+    ],
+    defaults: ["netd_defaults"],
+    export_include_dirs: ["."],
+    static_libs: [
+        "libbase",
+        "libgmock",
+        "liblog",
+        "libnetdutils",
+        "libprotobuf-cpp-lite",
+        "stats_proto",
+    ],
+}
+
+cc_test {
+    name: "resolv_stats_test_utils_test",
+    srcs: [
+        "resolv_stats_test_utils_test.cpp",
+    ],
+    defaults: ["netd_defaults"],
+    test_suites: ["device-tests"],
+    static_libs: [
+        "libbase",
+        "libgmock",
+        "liblog",
+        "libprotobuf-cpp-lite",
+        "resolv_stats_test_utils",
+        "stats_proto",
+    ],
+}
