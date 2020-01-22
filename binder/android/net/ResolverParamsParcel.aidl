@@ -16,7 +16,7 @@
 
 package android.net;
 
-import android.net.ResolverHostsParcel;
+import android.net.ResolverExperimentalOptionsParcel;
 
 /**
  * Configuration for a resolver parameters.
@@ -101,13 +101,7 @@ parcelable ResolverParamsParcel {
     int tlsConnectTimeoutMs = 0;
 
     /**
-     * An IP/hostname mapping table for DNS local lookup customization.
-     * WARNING: this is intended for local testing and other special situations.
-     * Future versions of the DnsResolver module may break your assumptions.
-     * Injecting static mappings for public hostnames is generally A VERY BAD IDEA,
-     * since it makes it impossible for the domain owners to migrate the domain.
-     * It is also not an effective domain blocking mechanism, because apps can
-     * easily hardcode IPs or bypass the system DNS resolver.
-     */
-    ResolverHostsParcel[] hosts = {};
+    * Knobs for OEM to control alternative behavior.
+    */
+    ResolverExperimentalOptionsParcel experimentalOptions;
 }

@@ -509,13 +509,21 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                 attempt = retryTimes;
                 resplen = send_vc(statp, &params, buf, buflen, ans, anssiz, &terrno, ns, &now,
                                   rcode, &delay);
+
+                if (buflen <= PACKETSZ && resplen <= 0 &&
+                    statp->tc_mode == aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
+                    // reset to UDP for next query on next DNS server if resolver is currently doing
+                    // TCP fallback retry and current server does not support TCP connectin
+                    useTcp = false;
+                }
+                LOG(INFO) << __func__ << ": used send_vc " << resplen;
             } else {
                 // UDP
                 resplen = send_dg(statp, &params, buf, buflen, ans, anssiz, &terrno, ns, &useTcp,
                                   &gotsomewhere, &now, rcode, &delay);
                 fallbackTCP = useTcp ? true : false;
+                LOG(INFO) << __func__ << ": used send_dg " << resplen;
             }
-            LOG(INFO) << __func__ << ": used send_" << ((useTcp) ? "vc " : "dg ") << resplen;
 
             DnsQueryEvent* dnsQueryEvent = addDnsQueryEvent(statp->event);
             dnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(cache_status));

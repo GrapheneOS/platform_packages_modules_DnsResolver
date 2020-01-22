@@ -97,6 +97,7 @@ struct ResState {
     uint32_t _flags;                          // See RES_F_* defines below
     android::net::NetworkDnsEventReported* event;
     uint32_t netcontext_flags;
+    int tc_mode;
 };
 
 // TODO: remove these legacy aliases

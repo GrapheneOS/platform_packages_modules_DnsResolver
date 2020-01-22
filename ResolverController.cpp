@@ -232,7 +232,8 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     res_params.retry_count = resolverParams.retryCount;
 
     return resolv_set_nameservers(resolverParams.netId, resolverParams.servers,
-                                  resolverParams.domains, res_params, resolverParams.hosts);
+                                  resolverParams.domains, res_params,
+                                  resolverParams.experimentalOptions);
 }
 
 int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>* servers,
@@ -362,6 +363,7 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
         }
         dw.println("Concurrent DNS query timeout: %d", wait_for_pending_req_timeout_count[0]);
         resolv_stats_dump(dw, netId);
+        resolv_oem_options_dump(dw, netId);
     }
     dw.decIndent();
 }
