@@ -998,6 +998,7 @@ struct NetConfig {
     // Customized hostname/address table will be stored in customizedTable.
     // If resolverParams.hosts is empty, the existing customized table will be erased.
     HostMapping customizedTable = {};
+    int tc_mode = aidl::android::net::IDnsResolver::TC_MODE_DEFAULT;
 };
 
 /* gets cache associated with a network, or NULL if none exists */
@@ -1568,7 +1569,7 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
 int resolv_set_nameservers(
         unsigned netid, const std::vector<std::string>& servers,
         const std::vector<std::string>& domains, const res_params& params,
-        const std::vector<::aidl::android::net::ResolverHostsParcel>& customizedTable) {
+        const aidl::android::net::ResolverExperimentalOptionsParcel& experimentalOptions) {
     std::vector<std::string> nameservers = filter_nameservers(servers);
     const int numservers = static_cast<int>(nameservers.size());
 
@@ -1623,10 +1624,17 @@ int resolv_set_nameservers(
         return -EINVAL;
     }
     netconfig->customizedTable.clear();
-    for (const auto& host : customizedTable) {
+    for (const auto& host : experimentalOptions.hosts) {
         if (!host.hostName.empty() && !host.ipAddr.empty())
             netconfig->customizedTable.emplace(host.hostName, host.ipAddr);
     }
+
+    if (experimentalOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
+        experimentalOptions.tcMode >= aidl::android::net::IDnsResolver::TC_MODE_MAX) {
+        LOG(WARNING) << __func__ << ": netid = " << netid << ", invalid TC mode";
+        return -EINVAL;
+    }
+    netconfig->tc_mode = experimentalOptions.tcMode;
 
     return 0;
 }
@@ -1677,6 +1685,7 @@ void resolv_populate_res_for_net(ResState* statp) {
 
     statp->nscount = serverNum;
     statp->search_domains = info->search_domains;
+    statp->tc_mode = info->tc_mode;
 }
 
 /* Resolver reachability statistics. */
@@ -1893,5 +1902,24 @@ void resolv_stats_dump(DumpWriter& dw, unsigned netid) {
     std::lock_guard guard(cache_mutex);
     if (const auto info = find_netconfig_locked(netid); info != nullptr) {
         info->dnsStats.dump(dw);
+    }
+}
+
+void resolv_oem_options_dump(DumpWriter& dw, unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
+        // TODO: dump info->hosts
+        dw.println("TC mode: %s", tc_mode_to_str(info->tc_mode));
+    }
+}
+
+const char* tc_mode_to_str(const int mode) {
+    switch (mode) {
+        case aidl::android::net::IDnsResolver::TC_MODE_DEFAULT:
+            return "default";
+        case aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP:
+            return "UDP_TCP";
+        default:
+            return "unknown";
     }
 }
