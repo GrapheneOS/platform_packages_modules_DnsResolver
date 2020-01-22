@@ -3,6 +3,7 @@
         { "name": "resolv_integration_test" },
         { "name": "resolv_gold_test" },
         { "name": "resolv_unit_test" },
-        { "name": "resolv_stress_test" }
+        { "name": "resolv_stress_test" },
+        { "name": "resolv_stats_test_utils_test" }
     ]
 }

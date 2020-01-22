@@ -163,7 +163,12 @@ class ResolverTest : public ::testing::Test {
     };
 
     void SetUp() { mDnsClient.SetUp(); }
-    void TearDown() { mDnsClient.TearDown(); }
+    void TearDown() {
+        // Ensure the dump works at the end of each test.
+        DumpResolverService();
+
+        mDnsClient.TearDown();
+    }
 
     void StartDns(test::DNSResponder& dns, const std::vector<DnsRecord>& records) {
         for (const auto& r : records) {
@@ -172,6 +177,14 @@ class ResolverTest : public ::testing::Test {
 
         ASSERT_TRUE(dns.startServer());
         dns.clearQueries();
+    }
+
+    void DumpResolverService() {
+        unique_fd fd(open("/dev/null", O_WRONLY));
+        EXPECT_EQ(mDnsClient.resolvService()->dump(fd, nullptr, 0), 0);
+
+        const char* querylogCmd[] = {"querylog"};  // Keep it sync with DnsQueryLog::DUMP_KEYWORD.
+        EXPECT_EQ(mDnsClient.resolvService()->dump(fd, querylogCmd, std::size(querylogCmd)), 0);
     }
 
     bool WaitForNat64Prefix(ExpectNat64PrefixStatus status,
