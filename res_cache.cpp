@@ -435,6 +435,7 @@ static unsigned _dnsPacket_hashBytes(DnsPacket* packet, int numBytes, unsigned h
 
     while (numBytes > 0 && p < end) {
         hash = hash * FNV_MULT ^ *p++;
+        numBytes--;
     }
     packet->cursor = p;
     return hash;
