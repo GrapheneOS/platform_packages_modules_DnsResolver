@@ -104,6 +104,8 @@
 #include "PrivateDnsConfiguration.h"
 #include "netd_resolv/resolv.h"
 #include "private/android_filesystem_config.h"
+
+#include "res_comp.h"
 #include "res_debug.h"
 #include "res_init.h"
 #include "resolv_cache.h"

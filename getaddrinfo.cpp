@@ -56,6 +56,8 @@
 #include <android-base/logging.h>
 
 #include "netd_resolv/resolv.h"
+#include "res_comp.h"
+#include "res_debug.h"
 #include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
@@ -848,7 +850,6 @@ static struct addrinfo* getanswer(const std::vector<uint8_t>& answer, int anslen
     int type, ancount, qdcount;
     int haveanswer, had_error;
     char tbuf[MAXDNAME];
-    int (*name_ok)(const char*);
     char hostbuf[8 * 1024];
 
     assert(qname != NULL);
@@ -858,6 +859,8 @@ static struct addrinfo* getanswer(const std::vector<uint8_t>& answer, int anslen
 
     canonname = NULL;
     eom = answer.data() + anslen;
+
+    bool (*name_ok)(const char* dn);
     switch (qtype) {
         case T_A:
         case T_AAAA:
