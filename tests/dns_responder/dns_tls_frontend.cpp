@@ -294,11 +294,14 @@ bool DnsTlsFrontend::stopServer() {
     return true;
 }
 
-bool DnsTlsFrontend::waitForQueries(int number, int timeoutMs) const {
+// TODO: use a condition variable instead of polling
+// TODO: also clear queries_ to eliminate potential race conditions
+bool DnsTlsFrontend::waitForQueries(int expected_count) const {
     constexpr int intervalMs = 20;
+    constexpr int timeoutMs = 5000;
     int limit = timeoutMs / intervalMs;
     for (int count = 0; count <= limit; ++count) {
-        bool done = queries_ >= number;
+        bool done = queries_ >= expected_count;
         // Always sleep at least one more interval after we are done, to wait for
         // any immediate post-query actions that the client may take (such as
         // marking this server as reachable during validation).
