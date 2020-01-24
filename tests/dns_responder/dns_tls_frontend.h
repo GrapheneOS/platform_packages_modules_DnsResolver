@@ -53,9 +53,11 @@ class DnsTlsFrontend {
     bool running() const { return socket_ != -1; }
     bool startServer();
     bool stopServer();
+
     int queries() const { return queries_; }
     void clearQueries() { queries_ = 0; }
-    bool waitForQueries(int number, int timeoutMs) const;
+    bool waitForQueries(int expected_count) const;
+
     void set_chain_length(int length) { chain_length_ = length; }
     void setHangOnHandshakeForTesting(bool hangOnHandshake) { hangOnHandshake_ = hangOnHandshake; }
 
