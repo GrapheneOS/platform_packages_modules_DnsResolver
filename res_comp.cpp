@@ -70,13 +70,12 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "res_comp.h"
+
 #include <arpa/nameser.h>
-#include <ctype.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
-
-#include "resolv_private.h"
 
 /*
  * Expand compressed domain name 'src' to full domain name.
@@ -89,7 +88,7 @@ int dn_expand(const uint8_t* msg, const uint8_t* eom, const uint8_t* src, char* 
     int n = ns_name_uncompress(msg, eom, src, dst, (size_t) dstsiz);
 
     if (n > 0 && dst[0] == '.') dst[0] = '\0';
-    return (n);
+    return n;
 }
 
 /*
@@ -141,7 +140,7 @@ int dn_skipname(const uint8_t* ptr, const uint8_t* eom) {
 #define middlechar(c) (borderchar(c) || hyphenchar(c) || underscorechar(c))
 #define domainchar(c) ((c) > 0x20 && (c) < 0x7f)
 
-int res_hnok(const char* dn) {
+bool res_hnok(const char* dn) {
     int pch = PERIOD, ch = *dn++;
 
     while (ch != '\0') {
@@ -150,60 +149,25 @@ int res_hnok(const char* dn) {
         if (periodchar(ch)) {
             ;
         } else if (periodchar(pch)) {
-            if (!borderchar(ch)) return (0);
+            if (!borderchar(ch)) return false;
         } else if (periodchar(nch) || nch == '\0') {
-            if (!borderchar(ch)) return (0);
+            if (!borderchar(ch)) return false;
         } else {
-            if (!middlechar(ch)) return (0);
+            if (!middlechar(ch)) return false;
         }
         pch = ch, ch = nch;
     }
-    return (1);
-}
-
-/*
- * hostname-like (A, MX, WKS) owners can have "*" as their first label
- * but must otherwise be as a host name.
- */
-int res_ownok(const char* dn) {
-    if (asterchar(dn[0])) {
-        if (periodchar(dn[1])) return (res_hnok(dn + 2));
-        if (dn[1] == '\0') return (1);
-    }
-    return (res_hnok(dn));
-}
-
-/*
- * SOA RNAMEs and RP RNAMEs can have any printable character in their first
- * label, but the rest of the name has to look like a host name.
- */
-int res_mailok(const char* dn) {
-    int ch, escaped = 0;
-
-    /* "." is a valid missing representation */
-    if (*dn == '\0') return (1);
-
-    /* otherwise <label>.<hostname> */
-    while ((ch = *dn++) != '\0') {
-        if (!domainchar(ch)) return (0);
-        if (!escaped && periodchar(ch)) break;
-        if (escaped)
-            escaped = 0;
-        else if (bslashchar(ch))
-            escaped = 1;
-    }
-    if (periodchar(ch)) return (res_hnok(dn));
-    return (0);
+    return true;
 }
 
 /*
  * This function is quite liberal, since RFC 1034's character sets are only
  * recommendations.
  */
-int res_dnok(const char* dn) {
+bool res_dnok(const char* dn) {
     int ch;
 
     while ((ch = *dn++) != '\0')
-        if (!domainchar(ch)) return (0);
-    return (1);
+        if (!domainchar(ch)) return false;
+    return true;
 }

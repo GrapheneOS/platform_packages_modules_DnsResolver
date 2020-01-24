@@ -74,9 +74,10 @@
 
 #include "hostent.h"
 #include "netd_resolv/resolv.h"
+#include "res_comp.h"
+#include "res_debug.h"  // p_class(), p_type()
 #include "res_init.h"
 #include "resolv_cache.h"
-#include "resolv_private.h"
 #include "stats.pb.h"
 
 using android::net::NetworkDnsEventReported;
@@ -90,10 +91,6 @@ using android::net::NetworkDnsEventReported;
 // buffer.
 #define ALIGNBYTES (sizeof(uintptr_t) - 1)
 #define ALIGN(p) (((uintptr_t)(p) + ALIGNBYTES) & ~ALIGNBYTES)
-
-#define maybe_ok(res, nm, ok) ((ok)(nm) != 0)
-#define maybe_hnok(res, hn) maybe_ok((res), (hn), res_hnok)
-#define maybe_dnok(res, dn) maybe_ok((res), (dn), res_dnok)
 
 constexpr int MAXADDRS = 35;
 
@@ -142,7 +139,6 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
     char tbuf[MAXDNAME];
     char* addr_ptrs[MAXADDRS];
     const char* tname;
-    int (*name_ok)(const char*);
     std::vector<char*> aliases;
 
     _DIAGASSERT(answer != NULL);
@@ -151,6 +147,8 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
     tname = qname;
     hent->h_name = NULL;
     eom = answer->buf + anslen;
+
+    bool (*name_ok)(const char* dn);
     switch (qtype) {
         case T_A:
         case T_AAAA:
@@ -177,7 +175,7 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
     if (qdcount != 1) goto no_recovery;
 
     n = dn_expand(answer->buf, eom, cp, bp, (int) (ep - bp));
-    if ((n < 0) || !maybe_ok(res, bp, name_ok)) goto no_recovery;
+    if ((n < 0) || !name_ok(bp)) goto no_recovery;
 
     BOUNDED_INCR(n + QFIXEDSZ);
     if (qtype == T_A || qtype == T_AAAA) {
@@ -198,7 +196,7 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
     had_error = 0;
     while (ancount-- > 0 && cp < eom && !had_error) {
         n = dn_expand(answer->buf, eom, cp, bp, (int) (ep - bp));
-        if ((n < 0) || !maybe_ok(res, bp, name_ok)) {
+        if ((n < 0) || !name_ok(bp)) {
             had_error++;
             continue;
         }
@@ -219,7 +217,7 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
         }
         if ((qtype == T_A || qtype == T_AAAA) && type == T_CNAME) {
             n = dn_expand(answer->buf, eom, cp, tbuf, (int) sizeof tbuf);
-            if ((n < 0) || !maybe_ok(res, tbuf, name_ok)) {
+            if ((n < 0) || !name_ok(tbuf)) {
                 had_error++;
                 continue;
             }
@@ -246,7 +244,7 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
         }
         if (qtype == T_PTR && type == T_CNAME) {
             n = dn_expand(answer->buf, eom, cp, tbuf, (int) sizeof tbuf);
-            if (n < 0 || !maybe_dnok(res, tbuf)) {
+            if (n < 0 || !res_dnok(tbuf)) {
                 had_error++;
                 continue;
             }
@@ -279,7 +277,7 @@ static struct hostent* getanswer(const querybuf* answer, int anslen, const char*
                     continue; /* XXX - had_error++ ? */
                 }
                 n = dn_expand(answer->buf, eom, cp, bp, (int) (ep - bp));
-                if ((n < 0) || !maybe_hnok(res, bp)) {
+                if ((n < 0) || !res_hnok(bp)) {
                     had_error++;
                     break;
                 }

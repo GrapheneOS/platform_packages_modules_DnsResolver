@@ -59,6 +59,7 @@
 #include <server_configurable_flags/get_flags.h>
 
 #include "DnsStats.h"
+#include "res_comp.h"
 #include "res_debug.h"
 #include "resolv_private.h"
 #include "util.h"
