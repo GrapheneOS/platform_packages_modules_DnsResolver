@@ -80,8 +80,11 @@
 #include <string.h>
 
 #include <android-base/logging.h>
+#include <netd_resolv/resolv.h>  // NET_CONTEXT_FLAG_USE_DNS_OVER_TLS
 
-#include "resolv_private.h"
+#include "res_comp.h"
+#include "res_debug.h"
+#include "resolv_private.h"  // res_state
 
 // Queries will be padded to a multiple of this length when EDNS0 is active.
 constexpr uint16_t kEdns0Padding = 128;

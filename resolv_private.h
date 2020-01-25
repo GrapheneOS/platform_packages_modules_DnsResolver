@@ -50,7 +50,6 @@
 
 #include <android-base/logging.h>
 #include <net/if.h>
-#include <resolv.h>
 #include <time.h>
 #include <string>
 #include <vector>
@@ -137,14 +136,6 @@ void _res_stats_set_sample(res_sample* sample, time_t now, int rcode, int rtt);
 #define NETD_RESOLV_H_ERRNO_EXT_TIMEOUT RCODE_TIMEOUT
 
 extern const char* const _res_opcodes[];
-
-int res_hnok(const char*);
-int res_ownok(const char*);
-int res_mailok(const char*);
-int res_dnok(const char*);
-int dn_skipname(const uint8_t*, const uint8_t*);
-void putlong(uint32_t, uint8_t*);
-void putshort(uint16_t, uint8_t*);
 
 int res_nameinquery(const char*, int, int, const uint8_t*, const uint8_t*);
 int res_queriesmatch(const uint8_t*, const uint8_t*, const uint8_t*, const uint8_t*);

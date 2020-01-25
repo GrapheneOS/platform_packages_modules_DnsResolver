@@ -22,7 +22,9 @@
     * The interface between the resolver and netd is backwards compatible, so the resolver APEX
     * can work with any version of netd.
     -->
-  <uses-sdk
+  <!-- TODO: Uncomment this when the R API level is fixed. b/148281152 -->
+  <!--uses-sdk
       android:targetSdkVersion="29"
   />
+  -->
 </manifest>

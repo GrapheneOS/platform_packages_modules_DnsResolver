@@ -1508,7 +1508,7 @@ TEST_F(ResolverTest, GetHostByName_Tls) {
     EXPECT_EQ("1.2.3.1", ToString(result));
 
     // Wait for query to get counted.
-    EXPECT_TRUE(tls.waitForQueries(2, 5000));
+    EXPECT_TRUE(tls.waitForQueries(2));
 
     // Stop the TLS server.  Since we're in opportunistic mode, queries will
     // fall back to the locally-assigned (clear text) nameservers.
@@ -1569,7 +1569,7 @@ TEST_F(ResolverTest, GetHostByName_TlsFailover) {
     EXPECT_EQ("1.2.3.1", ToString(result));
 
     // Wait for query to get counted.
-    EXPECT_TRUE(tls1.waitForQueries(2, 5000));
+    EXPECT_TRUE(tls1.waitForQueries(2));
     // No new queries should have reached tls2.
     EXPECT_EQ(1, tls2.queries());
 
@@ -1580,7 +1580,7 @@ TEST_F(ResolverTest, GetHostByName_TlsFailover) {
     EXPECT_EQ("1.2.3.4", ToString(result));
 
     // Wait for query to get counted.
-    EXPECT_TRUE(tls2.waitForQueries(2, 5000));
+    EXPECT_TRUE(tls2.waitForQueries(2));
 
     // No additional queries should have reached the insecure servers.
     EXPECT_EQ(2U, dns1.queries().size());
@@ -1646,7 +1646,7 @@ TEST_F(ResolverTest, GetAddrInfo_Tls) {
     EXPECT_TRUE(result_str == "1.2.3.4" || result_str == "::1.2.3.4")
             << ", result_str='" << result_str << "'";
     // Wait for both A and AAAA queries to get counted.
-    EXPECT_TRUE(tls.waitForQueries(3, 5000));
+    EXPECT_TRUE(tls.waitForQueries(3));
 
     // Clear TLS bit.
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
@@ -1731,21 +1731,19 @@ TEST_F(ResolverTest, TlsBypass) {
         if (config.mode == OFF) {
             ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers, kDefaultSearchDomains,
                                                           kDefaultParams));
-        } else if (config.mode == OPPORTUNISTIC) {
+        } else /* OPPORTUNISTIC or STRICT */ {
+            const char* tls_hostname = (config.mode == STRICT) ? kDefaultPrivateDnsHostName : "";
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
-                                                       kDefaultParams, ""));
+                                                       kDefaultParams, tls_hostname));
 
             // Wait for the validation event. If the server is running, the validation should
-            // be successful; otherwise, the validation should be failed.
+            // succeed; otherwise, the validation should fail.
             EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), config.withWorkingTLS));
-        } else if (config.mode == STRICT) {
-            ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
-                                                       kDefaultParams, kDefaultPrivateDnsHostName));
-
-            // Wait for the validation event.
-            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), config.withWorkingTLS));
+            if (config.withWorkingTLS) {
+                EXPECT_TRUE(tls.waitForQueries(1));
+                tls.clearQueries();
+            }
         }
-        tls.clearQueries();
 
         const hostent* h_result = nullptr;
         ScopedAddrinfo ai_result;
@@ -3249,6 +3247,7 @@ TEST_F(ResolverTest, GetNameInfo_ReverseDns64QueryFromHostFile) {
     constexpr char listen_addr[] = "::1";
 
     test::DNSResponder dns(listen_addr);
+
     StartDns(dns, {{dns64_name, ns_type::ns_t_aaaa, "64:ff9b::192.0.0.170"}});
     const std::vector<std::string> servers = {listen_addr};
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
@@ -3443,6 +3442,7 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     // Setup OPPORTUNISTIC mode and wait for the validation complete.
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams, ""));
     EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+    EXPECT_TRUE(tls.waitForQueries(1));
     tls.clearQueries();
 
     // Start NAT64 prefix discovery and wait for it complete.
@@ -3450,8 +3450,8 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
 
     // Verify it bypassed TLS even though there's a TLS server available.
-    EXPECT_EQ(0, tls.queries());
-    EXPECT_EQ(1U, GetNumQueries(dns, dns64_name));
+    EXPECT_EQ(0, tls.queries()) << dns.dumpQueries();
+    EXPECT_EQ(1U, GetNumQueries(dns, dns64_name)) << dns.dumpQueries();
 
     // Restart the testing network to reset the cache.
     mDnsClient.TearDown();
@@ -3462,6 +3462,7 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains, kDefaultParams,
                                                kDefaultPrivateDnsHostName));
     EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+    EXPECT_TRUE(tls.waitForQueries(1));
     tls.clearQueries();
 
     // Start NAT64 prefix discovery and wait for it to complete.
@@ -3469,8 +3470,8 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
 
     // Verify it bypassed TLS despite STRICT mode.
-    EXPECT_EQ(0, tls.queries());
-    EXPECT_EQ(1U, GetNumQueries(dns, dns64_name));
+    EXPECT_EQ(0, tls.queries()) << dns.dumpQueries();
+    EXPECT_EQ(1U, GetNumQueries(dns, dns64_name)) << dns.dumpQueries();
 }
 
 namespace {
@@ -3728,8 +3729,9 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
     const ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
     EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
-    dns.clearQueries();
+    EXPECT_TRUE(tls.waitForQueries(1));
     tls.clearQueries();
+    dns.clearQueries();
 
     // The server becomes unresponsive to the handshake request.
     tls.setHangOnHandshakeForTesting(true);
