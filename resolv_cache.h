@@ -40,6 +40,7 @@
 
 #include "ResolverStats.h"
 #include "params.h"
+#include "stats.h"
 
 // Sets the name server addresses to the provided ResState.
 // The name servers are retrieved from the cache which is associated
@@ -115,3 +116,17 @@ void resolv_stats_dump(android::netdutils::DumpWriter& dw, unsigned netid);
 void resolv_oem_options_dump(android::netdutils::DumpWriter& dw, unsigned netid);
 
 const char* tc_mode_to_str(const int mode);
+
+/* Retrieve a local copy of the stats for the given netid. The buffer must have space for
+ * MAXNS __resolver_stats. Returns the revision id of the resolvers used.
+ */
+int resolv_cache_get_resolver_stats(
+        unsigned netid, res_params* params, res_stats stats[MAXNS],
+        const std::vector<android::netdutils::IPSockAddr>& serverSockAddrs);
+
+/* Add a sample to the shared struct for the given netid and server, provided that the
+ * revision_id of the stored servers has not changed.
+ */
+void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id,
+                                            const android::netdutils::IPSockAddr& serverSockAddr,
+                                            const res_sample& sample, int max_samples);

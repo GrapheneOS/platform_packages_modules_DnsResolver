@@ -542,7 +542,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             // SERVFAIL or times out) do not unduly affect the stats.
             if (shouldRecordStats) {
                 res_sample sample;
-                _res_stats_set_sample(&sample, now, *rcode, delay);
+                res_stats_set_sample(&sample, now, *rcode, delay);
                 resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, serverSockAddr,
                                                        sample, params.max_samples);
                 resolv_stats_add(statp->netid, serverSockAddr, dnsQueryEvent);
@@ -803,7 +803,7 @@ read_len:
      */
     if (resplen > 0) {
         struct timespec done = evNowTime();
-        *delay = _res_stats_calculate_rtt(&done, &now);
+        *delay = res_stats_calculate_rtt(&done, &now);
         *rcode = anhp->rcode;
     }
     return (resplen);
@@ -1012,7 +1012,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         }
 
         timespec done = evNowTime();
-        *delay = _res_stats_calculate_rtt(&done, &now);
+        *delay = res_stats_calculate_rtt(&done, &now);
         if (anhp->rcode == SERVFAIL || anhp->rcode == NOTIMP || anhp->rcode == REFUSED) {
             LOG(DEBUG) << __func__ << ": server rejected query:";
             res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
