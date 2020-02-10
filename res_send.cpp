@@ -138,11 +138,13 @@ using android::netdutils::Stopwatch;
 
 static DnsTlsDispatcher sDnsTlsDispatcher;
 
-static struct sockaddr* get_nsaddr(res_state, size_t);
-static int send_vc(res_state, res_params* params, const uint8_t*, int, uint8_t*, int, int*, int,
-                   time_t*, int*, int*);
-static int send_dg(res_state, res_params* params, const uint8_t*, int, uint8_t*, int, int*, int,
-                   int*, int*, time_t*, int*, int*);
+static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+                   uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
+                   int* delay);
+static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+                   uint8_t* ans, int anssiz, int* terrno, size_t ns, int* v_circuit,
+                   int* gotsomewhere, time_t* at, int* rcode, int* delay);
+
 static void dump_error(const char*, const struct sockaddr*, int);
 
 static int sock_eq(struct sockaddr*, struct sockaddr*);
@@ -288,13 +290,13 @@ static void res_set_usable_server(int selectedServer, int nscount, bool usable_s
 static bool res_ourserver_p(res_state statp, const sockaddr* sa) {
     const sockaddr_in *inp, *srv;
     const sockaddr_in6 *in6p, *srv6;
-    int ns;
 
     switch (sa->sa_family) {
         case AF_INET:
             inp = (const struct sockaddr_in*) (const void*) sa;
-            for (ns = 0; ns < statp->nscount; ns++) {
-                srv = (struct sockaddr_in*) (void*) get_nsaddr(statp, (size_t) ns);
+            for (const IPSockAddr& ipsa : statp->nsaddrs) {
+                sockaddr_storage ss = ipsa;
+                srv = reinterpret_cast<sockaddr_in*>(&ss);
                 if (srv->sin_family == inp->sin_family && srv->sin_port == inp->sin_port &&
                     (srv->sin_addr.s_addr == INADDR_ANY ||
                      srv->sin_addr.s_addr == inp->sin_addr.s_addr))
@@ -303,8 +305,9 @@ static bool res_ourserver_p(res_state statp, const sockaddr* sa) {
             break;
         case AF_INET6:
             in6p = (const struct sockaddr_in6*) (const void*) sa;
-            for (ns = 0; ns < statp->nscount; ns++) {
-                srv6 = (struct sockaddr_in6*) (void*) get_nsaddr(statp, (size_t) ns);
+            for (const IPSockAddr& ipsa : statp->nsaddrs) {
+                sockaddr_storage ss = ipsa;
+                srv6 = reinterpret_cast<sockaddr_in6*>(&ss);
                 if (srv6->sin6_family == in6p->sin6_family && srv6->sin6_port == in6p->sin6_port &&
 #ifdef HAVE_SIN6_SCOPE_ID
                     (srv6->sin6_scope_id == 0 || srv6->sin6_scope_id == in6p->sin6_scope_id) &&
@@ -484,20 +487,15 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     int terrno = ETIMEDOUT;
 
     for (int attempt = 0; attempt < retryTimes; ++attempt) {
-        for (int ns = 0; ns < statp->nscount; ++ns) {
+        for (size_t ns = 0; ns < statp->nsaddrs.size(); ++ns) {
             if (!usable_servers[ns]) continue;
 
             *rcode = RCODE_INTERNAL_ERROR;
 
             // Get server addr
-            const sockaddr* nsap = get_nsaddr(statp, ns);
-            const int nsaplen = sockaddrSize(nsap);
-
-            static const int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
-            char abuf[NI_MAXHOST];
-            if (getnameinfo(nsap, (socklen_t)nsaplen, abuf, sizeof(abuf), NULL, 0, niflags) == 0)
-                LOG(DEBUG) << __func__ << ": Querying server (# " << ns + 1
-                           << ") address = " << abuf;
+            const IPSockAddr& serverSockAddr = statp->nsaddrs[ns];
+            LOG(DEBUG) << __func__ << ": Querying server (# " << ns + 1
+                       << ") address = " << serverSockAddr.toString();
 
             ::android::net::Protocol query_proto = useTcp ? PROTO_TCP : PROTO_UDP;
             time_t now = 0;
@@ -533,7 +531,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             dnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(cache_status));
             dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
             dnsQueryEvent->set_dns_server_index(ns);
-            dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(nsap->sa_family));
+            dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(serverSockAddr.family()));
             dnsQueryEvent->set_retry_times(retry_count_for_event);
             dnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
             dnsQueryEvent->set_protocol(query_proto);
@@ -545,9 +543,9 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             if (shouldRecordStats) {
                 res_sample sample;
                 _res_stats_set_sample(&sample, now, *rcode, delay);
-                resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, nsap, sample,
-                                                       params.max_samples);
-                resolv_stats_add(statp->netid, IPSockAddr::toIPSockAddr(*nsap), dnsQueryEvent);
+                resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, serverSockAddr,
+                                                       sample, params.max_samples);
+                resolv_stats_add(statp->netid, serverSockAddr, dnsQueryEvent);
             }
 
             if (resplen == 0) continue;
@@ -582,12 +580,6 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     return -terrno;
 }
 
-/* Private */
-
-static struct sockaddr* get_nsaddr(res_state statp, size_t n) {
-    return (struct sockaddr*)(void*)&statp->nsaddrs[n];
-}
-
 static struct timespec get_timeout(res_state statp, const res_params* params, const int ns) {
     int msec;
     // Legacy algorithm which scales the timeout by nameserver number.
@@ -610,7 +602,7 @@ static struct timespec get_timeout(res_state statp, const res_params* params, co
 }
 
 static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int buflen,
-                   uint8_t* ans, int anssiz, int* terrno, int ns, time_t* at, int* rcode,
+                   uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
                    int* delay) {
     *at = time(NULL);
     *delay = 0;
@@ -623,7 +615,14 @@ static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int 
 
     LOG(INFO) << __func__ << ": using send_vc";
 
-    nsap = get_nsaddr(statp, (size_t) ns);
+    // It should never happen, but just in case.
+    if (ns >= statp->nsaddrs.size()) {
+        LOG(ERROR) << __func__ << ": Out-of-bound indexing: " << ns;
+        return -1;
+    }
+
+    sockaddr_storage ss = statp->nsaddrs[ns];
+    nsap = reinterpret_cast<sockaddr*>(&ss);
     nsaplen = sockaddrSize(nsap);
 
     connreset = 0;
@@ -897,12 +896,18 @@ bool ignoreInvalidAnswer(res_state statp, const sockaddr_storage& from, const ui
 }
 
 static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
-                   uint8_t* ans, int anssiz, int* terrno, int ns, int* v_circuit, int* gotsomewhere,
-                   time_t* at, int* rcode, int* delay) {
+                   uint8_t* ans, int anssiz, int* terrno, size_t ns, int* v_circuit,
+                   int* gotsomewhere, time_t* at, int* rcode, int* delay) {
+    // It should never happen, but just in case.
+    if (ns >= statp->nsaddrs.size()) {
+        LOG(ERROR) << __func__ << ": Out-of-bound indexing: " << ns;
+        return -1;
+    }
+
     *at = time(nullptr);
     *delay = 0;
-
-    const sockaddr* nsap = get_nsaddr(statp, (size_t)ns);
+    const sockaddr_storage ss = statp->nsaddrs[ns];
+    const sockaddr* nsap = reinterpret_cast<const sockaddr*>(&ss);
     const int nsaplen = sockaddrSize(nsap);
 
     if (statp->nssocks[ns] == -1) {
