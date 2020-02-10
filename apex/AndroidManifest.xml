@@ -23,6 +23,7 @@
     * can work with any version of netd.
     -->
   <uses-sdk
+      android:minSdkVersion="29"
       android:targetSdkVersion="29"
   />
 </manifest>
