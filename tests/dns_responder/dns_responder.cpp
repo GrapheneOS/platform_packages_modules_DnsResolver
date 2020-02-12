@@ -547,6 +547,10 @@ void DNSResponder::setEdns(Edns edns) {
     edns_ = edns;
 }
 
+void DNSResponder::setTtl(unsigned ttl) {
+    answer_record_ttl_sec_ = ttl;
+}
+
 bool DNSResponder::running() const {
     return (udp_socket_.ok()) && (tcp_socket_.ok());
 }
@@ -783,7 +787,7 @@ bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
                     .name = {.name = it->first.name},
                     .rtype = it->first.type,
                     .rclass = ns_class::ns_c_in,
-                    .ttl = kAnswerRecordTtlSec,  // seconds
+                    .ttl = answer_record_ttl_sec_,  // seconds
             };
             if (!fillRdata(it->second, record)) return false;
             answers->push_back(std::move(record));
