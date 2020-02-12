@@ -555,7 +555,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             }
             if (resplen < 0) {
                 _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
-                res_nclose(statp);
+                statp->closeSockets();
                 return -terrno;
             };
 
@@ -565,11 +565,11 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             if (cache_status == RESOLV_CACHE_NOTFOUND) {
                 resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
             }
-            res_nclose(statp);
+            statp->closeSockets();
             return (resplen);
         }  // for each ns
     }  // for each retry
-    res_nclose(statp);
+    statp->closeSockets();
     terrno = useTcp ? terrno : gotsomewhere ? ETIMEDOUT : ECONNREFUSED;
     // TODO: Remove errno once callers stop using it
     errno = useTcp ? terrno
@@ -631,25 +631,24 @@ same_ns:
     struct timespec now = evNowTime();
 
     /* Are we still talking to whom we want to talk to? */
-    if (statp->_vcsock >= 0 && (statp->_flags & RES_F_VC) != 0) {
+    if (statp->tcp_nssock >= 0 && (statp->_flags & RES_F_VC) != 0) {
         struct sockaddr_storage peer;
         socklen_t size = sizeof peer;
         unsigned old_mark;
         socklen_t mark_size = sizeof(old_mark);
-        if (getpeername(statp->_vcsock, (struct sockaddr*) (void*) &peer, &size) < 0 ||
-            !sock_eq((struct sockaddr*) (void*) &peer, nsap) ||
-            getsockopt(statp->_vcsock, SOL_SOCKET, SO_MARK, &old_mark, &mark_size) < 0 ||
+        if (getpeername(statp->tcp_nssock, (struct sockaddr*)(void*)&peer, &size) < 0 ||
+            !sock_eq((struct sockaddr*)(void*)&peer, nsap) ||
+            getsockopt(statp->tcp_nssock, SOL_SOCKET, SO_MARK, &old_mark, &mark_size) < 0 ||
             old_mark != statp->_mark) {
-            res_nclose(statp);
-            statp->_flags &= ~RES_F_VC;
+            statp->closeSockets();
         }
     }
 
-    if (statp->_vcsock < 0 || (statp->_flags & RES_F_VC) == 0) {
-        if (statp->_vcsock >= 0) res_nclose(statp);
+    if (statp->tcp_nssock < 0 || (statp->_flags & RES_F_VC) == 0) {
+        if (statp->tcp_nssock >= 0) statp->closeSockets();
 
-        statp->_vcsock = socket(nsap->sa_family, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (statp->_vcsock < 0) {
+        statp->tcp_nssock.reset(socket(nsap->sa_family, SOCK_STREAM | SOCK_CLOEXEC, 0));
+        if (statp->tcp_nssock < 0) {
             switch (errno) {
                 case EPROTONOSUPPORT:
                 case EPFNOSUPPORT:
@@ -662,9 +661,9 @@ same_ns:
                     return -1;
             }
         }
-        resolv_tag_socket(statp->_vcsock, statp->uid, statp->pid);
+        resolv_tag_socket(statp->tcp_nssock, statp->uid, statp->pid);
         if (statp->_mark != MARK_UNSET) {
-            if (setsockopt(statp->_vcsock, SOL_SOCKET, SO_MARK, &statp->_mark,
+            if (setsockopt(statp->tcp_nssock, SOL_SOCKET, SO_MARK, &statp->_mark,
                            sizeof(statp->_mark)) < 0) {
                 *terrno = errno;
                 PLOG(DEBUG) << __func__ << ": setsockopt: ";
@@ -672,17 +671,17 @@ same_ns:
             }
         }
         errno = 0;
-        if (random_bind(statp->_vcsock, nsap->sa_family) < 0) {
+        if (random_bind(statp->tcp_nssock, nsap->sa_family) < 0) {
             *terrno = errno;
             dump_error("bind/vc", nsap, nsaplen);
-            res_nclose(statp);
+            statp->closeSockets();
             return (0);
         }
-        if (connect_with_timeout(statp->_vcsock, nsap, (socklen_t) nsaplen,
+        if (connect_with_timeout(statp->tcp_nssock, nsap, (socklen_t)nsaplen,
                                  get_timeout(statp, params, ns)) < 0) {
             *terrno = errno;
             dump_error("connect/vc", nsap, nsaplen);
-            res_nclose(statp);
+            statp->closeSockets();
             /*
              * The way connect_with_timeout() is implemented prevents us from reliably
              * determining whether this was really a timeout or e.g. ECONNREFUSED. Since
@@ -705,10 +704,10 @@ same_ns:
             {.iov_base = &len, .iov_len = INT16SZ},
             {.iov_base = const_cast<uint8_t*>(buf), .iov_len = static_cast<size_t>(buflen)},
     };
-    if (writev(statp->_vcsock, iov, 2) != (INT16SZ + buflen)) {
+    if (writev(statp->tcp_nssock, iov, 2) != (INT16SZ + buflen)) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": write failed: ";
-        res_nclose(statp);
+        statp->closeSockets();
         return (0);
     }
     /*
@@ -717,14 +716,14 @@ same_ns:
 read_len:
     cp = ans;
     len = INT16SZ;
-    while ((n = read(statp->_vcsock, (char*) cp, (size_t) len)) > 0) {
+    while ((n = read(statp->tcp_nssock, (char*)cp, (size_t)len)) > 0) {
         cp += n;
         if ((len -= n) == 0) break;
     }
     if (n <= 0) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": read failed: ";
-        res_nclose(statp);
+        statp->closeSockets();
         /*
          * A long running process might get its TCP
          * connection reset if the remote server was
@@ -736,10 +735,8 @@ read_len:
          */
         if (*terrno == ECONNRESET && !connreset) {
             connreset = 1;
-            res_nclose(statp);
             goto same_ns;
         }
-        res_nclose(statp);
         return (0);
     }
     uint16_t resplen = ntohs(*reinterpret_cast<const uint16_t*>(ans));
@@ -755,18 +752,18 @@ read_len:
          */
         LOG(DEBUG) << __func__ << ": undersized: " << len;
         *terrno = EMSGSIZE;
-        res_nclose(statp);
+        statp->closeSockets();
         return (0);
     }
     cp = ans;
-    while (len != 0 && (n = read(statp->_vcsock, (char*) cp, (size_t) len)) > 0) {
+    while (len != 0 && (n = read(statp->tcp_nssock, (char*)cp, (size_t)len)) > 0) {
         cp += n;
         len -= n;
     }
     if (n <= 0) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": read(vc): ";
-        res_nclose(statp);
+        statp->closeSockets();
         return (0);
     }
 
@@ -779,7 +776,7 @@ read_len:
         while (len != 0) {
             char junk[PACKETSZ];
 
-            n = read(statp->_vcsock, junk, (len > sizeof junk) ? sizeof junk : len);
+            n = read(statp->tcp_nssock, junk, (len > sizeof junk) ? sizeof junk : len);
             if (n > 0)
                 len -= n;
             else
@@ -907,7 +904,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
     const int nsaplen = sockaddrSize(nsap);
 
     if (statp->nssocks[ns] == -1) {
-        statp->nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        statp->nssocks[ns].reset(socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0));
         if (statp->nssocks[ns] < 0) {
             switch (errno) {
                 case EPROTONOSUPPORT:
@@ -926,7 +923,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         if (statp->_mark != MARK_UNSET) {
             if (setsockopt(statp->nssocks[ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
                            sizeof(statp->_mark)) < 0) {
-                res_nclose(statp);
+                statp->closeSockets();
                 return -1;
             }
         }
@@ -936,19 +933,19 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         // a nameserver without timing out.
         if (random_bind(statp->nssocks[ns], nsap->sa_family) < 0) {
             dump_error("bind(dg)", nsap, nsaplen);
-            res_nclose(statp);
+            statp->closeSockets();
             return (0);
         }
         if (connect(statp->nssocks[ns], nsap, (socklen_t)nsaplen) < 0) {
             dump_error("connect(dg)", nsap, nsaplen);
-            res_nclose(statp);
+            statp->closeSockets();
             return (0);
         }
         LOG(DEBUG) << __func__ << ": new DG socket";
     }
     if (send(statp->nssocks[ns], (const char*)buf, (size_t)buflen, 0) != buflen) {
         PLOG(DEBUG) << __func__ << ": send: ";
-        res_nclose(statp);
+        statp->closeSockets();
         return 0;
     }
 
@@ -966,7 +963,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         }
         if (n < 0) {
             PLOG(DEBUG) << __func__ << ": poll: ";
-            res_nclose(statp);
+            statp->closeSockets();
             return 0;
         }
 
@@ -977,7 +974,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
                                (sockaddr*)(void*)&from, &fromlen);
         if (resplen <= 0) {
             PLOG(DEBUG) << __func__ << ": recvfrom: ";
-            res_nclose(statp);
+            statp->closeSockets();
             return 0;
         }
         *gotsomewhere = 1;
@@ -985,7 +982,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
             // Undersized message.
             LOG(DEBUG) << __func__ << ": undersized: " << resplen;
             *terrno = EMSGSIZE;
-            res_nclose(statp);
+            statp->closeSockets();
             return 0;
         }
 
@@ -1003,7 +1000,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
             res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
             // record the error
             statp->_flags |= RES_F_EDNS0ERR;
-            res_nclose(statp);
+            statp->closeSockets();
             return 0;
         }
 
@@ -1012,7 +1009,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         if (anhp->rcode == SERVFAIL || anhp->rcode == NOTIMP || anhp->rcode == REFUSED) {
             LOG(DEBUG) << __func__ << ": server rejected query:";
             res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
-            res_nclose(statp);
+            statp->closeSockets();
             *rcode = anhp->rcode;
             return 0;
         }
@@ -1021,7 +1018,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
             // use TCP with same server.
             LOG(DEBUG) << __func__ << ": truncated answer";
             *v_circuit = 1;
-            res_nclose(statp);
+            statp->closeSockets();
             return 1;
         }
         // All is well, or the error is fatal. Signal that the
