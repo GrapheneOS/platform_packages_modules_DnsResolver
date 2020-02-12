@@ -875,22 +875,37 @@ retry:
     return n;
 }
 
+bool ignoreInvalidAnswer(res_state statp, const sockaddr_storage& from, const uint8_t* buf,
+                         int buflen, uint8_t* ans, int anssiz) {
+    const HEADER* hp = (const HEADER*)(const void*)buf;
+    HEADER* anhp = (HEADER*)(void*)ans;
+    if (hp->id != anhp->id) {
+        // response from old query, ignore it.
+        LOG(DEBUG) << __func__ << ": old answer:";
+        return true;
+    }
+    if (!res_ourserver_p(statp, (sockaddr*)(void*)&from)) {
+        // response from wrong server? ignore it.
+        LOG(DEBUG) << __func__ << ": not our server:";
+        return true;
+    }
+    if (!res_queriesmatch(buf, buf + buflen, ans, ans + anssiz)) {
+        // response contains wrong query? ignore it.
+        LOG(DEBUG) << __func__ << ": wrong query name:";
+        return true;
+    }
+    return false;
+}
+
 static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, int ns, int* v_circuit, int* gotsomewhere,
                    time_t* at, int* rcode, int* delay) {
-    *at = time(NULL);
+    *at = time(nullptr);
     *delay = 0;
-    const HEADER* hp = (const HEADER*) (const void*) buf;
-    HEADER* anhp = (HEADER*) (void*) ans;
-    const struct sockaddr* nsap;
-    int nsaplen;
-    struct timespec now, timeout, finish, done;
-    struct sockaddr_storage from;
-    socklen_t fromlen;
-    int resplen, n, s;
 
-    nsap = get_nsaddr(statp, (size_t) ns);
-    nsaplen = sockaddrSize(nsap);
+    const sockaddr* nsap = get_nsaddr(statp, (size_t)ns);
+    const int nsaplen = sockaddrSize(nsap);
+
     if (statp->nssocks[ns] == -1) {
         statp->nssocks[ns] = socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         if (statp->nssocks[ns] < 0) {
@@ -931,120 +946,91 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         }
         LOG(DEBUG) << __func__ << ": new DG socket";
     }
-    s = statp->nssocks[ns];
-    if (send(s, (const char*) buf, (size_t) buflen, 0) != buflen) {
+    if (send(statp->nssocks[ns], (const char*)buf, (size_t)buflen, 0) != buflen) {
         PLOG(DEBUG) << __func__ << ": send: ";
         res_nclose(statp);
         return 0;
     }
 
-    // Wait for reply.
-    timeout = get_timeout(statp, params, ns);
-    now = evNowTime();
-    finish = evAddTime(now, timeout);
-retry:
-    n = retrying_poll(s, POLLIN, &finish);
+    timespec timeout = get_timeout(statp, params, ns);
+    timespec now = evNowTime();
+    timespec finish = evAddTime(now, timeout);
+    for (;;) {
+        // Wait for reply.
+        int n = retrying_poll(statp->nssocks[ns], POLLIN, &finish);
+        if (n == 0) {
+            *rcode = RCODE_TIMEOUT;
+            LOG(DEBUG) << __func__ << ": timeout";
+            *gotsomewhere = 1;
+            return 0;
+        }
+        if (n < 0) {
+            PLOG(DEBUG) << __func__ << ": poll: ";
+            res_nclose(statp);
+            return 0;
+        }
 
-    if (n == 0) {
-        *rcode = RCODE_TIMEOUT;
-        LOG(DEBUG) << __func__ << ": timeout";
+        errno = 0;
+        sockaddr_storage from;
+        socklen_t fromlen = sizeof(from);
+        int resplen = recvfrom(statp->nssocks[ns], (char*)ans, (size_t)anssiz, 0,
+                               (sockaddr*)(void*)&from, &fromlen);
+        if (resplen <= 0) {
+            PLOG(DEBUG) << __func__ << ": recvfrom: ";
+            res_nclose(statp);
+            return 0;
+        }
         *gotsomewhere = 1;
-        return 0;
+        if (resplen < HFIXEDSZ) {
+            // Undersized message.
+            LOG(DEBUG) << __func__ << ": undersized: " << resplen;
+            *terrno = EMSGSIZE;
+            res_nclose(statp);
+            return 0;
+        }
+
+        if (ignoreInvalidAnswer(statp, from, buf, buflen, ans, anssiz)) {
+            res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+            continue;
+        }
+
+        HEADER* anhp = (HEADER*)(void*)ans;
+        if (anhp->rcode == FORMERR && (statp->netcontext_flags & NET_CONTEXT_FLAG_USE_EDNS)) {
+            //  Do not retry if the server do not understand EDNS0.
+            //  The case has to be captured here, as FORMERR packet do not
+            //  carry query section, hence res_queriesmatch() returns 0.
+            LOG(DEBUG) << __func__ << ": server rejected query with EDNS0:";
+            res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+            // record the error
+            statp->_flags |= RES_F_EDNS0ERR;
+            res_nclose(statp);
+            return 0;
+        }
+
+        timespec done = evNowTime();
+        *delay = _res_stats_calculate_rtt(&done, &now);
+        if (anhp->rcode == SERVFAIL || anhp->rcode == NOTIMP || anhp->rcode == REFUSED) {
+            LOG(DEBUG) << __func__ << ": server rejected query:";
+            res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+            res_nclose(statp);
+            *rcode = anhp->rcode;
+            return 0;
+        }
+        if (anhp->tc) {
+            // To get the rest of answer,
+            // use TCP with same server.
+            LOG(DEBUG) << __func__ << ": truncated answer";
+            *v_circuit = 1;
+            res_nclose(statp);
+            return 1;
+        }
+        // All is well, or the error is fatal. Signal that the
+        // next nameserver ought not be tried.
+        if (resplen > 0) {
+            *rcode = anhp->rcode;
+        }
+        return resplen;
     }
-    if (n < 0) {
-        PLOG(DEBUG) << __func__ << ": poll: ";
-        res_nclose(statp);
-        return 0;
-    }
-    errno = 0;
-    fromlen = sizeof(from);
-    resplen = recvfrom(s, (char*) ans, (size_t) anssiz, 0, (struct sockaddr*) (void*) &from,
-                       &fromlen);
-    if (resplen <= 0) {
-        PLOG(DEBUG) << __func__ << ": recvfrom: ";
-        res_nclose(statp);
-        return 0;
-    }
-    *gotsomewhere = 1;
-    if (resplen < HFIXEDSZ) {
-        /*
-         * Undersized message.
-         */
-        LOG(DEBUG) << __func__ << ": undersized: " << resplen;
-        *terrno = EMSGSIZE;
-        res_nclose(statp);
-        return 0;
-    }
-    if (hp->id != anhp->id) {
-        /*
-         * response from old query, ignore it.
-         * XXX - potential security hazard could
-         *	 be detected here.
-         */
-        LOG(DEBUG) << __func__ << ": old answer:";
-        res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
-        goto retry;
-    }
-    if (!res_ourserver_p(statp, (struct sockaddr*)(void*)&from)) {
-        /*
-         * response from wrong server? ignore it.
-         * XXX - potential security hazard could
-         *	 be detected here.
-         */
-        LOG(DEBUG) << __func__ << ": not our server:";
-        res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
-        goto retry;
-    }
-    if (anhp->rcode == FORMERR && (statp->netcontext_flags & NET_CONTEXT_FLAG_USE_EDNS)) {
-        /*
-         * Do not retry if the server do not understand EDNS0.
-         * The case has to be captured here, as FORMERR packet do not
-         * carry query section, hence res_queriesmatch() returns 0.
-         */
-        LOG(DEBUG) << __func__ << ": server rejected query with EDNS0:";
-        res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
-        /* record the error */
-        statp->_flags |= RES_F_EDNS0ERR;
-        res_nclose(statp);
-        return 0;
-    }
-    if (!res_queriesmatch(buf, buf + buflen, ans, ans + anssiz)) {
-        /*
-         * response contains wrong query? ignore it.
-         * XXX - potential security hazard could
-         *	 be detected here.
-         */
-        LOG(DEBUG) << __func__ << ": wrong query name:";
-        res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
-        goto retry;
-    }
-    done = evNowTime();
-    *delay = _res_stats_calculate_rtt(&done, &now);
-    if (anhp->rcode == SERVFAIL || anhp->rcode == NOTIMP || anhp->rcode == REFUSED) {
-        LOG(DEBUG) << __func__ << ": server rejected query:";
-        res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
-        res_nclose(statp);
-        *rcode = anhp->rcode;
-        return 0;
-    }
-    if (anhp->tc) {
-        /*
-         * To get the rest of answer,
-         * use TCP with same server.
-         */
-        LOG(DEBUG) << __func__ << ": truncated answer";
-        *v_circuit = 1;
-        res_nclose(statp);
-        return 1;
-    }
-    /*
-     * All is well, or the error is fatal.  Signal that the
-     * next nameserver ought not be tried.
-     */
-    if (resplen > 0) {
-        *rcode = anhp->rcode;
-    }
-    return resplen;
 }
 
 static void dump_error(const char* str, const struct sockaddr* address, int alen) {
