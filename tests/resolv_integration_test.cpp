@@ -2235,6 +2235,52 @@ TEST_F(ResolverTest, Async_CacheFlags) {
     EXPECT_EQ(4U, GetNumQueries(dns, another_host_name));
 }
 
+TEST_F(ResolverTest, Async_NoCacheStoreFlagDoesNotRefreshStaleCacheEntry) {
+    constexpr char listen_addr[] = "127.0.0.4";
+    constexpr char host_name[] = "howdy.example.com.";
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+    };
+
+    test::DNSResponder dns(listen_addr);
+    StartDns(dns, records);
+    std::vector<std::string> servers = {listen_addr};
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
+
+    const unsigned SHORT_TTL_SEC = 1;
+    dns.setTtl(SHORT_TTL_SEC);
+
+    // Refer to b/148842821 for the purpose of below test steps.
+    // Basically, this test is used to ensure stale cache case is handled
+    // correctly with ANDROID_RESOLV_NO_CACHE_STORE.
+    int fd = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a, 0);
+    EXPECT_TRUE(fd != -1);
+    expectAnswersValid(fd, AF_INET, "1.2.3.4");
+
+    EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+    dns.clearQueries();
+
+    // Wait until cache expired
+    sleep(SHORT_TTL_SEC + 0.5);
+
+    // Now request the same hostname again.
+    // We should see a new DNS query because the entry in cache has become stale.
+    // Due to ANDROID_RESOLV_NO_CACHE_STORE, this query must *not* refresh that stale entry.
+    fd = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a,
+                         ANDROID_RESOLV_NO_CACHE_STORE);
+    EXPECT_TRUE(fd != -1);
+    expectAnswersValid(fd, AF_INET, "1.2.3.4");
+    EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+    dns.clearQueries();
+
+    // If the cache is still stale, we expect to see one more DNS query
+    // (this time the cache will be refreshed, but we're not checking for it).
+    fd = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a, 0);
+    EXPECT_TRUE(fd != -1);
+    expectAnswersValid(fd, AF_INET, "1.2.3.4");
+    EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+}
+
 TEST_F(ResolverTest, Async_NoRetryFlag) {
     constexpr char listen_addr0[] = "127.0.0.4";
     constexpr char listen_addr1[] = "127.0.0.6";

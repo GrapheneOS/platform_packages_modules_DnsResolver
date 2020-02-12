@@ -1261,7 +1261,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
         LOG(INFO) << __func__ << ": NOT IN CACHE (STALE ENTRY " << *lookup << "DISCARDED)";
         res_pquery(e->query, e->querylen);
         _cache_remove_p(cache, lookup);
-        return RESOLV_CACHE_NOTFOUND;
+        return (flags & ANDROID_RESOLV_NO_CACHE_STORE) ? RESOLV_CACHE_SKIP : RESOLV_CACHE_NOTFOUND;
     }
 
     *answerlen = e->answerlen;
