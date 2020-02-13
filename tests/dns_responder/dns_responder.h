@@ -175,6 +175,7 @@ class DNSResponder {
     void setResponseProbability(double response_probability);
     void setResponseProbability(double response_probability, int protocol);
     void setEdns(Edns edns);
+    void setTtl(unsigned ttl);
     bool running() const;
     bool startServer();
     bool stopServer();
@@ -292,6 +293,8 @@ class DNSResponder {
     // Probability that a valid response on UDP is being sent instead of
     // returning error_rcode_ or no response.
     std::atomic<double> response_probability_udp_ = 1.0;
+
+    std::atomic<unsigned> answer_record_ttl_sec_ = kAnswerRecordTtlSec;
 
     // Maximum number of fds for epoll.
     const int EPOLL_MAX_EVENTS = 2;
