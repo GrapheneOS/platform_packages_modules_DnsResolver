@@ -46,8 +46,8 @@ class DnsTlsTransport : public IDnsTlsSocketObserver {
         : mMark(mark), mServer(server), mFactory(factory) {}
     ~DnsTlsTransport();
 
-    typedef DnsTlsServer::Response Response;
-    typedef DnsTlsServer::Result Result;
+    using Response = DnsTlsQueryMap::Response;
+    using Result = DnsTlsQueryMap::Result;
 
     // Given a |query|, this method sends it to the server and returns the result asynchronously.
     std::future<Result> query(const netdutils::Slice query) EXCLUDES(mLock);

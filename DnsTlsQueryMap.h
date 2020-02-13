@@ -34,6 +34,8 @@ namespace net {
 // All methods are thread-safe and non-blocking.
 class DnsTlsQueryMap {
   public:
+    enum class Response : uint8_t { success, network_error, limit_error, internal_error };
+
     struct Query {
         // The new ID number assigned to this query.
         uint16_t newId;
@@ -41,8 +43,10 @@ class DnsTlsQueryMap {
         const netdutils::Slice query;
     };
 
-    typedef DnsTlsServer::Response Response;
-    typedef DnsTlsServer::Result Result;
+    struct Result {
+        Response code;
+        std::vector<uint8_t> response;
+    };
 
     struct QueryFuture {
         QueryFuture(Query query, std::future<Result> result)
