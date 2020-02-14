@@ -37,10 +37,12 @@ std::unique_ptr<DnsTlsQueryMap::QueryFuture> DnsTlsQueryMap::recordQuery(
         LOG(WARNING) << "All query IDs are in use";
         return nullptr;
     }
-    Query q = { .newId = static_cast<uint16_t>(newId), .query = query };
-    std::map<uint16_t, QueryPromise>::iterator it;
-    bool inserted;
-    std::tie(it, inserted) = mQueries.emplace(newId, q);
+
+    // Make a copy of the query.
+    std::vector<uint8_t> tmp(query.base(), query.base() + query.size());
+    Query q = {.newId = static_cast<uint16_t>(newId), .query = std::move(tmp)};
+
+    const auto [it, inserted] = mQueries.try_emplace(newId, q);
     if (!inserted) {
         LOG(ERROR) << "Failed to store pending query";
         return nullptr;
@@ -137,7 +139,7 @@ void DnsTlsQueryMap::onResponse(std::vector<uint8_t> response) {
     }
     Result r = { .code = Response::success, .response = std::move(response) };
     // Rewrite ID to match the query
-    const uint8_t* data = it->second.query.query.base();
+    const uint8_t* data = it->second.query.query.data();
     r.response[0] = data[0];
     r.response[1] = data[1];
     LOG(DEBUG) << "Sending result to dispatcher";

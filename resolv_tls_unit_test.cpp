@@ -887,9 +887,9 @@ TEST(QueryMapTest, Basic) {
     EXPECT_EQ(1, all[1].newId);
     EXPECT_EQ(2, all[2].newId);
 
-    EXPECT_EQ(makeSlice(q0), all[0].query);
-    EXPECT_EQ(makeSlice(q1), all[1].query);
-    EXPECT_EQ(makeSlice(q2), all[2].query);
+    EXPECT_EQ(q0, all[0].query);
+    EXPECT_EQ(q1, all[1].query);
+    EXPECT_EQ(q2, all[2].query);
 
     bytevec a0 = make_query(0, SIZE);
     bytevec a1 = make_query(1, SIZE);
