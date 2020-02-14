@@ -40,7 +40,7 @@ class DnsTlsQueryMap {
         // The new ID number assigned to this query.
         uint16_t newId;
         // A query that has been passed to recordQuery(), with its original ID number.
-        const netdutils::Slice query;
+        const std::vector<uint8_t> query;
     };
 
     struct Result {
