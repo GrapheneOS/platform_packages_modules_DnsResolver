@@ -430,7 +430,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         // data so the normal resolve path can do its thing
         resolv_populate_res_for_net(statp);
     }
-    if (statp->nscount == 0) {
+    if (statp->nameserverCount() == 0) {
         // We have no nameservers configured, so there's no point trying.
         // Tell the cache the query failed, or any retries and anyone else asking the same
         // question will block for PENDING_REQUEST_TIMEOUT seconds instead of failing fast.
@@ -470,14 +470,14 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     }
     bool usable_servers[MAXNS];
     int usableServersCount = android_net_res_stats_get_usable_servers(
-            &params, stats, statp->nscount, usable_servers);
+            &params, stats, statp->nameserverCount(), usable_servers);
 
     if ((flags & ANDROID_RESOLV_NO_RETRY) && usableServersCount > 1) {
         auto hp = reinterpret_cast<const HEADER*>(buf);
 
         // Select a random server based on the query id
         int selectedServer = (hp->id % usableServersCount) + 1;
-        res_set_usable_server(selectedServer, statp->nscount, usable_servers);
+        res_set_usable_server(selectedServer, statp->nameserverCount(), usable_servers);
     }
 
     // Send request, RETRY times, or until successful.
@@ -587,7 +587,7 @@ static struct timespec get_timeout(res_state statp, const res_params* params, co
     // This has no effect with 1 or 2 nameservers
     msec = params->base_timeout_msec << ns;
     if (ns > 0) {
-        msec /= statp->nscount;
+        msec /= statp->nameserverCount();
     }
     // For safety, don't allow OEMs and experiments to configure a timeout shorter than 1s.
     if (msec < 1000) {
