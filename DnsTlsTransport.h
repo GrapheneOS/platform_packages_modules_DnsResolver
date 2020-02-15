@@ -86,7 +86,7 @@ class DnsTlsTransport : public IDnsTlsSocketObserver {
     std::unique_ptr<IDnsTlsSocket> mSocket GUARDED_BY(mLock);
 
     // Send a query to the socket.
-    bool sendQuery(const DnsTlsQueryMap::Query q) REQUIRES(mLock);
+    bool sendQuery(const DnsTlsQueryMap::Query& q) REQUIRES(mLock);
 
     // The number of times an attempt to connect the nameserver.
     int mConnectCounter GUARDED_BY(mLock) = 0;
