@@ -78,7 +78,8 @@ DnsResolverService::DnsResolverService() {
 binder_status_t DnsResolverService::start() {
     // TODO: Add disableBackgroundScheduling(true) after libbinder_ndk support it. b/126506010
     // NetdNativeService does call disableBackgroundScheduling currently, so it is fine now.
-    DnsResolverService* resolverService = new DnsResolverService();
+    std::shared_ptr<DnsResolverService> resolverService =
+            ::ndk::SharedRefBase::make<DnsResolverService>();
     binder_status_t status =
             AServiceManager_addService(resolverService->asBinder().get(), getServiceName());
     if (status != STATUS_OK) {
