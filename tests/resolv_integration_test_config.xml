@@ -1,0 +1,15 @@
+<configuration description="Configuration for resolv integration tests">
+   <option name="test-suite-tag" value="mts" />
+   <target_preparer class="com.android.compatibility.common.tradefed.targetprep.FilePusher">
+       <option name="cleanup" value="true" />
+       <option name="push" value="resolv_integration_test->/data/local/tmp/resolv_integration_test" />
+       <option name="append-bitness" value="true" />
+   </target_preparer>
+   <test class="com.android.tradefed.testtype.GTest" >
+       <option name="native-test-device-path" value="/data/local/tmp" />
+       <option name="module-name" value="resolv_integration_test" />
+       <option name="runtime-hint" value="10m" />
+       <!-- test-timeout unit is ms, value = 10 min -->
+       <option name="native-test-timeout" value="600000" />
+   </test>
+</configuration>
