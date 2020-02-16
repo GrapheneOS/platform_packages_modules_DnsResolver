@@ -100,6 +100,7 @@ cc_test {
     name: "resolv_integration_test",
     test_suites: ["device-tests", "mts"],
     require_root: true,
+    test_config: "resolv_integration_test_config.xml",
     defaults: ["netd_defaults"],
     tidy: false, // cuts test build time by > 1m30s
     srcs: [
