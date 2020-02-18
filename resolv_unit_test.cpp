@@ -641,6 +641,179 @@ TEST_F(ResolvGetAddrInfoTest, ServerResponseError) {
 // TODO: Add private DNS server timeout test.
 TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
     constexpr char host_name[] = "hello.example.com.";
+    // Following fields will not be verified during the test in proto NetworkDnsEventReported.
+    // So don't need to config those values: event_type, return_code, latency_micros,
+    // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+    // Expected_event is 16 DNS queries and only "type" and "retry_times" fields are changed.
+    // 2(T_AAAA + T_A) * 2(w/ retry) * 2(query w/ and w/o domain) * 2(SOCK_DGRAM and SOCK_STREAM)
+    constexpr char expected_event[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 255,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 1,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+               ]
+             }
+        })Event";
     test::DNSResponder dns(static_cast<ns_rcode>(-1) /*no response*/);
     dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
     dns.setResponseProbability(0.0);  // always ignore requests and don't response
@@ -651,6 +824,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
     const addrinfo hints = {.ai_family = AF_UNSPEC};
     NetworkDnsEventReported event;
     int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &result, &event);
+    EXPECT_THAT(event, NetworkDnsEventEq(fromNetworkDnsEventReportedStr(expected_event)));
     EXPECT_EQ(NETD_RESOLV_TIMEOUT, rv);
 }
 
@@ -807,6 +981,128 @@ TEST_F(ResolvGetAddrInfoTest, MultiAnswerSections) {
                                 {"1.2.3.1", "1.2.3.2", "2001:db8::41", "2001:db8::42"}));
         }
         dns.clearQueries();
+    }
+}
+
+TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
+    // Following fields will not be verified during the test in proto NetworkDnsEventReported.
+    // So don't need to config those values: event_type, return_code, latency_micros,
+    // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+    constexpr char event_ipv4[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 254,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 2,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 2,
+                 ip_version: 0,
+                 protocol: 0,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+               ]
+             }
+        })Event";
+
+    constexpr char event_ipv6[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 254,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 1,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 2,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 2,
+                 ip_version: 0,
+                 protocol: 0,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                }
+               ]
+             }
+        })Event";
+
+    test::DNSResponder dns;
+    dns.addMapping(kHelloExampleCom, ns_type::ns_t_cname, kCnameA);
+    dns.addMapping(kCnameA, ns_type::ns_t_cname, kCnameB);
+    dns.addMapping(kCnameB, ns_type::ns_t_cname, kCnameC);
+    dns.addMapping(kCnameC, ns_type::ns_t_cname, kCnameD);
+    dns.addMapping(kCnameD, ns_type::ns_t_a, kHelloExampleComAddrV4);
+    dns.addMapping(kCnameD, ns_type::ns_t_aaaa, kHelloExampleComAddrV6);
+    ASSERT_TRUE(dns.startServer());
+    ASSERT_EQ(0, SetResolvers());
+
+    static const struct TestConfig {
+        int ai_family;
+        const std::string expected_addr;
+        const std::string expected_event;
+    } testConfigs[]{
+            {AF_INET, kHelloExampleComAddrV4, event_ipv4},
+            {AF_INET6, kHelloExampleComAddrV6, event_ipv6},
+    };
+
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+        dns.clearQueries();
+
+        addrinfo* result = nullptr;
+        const addrinfo hints = {.ai_family = config.ai_family};
+        NetworkDnsEventReported event;
+        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &result, &event);
+        EXPECT_THAT(event,
+                    NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
+        ScopedAddrinfo result_cleanup(result);
+        EXPECT_EQ(rv, 0);
+        EXPECT_TRUE(result != nullptr);
+        // Expect UDP response is truncated. The resolver retries over TCP. See RFC 1035
+        // section 4.2.1.
+        EXPECT_EQ(GetNumQueriesForProtocol(dns, IPPROTO_UDP, kHelloExampleCom), 1U);
+        EXPECT_EQ(GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom), 1U);
+        EXPECT_EQ(ToString(result), config.expected_addr);
     }
 }
 
