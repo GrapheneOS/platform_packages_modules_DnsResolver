@@ -55,6 +55,8 @@
 #include <string>
 #include <vector>
 
+#include <netdutils/InternetAddresses.h>
+
 #include "DnsResolver.h"
 #include "netd_resolv/resolv.h"
 #include "params.h"
@@ -102,7 +104,7 @@ struct ResState {
     int nscount;                                // number of name srvers
     uint16_t id;                                // current message id
     std::vector<std::string> search_domains{};  // domains to search
-    sockaddr_union nsaddrs[MAXNS];
+    std::vector<android::netdutils::IPSockAddr> nsaddrs;
     android::base::unique_fd nssocks[MAXNS];    // UDP sockets to nameservers
     unsigned ndots : 4;                         // threshold for initial abs. query
     unsigned _mark;                             // If non-0 SET_MARK to _mark on all request sockets
@@ -125,7 +127,8 @@ int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stat
 /* Add a sample to the shared struct for the given netid and server, provided that the
  * revision_id of the stored servers has not changed.
  */
-void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, const sockaddr* sa,
+void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id,
+                                            const android::netdutils::IPSockAddr& serverSockAddr,
                                             const res_sample& sample, int max_samples);
 
 // Calculate the round-trip-time from start time t0 and end time t1.

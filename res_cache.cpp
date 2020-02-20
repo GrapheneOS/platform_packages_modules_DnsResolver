@@ -1671,21 +1671,8 @@ void resolv_populate_res_for_net(ResState* statp) {
     NetConfig* info = find_netconfig_locked(statp->netid);
     if (info == nullptr) return;
 
-    // TODO: Convert nsaddrs[] to c++ container and remove the size-checking.
-    const int serverNum = std::min(MAXNS, static_cast<int>(info->nameserverSockAddrs.size()));
-
-    for (int nserv = 0; nserv < serverNum; nserv++) {
-        sockaddr_storage ss = info->nameserverSockAddrs.at(nserv);
-
-        if (auto sockaddr_len = sockaddrSize(ss); sockaddr_len != 0) {
-            memcpy(&statp->nsaddrs[nserv], &ss, sockaddr_len);
-        } else {
-            LOG(WARNING) << __func__ << ": can't get sa_len from "
-                         << info->nameserverSockAddrs.at(nserv);
-        }
-    }
-
-    statp->nscount = serverNum;
+    statp->nscount = static_cast<int>(info->nameserverSockAddrs.size());
+    statp->nsaddrs = info->nameserverSockAddrs;
     statp->search_domains = info->search_domains;
     statp->tc_mode = info->tc_mode;
 }
@@ -1811,18 +1798,18 @@ int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stat
     return -1;
 }
 
-void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, const sockaddr* sa,
+void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id,
+                                            const IPSockAddr& serverSockAddr,
                                             const res_sample& sample, int max_samples) {
-    if (max_samples <= 0 || sa == nullptr) return;
+    if (max_samples <= 0) return;
 
     std::lock_guard guard(cache_mutex);
     NetConfig* info = find_netconfig_locked(netid);
 
     if (info && info->revision_id == revision_id) {
         const int serverNum = std::min(MAXNS, static_cast<int>(info->nameserverSockAddrs.size()));
-        const IPSockAddr ipsa = IPSockAddr::toIPSockAddr(*sa);
         for (int ns = 0; ns < serverNum; ns++) {
-            if (ipsa == info->nameserverSockAddrs.at(ns)) {
+            if (serverSockAddr == info->nameserverSockAddrs[ns]) {
                 res_cache_add_stats_sample_locked(&info->nsstats[ns], sample, max_samples);
                 return;
             }
