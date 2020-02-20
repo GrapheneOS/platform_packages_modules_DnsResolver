@@ -94,11 +94,13 @@ struct ResState {
             sock.reset();
         }
     }
+
+    int nameserverCount() { return nsaddrs.size(); }
+
     // clang-format off
     unsigned netid;                             // NetId: cache key and socket mark
     uid_t uid;                                  // uid of the app that sent the DNS lookup
     pid_t pid;                                  // pid of the app that sent the DNS lookup
-    int nscount;                                // number of name srvers
     uint16_t id;                                // current message id
     std::vector<std::string> search_domains{};  // domains to search
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
