@@ -97,17 +97,8 @@ void res_init(ResState* statp, const struct android_net_context* _Nonnull netcon
     statp->netid = netcontext->dns_netid;
     statp->uid = netcontext->uid;
     statp->pid = netcontext->pid;
-    statp->nscount = 1;
+    statp->nscount = 0;
     statp->id = arc4random_uniform(65536);
-    // The following dummy initialization is probably useless because
-    // it's overwritten later by resolv_populate_res_for_net().
-    // TODO: check if it's safe to remove.
-    const sockaddr_union u{
-            .sin.sin_addr.s_addr = INADDR_ANY,
-            .sin.sin_family = AF_INET,
-            .sin.sin_port = htons(NAMESERVER_PORT),
-    };
-    memcpy(&statp->nsaddrs, &u, sizeof(u));
 
     for (auto& sock : statp->nssocks) {
         sock.reset();
