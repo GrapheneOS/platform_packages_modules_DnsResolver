@@ -1786,16 +1786,33 @@ uint32_t resolv_cache_get_subsampling_denom(unsigned netid, int return_code) {
     return denom;
 }
 
-int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stats stats[MAXNS]) {
+int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stats stats[MAXNS],
+                                    const std::vector<IPSockAddr>& serverSockAddrs) {
     std::lock_guard guard(cache_mutex);
     NetConfig* info = find_netconfig_locked(netid);
-    if (info) {
-        memcpy(stats, info->nsstats, sizeof(info->nsstats));
-        *params = info->params;
-        return info->revision_id;
+    if (!info) return -1;
+
+    for (size_t i = 0; i < serverSockAddrs.size(); i++) {
+        for (size_t j = 0; j < info->nameserverSockAddrs.size(); j++) {
+            // Should never happen. Just in case because of the fix-sized array |stats|.
+            if (j >= MAXNS) {
+                LOG(WARNING) << __func__ << ": unexpected size " << j;
+                return -1;
+            }
+
+            // It's possible that the server is not found, e.g. when a new list of nameservers
+            // is updated to the NetConfig just after this look up thread being populated.
+            // Keep the server valid as-is (by means of keeping stats[i] unset), but we should
+            // think about if there's a better way.
+            if (info->nameserverSockAddrs[j] == serverSockAddrs[i]) {
+                stats[i] = info->nsstats[j];
+                break;
+            }
+        }
     }
 
-    return -1;
+    *params = info->params;
+    return info->revision_id;
 }
 
 void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id,

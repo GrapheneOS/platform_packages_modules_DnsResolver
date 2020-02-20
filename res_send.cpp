@@ -460,9 +460,9 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         }
     }
 
-    res_stats stats[MAXNS];
+    res_stats stats[MAXNS]{};
     res_params params;
-    int revision_id = resolv_cache_get_resolver_stats(statp->netid, &params, stats);
+    int revision_id = resolv_cache_get_resolver_stats(statp->netid, &params, stats, statp->nsaddrs);
     if (revision_id < 0) {
         // TODO: Remove errno once callers stop using it
         errno = ESRCH;
