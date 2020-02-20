@@ -120,9 +120,11 @@ struct ResState {
 typedef ResState* res_state;
 
 /* Retrieve a local copy of the stats for the given netid. The buffer must have space for
- * MAXNS __resolver_stats. Returns the revision id of the resolvers used.
+ * MAXNS res_stats. Returns the revision id of the resolvers used or -1 on failure.
  */
-int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stats stats[MAXNS]);
+int resolv_cache_get_resolver_stats(
+        unsigned netid, res_params* params, res_stats stats[MAXNS],
+        const std::vector<android::netdutils::IPSockAddr>& serverSockAddrs);
 
 /* Add a sample to the shared struct for the given netid and server, provided that the
  * revision_id of the stored servers has not changed.
