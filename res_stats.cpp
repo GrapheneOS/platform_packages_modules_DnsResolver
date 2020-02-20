@@ -24,7 +24,7 @@
 #include "stats.h"
 
 // Calculate the round-trip-time from start time t0 and end time t1.
-int _res_stats_calculate_rtt(const timespec* t1, const timespec* t0) {
+int res_stats_calculate_rtt(const timespec* t1, const timespec* t0) {
     // Divide ns by one million to get ms, multiply s by thousand to get ms (obvious)
     long ms0 = t0->tv_sec * 1000 + t0->tv_nsec / 1000000;
     long ms1 = t1->tv_sec * 1000 + t1->tv_nsec / 1000000;
@@ -32,7 +32,7 @@ int _res_stats_calculate_rtt(const timespec* t1, const timespec* t0) {
 }
 
 // Create a sample for calculating server reachability statistics.
-void _res_stats_set_sample(res_sample* sample, time_t now, int rcode, int rtt) {
+void res_stats_set_sample(res_sample* sample, time_t now, int rcode, int rtt) {
     LOG(INFO) << __func__ << ": rcode = " << rcode << ", sec = " << rtt;
     sample->at = now;
     sample->rcode = rcode;

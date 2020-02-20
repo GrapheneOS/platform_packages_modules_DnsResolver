@@ -55,12 +55,9 @@
 #include <string>
 #include <vector>
 
-#include <netdutils/InternetAddresses.h>
-
 #include "DnsResolver.h"
 #include "netd_resolv/resolv.h"
 #include "params.h"
-#include "stats.h"
 #include "stats.pb.h"
 
 // Linux defines MAXHOSTNAMELEN as 64, while the domain name limit in
@@ -118,26 +115,6 @@ struct ResState {
 
 // TODO: remove these legacy aliases
 typedef ResState* res_state;
-
-/* Retrieve a local copy of the stats for the given netid. The buffer must have space for
- * MAXNS res_stats. Returns the revision id of the resolvers used or -1 on failure.
- */
-int resolv_cache_get_resolver_stats(
-        unsigned netid, res_params* params, res_stats stats[MAXNS],
-        const std::vector<android::netdutils::IPSockAddr>& serverSockAddrs);
-
-/* Add a sample to the shared struct for the given netid and server, provided that the
- * revision_id of the stored servers has not changed.
- */
-void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id,
-                                            const android::netdutils::IPSockAddr& serverSockAddr,
-                                            const res_sample& sample, int max_samples);
-
-// Calculate the round-trip-time from start time t0 and end time t1.
-int _res_stats_calculate_rtt(const timespec* t1, const timespec* t0);
-
-// Create a sample for calculating server reachability statistics.
-void _res_stats_set_sample(res_sample* sample, time_t now, int rcode, int rtt);
 
 /* End of stats related definitions */
 
