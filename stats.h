@@ -55,3 +55,9 @@ int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
 // Returns an array of bools indicating which servers are considered good
 int android_net_res_stats_get_usable_servers(const res_params* params, res_stats stats[],
                                              int nscount, bool valid_servers[]);
+
+// Calculate the round-trip-time from start time t0 and end time t1.
+int res_stats_calculate_rtt(const timespec* t1, const timespec* t0);
+
+// Create a sample for calculating server reachability statistics.
+void res_stats_set_sample(res_sample* sample, time_t now, int rcode, int rtt);

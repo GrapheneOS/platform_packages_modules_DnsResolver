@@ -984,9 +984,10 @@ struct NetConfig {
         dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
     }
 
+    int nameserverCount() { return nameserverSockAddrs.size(); }
+
     const unsigned netid;
     std::unique_ptr<Cache> cache;
-    int nscount = 0;
     std::vector<std::string> nameservers;
     std::vector<IPSockAddr> nameserverSockAddrs;
     int revision_id = 0;  // # times the nameservers have been replaced
@@ -1442,7 +1443,7 @@ static void res_cache_clear_stats_locked(NetConfig* netconfig);
 bool resolv_has_nameservers(unsigned netid) {
     std::lock_guard guard(cache_mutex);
     NetConfig* info = find_netconfig_locked(netid);
-    return (info != nullptr) && (info->nscount > 0);
+    return (info != nullptr) && (info->nameserverCount() > 0);
 }
 
 int resolv_create_cache_for_net(unsigned netid) {
@@ -1603,7 +1604,6 @@ int resolv_set_nameservers(
                       << ", addr = " << netconfig->nameservers[i];
         }
         netconfig->nameserverSockAddrs = std::move(ipSockAddrs);
-        netconfig->nscount = numservers;
     } else {
         if (netconfig->params.max_samples != old_max_samples) {
             // If the maximum number of samples changes, the overhead of keeping the most recent
@@ -1655,7 +1655,6 @@ static bool resolv_is_nameservers_equal(const std::vector<std::string>& oldServe
 }
 
 static void free_nameservers_locked(NetConfig* netconfig) {
-    netconfig->nscount = 0;
     netconfig->nameservers.clear();
     netconfig->nameserverSockAddrs.clear();
     res_cache_clear_stats_locked(netconfig);
@@ -1671,21 +1670,7 @@ void resolv_populate_res_for_net(ResState* statp) {
     NetConfig* info = find_netconfig_locked(statp->netid);
     if (info == nullptr) return;
 
-    // TODO: Convert nsaddrs[] to c++ container and remove the size-checking.
-    const int serverNum = std::min(MAXNS, static_cast<int>(info->nameserverSockAddrs.size()));
-
-    for (int nserv = 0; nserv < serverNum; nserv++) {
-        sockaddr_storage ss = info->nameserverSockAddrs.at(nserv);
-
-        if (auto sockaddr_len = sockaddrSize(ss); sockaddr_len != 0) {
-            memcpy(&statp->nsaddrs[nserv], &ss, sockaddr_len);
-        } else {
-            LOG(WARNING) << __func__ << ": can't get sa_len from "
-                         << info->nameserverSockAddrs.at(nserv);
-        }
-    }
-
-    statp->nscount = serverNum;
+    statp->nsaddrs = info->nameserverSockAddrs;
     statp->search_domains = info->search_domains;
     statp->tc_mode = info->tc_mode;
 }
@@ -1725,42 +1710,32 @@ int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
                                            char domains[MAXDNSRCH][MAXDNSRCHPATH],
                                            res_params* params, struct res_stats stats[MAXNS],
                                            int* wait_for_pending_req_timeout_count) {
-    int revision_id = -1;
     std::lock_guard guard(cache_mutex);
-
     NetConfig* info = find_netconfig_locked(netid);
-    if (info) {
-        if (info->nscount > MAXNS) {
-            LOG(INFO) << __func__ << ": nscount " << info->nscount << " > MAXNS " << MAXNS;
-            errno = EFAULT;
-            return -1;
-        }
-        int i;
-        *nscount = info->nscount;
+    if (!info) return -1;
 
-        // It shouldn't happen, but just in case of buffer overflow.
-        if (info->nscount != static_cast<int>(info->nameserverSockAddrs.size())) {
-            LOG(INFO) << __func__ << ": nscount " << info->nscount
-                      << " != " << info->nameserverSockAddrs.size();
-            errno = EFAULT;
-            return -1;
-        }
-
-        for (i = 0; i < info->nscount; i++) {
-            servers[i] = info->nameserverSockAddrs.at(i);
-            stats[i] = info->nsstats[i];
-        }
-
-        for (i = 0; i < static_cast<int>(info->search_domains.size()); i++) {
-            strlcpy(domains[i], info->search_domains[i].c_str(), MAXDNSRCHPATH);
-        }
-        *dcount = i;
-        *params = info->params;
-        revision_id = info->revision_id;
-        *wait_for_pending_req_timeout_count = info->wait_for_pending_req_timeout_count;
+    const int num = info->nameserverCount();
+    if (num > MAXNS) {
+        LOG(INFO) << __func__ << ": nscount " << num << " > MAXNS " << MAXNS;
+        errno = EFAULT;
+        return -1;
     }
 
-    return revision_id;
+    for (int i = 0; i < num; i++) {
+        servers[i] = info->nameserverSockAddrs[i];
+        stats[i] = info->nsstats[i];
+    }
+
+    for (size_t i = 0; i < info->search_domains.size(); i++) {
+        strlcpy(domains[i], info->search_domains[i].c_str(), MAXDNSRCHPATH);
+    }
+
+    *nscount = num;
+    *dcount = static_cast<int>(info->search_domains.size());
+    *params = info->params;
+    *wait_for_pending_req_timeout_count = info->wait_for_pending_req_timeout_count;
+
+    return info->revision_id;
 }
 
 std::vector<std::string> resolv_cache_dump_subsampling_map(unsigned netid) {
@@ -1799,30 +1774,47 @@ uint32_t resolv_cache_get_subsampling_denom(unsigned netid, int return_code) {
     return denom;
 }
 
-int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stats stats[MAXNS]) {
+int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stats stats[MAXNS],
+                                    const std::vector<IPSockAddr>& serverSockAddrs) {
     std::lock_guard guard(cache_mutex);
     NetConfig* info = find_netconfig_locked(netid);
-    if (info) {
-        memcpy(stats, info->nsstats, sizeof(info->nsstats));
-        *params = info->params;
-        return info->revision_id;
+    if (!info) return -1;
+
+    for (size_t i = 0; i < serverSockAddrs.size(); i++) {
+        for (size_t j = 0; j < info->nameserverSockAddrs.size(); j++) {
+            // Should never happen. Just in case because of the fix-sized array |stats|.
+            if (j >= MAXNS) {
+                LOG(WARNING) << __func__ << ": unexpected size " << j;
+                return -1;
+            }
+
+            // It's possible that the server is not found, e.g. when a new list of nameservers
+            // is updated to the NetConfig just after this look up thread being populated.
+            // Keep the server valid as-is (by means of keeping stats[i] unset), but we should
+            // think about if there's a better way.
+            if (info->nameserverSockAddrs[j] == serverSockAddrs[i]) {
+                stats[i] = info->nsstats[j];
+                break;
+            }
+        }
     }
 
-    return -1;
+    *params = info->params;
+    return info->revision_id;
 }
 
-void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id, const sockaddr* sa,
+void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id,
+                                            const IPSockAddr& serverSockAddr,
                                             const res_sample& sample, int max_samples) {
-    if (max_samples <= 0 || sa == nullptr) return;
+    if (max_samples <= 0) return;
 
     std::lock_guard guard(cache_mutex);
     NetConfig* info = find_netconfig_locked(netid);
 
     if (info && info->revision_id == revision_id) {
         const int serverNum = std::min(MAXNS, static_cast<int>(info->nameserverSockAddrs.size()));
-        const IPSockAddr ipsa = IPSockAddr::toIPSockAddr(*sa);
         for (int ns = 0; ns < serverNum; ns++) {
-            if (ipsa == info->nameserverSockAddrs.at(ns)) {
+            if (serverSockAddr == info->nameserverSockAddrs[ns]) {
                 res_cache_add_stats_sample_locked(&info->nsstats[ns], sample, max_samples);
                 return;
             }

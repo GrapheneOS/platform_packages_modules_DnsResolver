@@ -38,6 +38,8 @@
 
 using namespace std::chrono_literals;
 
+using android::netdutils::IPSockAddr;
+
 constexpr int TEST_NETID = 30;
 constexpr int TEST_NETID_2 = 31;
 constexpr int DNS_PORT = 53;
@@ -190,9 +192,9 @@ class ResolvCacheTest : public ::testing::Test {
         return resolv_set_nameservers(netId, setup.servers, setup.domains, setup.params);
     }
 
-    void cacheAddStats(uint32_t netId, int revision_id, const sockaddr* sa,
+    void cacheAddStats(uint32_t netId, int revision_id, const IPSockAddr& ipsa,
                        const res_sample& sample, int max_samples) {
-        resolv_cache_add_resolver_stats_sample(netId, revision_id, sa, sample, max_samples);
+        resolv_cache_add_resolver_stats_sample(netId, revision_id, ipsa, sample, max_samples);
     }
 
     int cacheFlush(uint32_t netId) { return resolv_flush_cache_for_net(netId); }
@@ -735,8 +737,7 @@ TEST_F(ResolvCacheTest, FlushCache) {
     res_sample sample = {.at = time(NULL), .rtt = 100, .rcode = ns_r_noerror};
     sockaddr_in sin = {.sin_family = AF_INET, .sin_port = htons(DNS_PORT)};
     ASSERT_TRUE(inet_pton(AF_INET, setup.servers[0].c_str(), &sin.sin_addr));
-    cacheAddStats(TEST_NETID, 1 /*revision_id*/, (const sockaddr*)&sin, sample,
-                  setup.params.max_samples);
+    cacheAddStats(TEST_NETID, 1 /*revision_id*/, IPSockAddr(sin), sample, setup.params.max_samples);
 
     const CacheStats cacheStats = {
             .setup = setup,
