@@ -15,6 +15,7 @@
 
 apex {
     name: "com.android.resolv",
+    updatable: true,
     manifest: "manifest.json",
     multilib: {
         first: {
