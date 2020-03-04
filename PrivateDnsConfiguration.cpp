@@ -102,6 +102,10 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         mPrivateDnsTransports.erase(netId);
         resolv_stats_set_servers_for_dot(netId, {});
         mPrivateDnsValidateThreads.erase(netId);
+        // TODO: As mPrivateDnsValidateThreads is reset, validation threads which haven't yet
+        // finished are considered outdated. Consider signaling the outdated validation threads to
+        // stop them from updating the state of PrivateDnsConfiguration (possibly disallow them to
+        // report onPrivateDnsValidationEvent).
         return 0;
     }
 
