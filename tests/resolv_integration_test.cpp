@@ -115,6 +115,33 @@ std::pair<ScopedAddrinfo, int> safe_getaddrinfo_time_taken(const char* node, con
     return {std::move(result), s.timeTakenUs() / 1000};
 }
 
+struct NameserverStats {
+    NameserverStats() = delete;
+    NameserverStats(const std::string server) : server(server) {}
+    NameserverStats& setSuccesses(int val) {
+        successes = val;
+        return *this;
+    }
+    NameserverStats& setErrors(int val) {
+        errors = val;
+        return *this;
+    }
+    NameserverStats& setTimeouts(int val) {
+        timeouts = val;
+        return *this;
+    }
+    NameserverStats& setInternalErrors(int val) {
+        internal_errors = val;
+        return *this;
+    }
+
+    const std::string server;
+    int successes = 0;
+    int errors = 0;
+    int timeouts = 0;
+    int internal_errors = 0;
+};
+
 }  // namespace
 
 class ResolverTest : public ::testing::Test {
@@ -188,6 +215,54 @@ class ResolverTest : public ::testing::Test {
 
     bool WaitForPrivateDnsValidation(std::string serverAddr, bool validated) {
         return sDnsMetricsListener->waitForPrivateDnsValidation(serverAddr, validated);
+    }
+
+    bool expectStatsFromGetResolverInfo(const std::vector<NameserverStats>& nameserversStats) {
+        std::vector<std::string> res_servers;
+        std::vector<std::string> res_domains;
+        std::vector<std::string> res_tls_servers;
+        res_params res_params;
+        std::vector<ResolverStats> res_stats;
+        int wait_for_pending_req_timeout_count;
+
+        if (!DnsResponderClient::GetResolverInfo(mDnsClient.resolvService(), TEST_NETID,
+                                                 &res_servers, &res_domains, &res_tls_servers,
+                                                 &res_params, &res_stats,
+                                                 &wait_for_pending_req_timeout_count)) {
+            ADD_FAILURE() << "GetResolverInfo failed";
+            return false;
+        }
+
+        if (res_servers.size() != res_stats.size()) {
+            ADD_FAILURE() << fmt::format("res_servers.size() != res_stats.size(): {} != {}",
+                                         res_servers.size(), res_stats.size());
+            return false;
+        }
+        if (res_servers.size() != nameserversStats.size()) {
+            ADD_FAILURE() << fmt::format("res_servers.size() != nameserversStats.size(): {} != {}",
+                                         res_servers.size(), nameserversStats.size());
+            return false;
+        }
+
+        for (const auto& stats : nameserversStats) {
+            SCOPED_TRACE(stats.server);
+            const auto it = std::find(res_servers.begin(), res_servers.end(), stats.server);
+            if (it == res_servers.end()) {
+                ADD_FAILURE() << fmt::format("nameserver {} not found in the list {{{}}}",
+                                             stats.server, fmt::join(res_servers, ", "));
+                return false;
+            }
+            const int index = std::distance(res_servers.begin(), it);
+
+            // The check excludes rtt_avg, last_sample_time, and usable since they will be obsolete
+            // after |res_stats| is retrieved from NetConfig.dnsStats rather than NetConfig.nsstats.
+            EXPECT_EQ(res_stats[index].successes, stats.successes);
+            EXPECT_EQ(res_stats[index].errors, stats.errors);
+            EXPECT_EQ(res_stats[index].timeouts, stats.timeouts);
+            EXPECT_EQ(res_stats[index].internal_errors, stats.internal_errors);
+        }
+
+        return true;
     }
 
     DnsResponderClient mDnsClient;
@@ -941,23 +1016,12 @@ TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
         EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
     }
 
-    std::vector<std::string> res_servers;
-    std::vector<std::string> res_domains;
-    std::vector<std::string> res_tls_servers;
-    res_params res_params;
-    std::vector<ResolverStats> res_stats;
-    int wait_for_pending_req_timeout_count;
-    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
-            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
-            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
-
-    // Verify the result by means of the statistics.
-    EXPECT_EQ(res_stats[0].successes, 0);
-    EXPECT_EQ(res_stats[1].successes, 0);
-    EXPECT_EQ(res_stats[2].successes, 5);
-    EXPECT_EQ(res_stats[0].internal_errors, 2);
-    EXPECT_EQ(res_stats[1].internal_errors, 2);
-    EXPECT_EQ(res_stats[2].internal_errors, 0);
+    const std::vector<NameserverStats> expectedCleartextDnsStats = {
+            NameserverStats(listen_addr1).setInternalErrors(2),
+            NameserverStats(listen_addr2).setInternalErrors(2),
+            NameserverStats(listen_addr3).setSuccesses(5),
+    };
+    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
 }
 
 TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
@@ -987,21 +1051,11 @@ TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
         EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
     }
 
-    std::vector<std::string> res_servers;
-    std::vector<std::string> res_domains;
-    std::vector<std::string> res_tls_servers;
-    res_params res_params;
-    std::vector<ResolverStats> res_stats;
-    int wait_for_pending_req_timeout_count;
-    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
-            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
-            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
-
-    // Verify the result by means of the statistics as well as the query counts.
-    EXPECT_EQ(res_stats[0].successes, 0);
-    EXPECT_EQ(res_stats[1].successes, 5);
-    EXPECT_EQ(res_stats[0].timeouts, 2);
-    EXPECT_EQ(res_stats[1].timeouts, 0);
+    const std::vector<NameserverStats> expectedCleartextDnsStats = {
+            NameserverStats(listen_addr1).setTimeouts(2),
+            NameserverStats(listen_addr2).setSuccesses(5),
+    };
+    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
     EXPECT_EQ(dns1.queries().size(), 2U);
     EXPECT_EQ(dns2.queries().size(), 5U);
 }
@@ -1384,19 +1438,12 @@ TEST_F(ResolverTest, ResolverStats) {
     std::string result_str = ToString(result);
     EXPECT_TRUE(result_str == "1.2.3.4") << ", result_str='" << result_str << "'";
 
-    std::vector<std::string> res_servers;
-    std::vector<std::string> res_domains;
-    std::vector<std::string> res_tls_servers;
-    res_params res_params;
-    std::vector<ResolverStats> res_stats;
-    int wait_for_pending_req_timeout_count;
-    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
-            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
-            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
-
-    EXPECT_EQ(1, res_stats[0].timeouts);
-    EXPECT_EQ(1, res_stats[1].errors);
-    EXPECT_EQ(1, res_stats[2].successes);
+    const std::vector<NameserverStats> expectedCleartextDnsStats = {
+            NameserverStats(listen_addr1).setTimeouts(1),
+            NameserverStats(listen_addr2).setErrors(1),
+            NameserverStats(listen_addr3).setSuccesses(1),
+    };
+    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
 }
 
 TEST_F(ResolverTest, AlwaysUseLatestSetupParamsInLookups) {
@@ -1449,25 +1496,12 @@ TEST_F(ResolverTest, AlwaysUseLatestSetupParamsInLookups) {
     EXPECT_EQ(0U, GetNumQueriesForType(dns3, ns_type::ns_t_aaaa, fqdn_with_search_domain));
     EXPECT_EQ(1U, GetNumQueriesForType(dns3, ns_type::ns_t_a, fqdn_with_search_domain));
 
-    std::vector<std::string> res_servers;
-    std::vector<std::string> res_domains;
-    std::vector<std::string> res_tls_servers;
-    res_params res_params;
-    std::vector<ResolverStats> res_stats;
-    int wait_for_pending_req_timeout_count;
-    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
-            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
-            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
-    EXPECT_EQ(res_stats[0].successes, 1);
-    EXPECT_EQ(res_stats[0].timeouts, 0);
-    EXPECT_EQ(res_stats[0].internal_errors, 0);
-    EXPECT_EQ(res_stats[1].successes, 0);
-    EXPECT_EQ(res_stats[1].timeouts, 0);
-    EXPECT_EQ(res_stats[1].internal_errors, 0);
-    EXPECT_EQ(res_stats[2].successes, 0);
-    EXPECT_EQ(res_stats[2].timeouts, 0);
-    EXPECT_EQ(res_stats[2].internal_errors, 0);
-    EXPECT_EQ(res_servers, parcel.servers);
+    const std::vector<NameserverStats> expectedCleartextDnsStats = {
+            NameserverStats(listen_addr1),
+            NameserverStats(listen_addr2),
+            NameserverStats(listen_addr3).setSuccesses(1),
+    };
+    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
 }
 
 // Test what happens if the specified TLS server is nonexistent.
