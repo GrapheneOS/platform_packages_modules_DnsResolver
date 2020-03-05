@@ -2486,10 +2486,21 @@ TEST_F(ResolverTest, BrokenEdns) {
     typedef test::DNSResponder::Edns Edns;
     enum ExpectResult { EXPECT_FAILURE, EXPECT_SUCCESS };
 
+    // Perform cleartext query in off mode.
     const char OFF[] = "off";
+
+    // Perform cleartext query when there's no private DNS server validated in opportunistic mode.
     const char OPPORTUNISTIC_UDP[] = "opportunistic_udp";
+
+    // Perform cleartext query when there is a private DNS server validated in opportunistic mode.
+    const char OPPORTUNISTIC_FALLBACK_UDP[] = "opportunistic_fallback_udp";
+
+    // Perform cyphertext query in opportunistic mode.
     const char OPPORTUNISTIC_TLS[] = "opportunistic_tls";
+
+    // Perform cyphertext query in strict mode.
     const char STRICT[] = "strict";
+
     const char GETHOSTBYNAME[] = "gethostbyname";
     const char GETADDRINFO[] = "getaddrinfo";
     const char ADDR4[] = "192.0.2.1";
@@ -2497,6 +2508,9 @@ TEST_F(ResolverTest, BrokenEdns) {
     const char CLEARTEXT_PORT[] = "53";
     const char TLS_PORT[] = "853";
     const std::vector<std::string> servers = {CLEARTEXT_ADDR};
+    ResolverParamsParcel paramsForCleanup = DnsResponderClient::GetDefaultResolverParamsParcel();
+    paramsForCleanup.servers.clear();
+    paramsForCleanup.tlsServers.clear();
 
     test::DNSResponder dns(CLEARTEXT_ADDR, CLEARTEXT_PORT, ns_rcode::ns_r_servfail);
     ASSERT_TRUE(dns.startServer());
@@ -2529,33 +2543,47 @@ TEST_F(ResolverTest, BrokenEdns) {
             return StringPrintf("%s.%s.%s.", mode.c_str(), method.c_str(), ednsString);
         }
     } testConfigs[] = {
-            // In OPPORTUNISTIC_TLS, we get no answer if the DNS server supports TLS but not EDNS0.
-            // Could such server exist? if so, we might need to fallback to query cleartext DNS.
+            // In OPPORTUNISTIC_TLS, if the DNS server doesn't support EDNS0 but TLS, the lookup
+            // fails. Could such server exist? if so, we might need to fix it to fallback to
+            // cleartext query. If the server still make no response for the queries with EDNS0, we
+            // might also need to fix it to retry without EDNS0.
             // Another thing is that {OPPORTUNISTIC_TLS, Edns::DROP} and {STRICT, Edns::DROP} are
             // commented out since TLS timeout is not configurable.
             // TODO: Uncomment them after TLS timeout is configurable.
-            {OFF,               GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
-            {OPPORTUNISTIC_UDP, GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
-            {OPPORTUNISTIC_TLS, GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
-            {STRICT,            GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
-            {OFF,               GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
-            {OPPORTUNISTIC_UDP, GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
-            {OPPORTUNISTIC_TLS, GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
-            {STRICT,            GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
-            {OFF,               GETHOSTBYNAME, Edns::DROP,    EXPECT_SUCCESS},
-            {OPPORTUNISTIC_UDP, GETHOSTBYNAME, Edns::DROP,    EXPECT_SUCCESS},
-            //{OPPORTUNISTIC_TLS, GETHOSTBYNAME, Edns::DROP,    EXPECT_FAILURE},
-            //{STRICT,            GETHOSTBYNAME, Edns::DROP,    EXPECT_FAILURE},
-            {OFF,               GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
-            {OPPORTUNISTIC_UDP, GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
-            {OPPORTUNISTIC_TLS, GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
-            {STRICT,            GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
-            {OFF,               GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
-            {OPPORTUNISTIC_UDP, GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
-            {OPPORTUNISTIC_TLS, GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
-            {STRICT,            GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
-            {OFF,               GETADDRINFO,   Edns::DROP,    EXPECT_SUCCESS},
-            {OPPORTUNISTIC_UDP, GETADDRINFO,   Edns::DROP,    EXPECT_SUCCESS},
+            {OFF,                        GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
+            {OPPORTUNISTIC_UDP,          GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
+            {OPPORTUNISTIC_FALLBACK_UDP, GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
+            {OPPORTUNISTIC_TLS,          GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
+            {STRICT,                     GETHOSTBYNAME, Edns::ON,      EXPECT_SUCCESS},
+            {OFF,                        GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
+            {OPPORTUNISTIC_UDP,          GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
+            {OPPORTUNISTIC_FALLBACK_UDP, GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
+            {OPPORTUNISTIC_TLS,          GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
+            {STRICT,                     GETHOSTBYNAME, Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
+            {OFF,                        GETHOSTBYNAME, Edns::DROP,    EXPECT_SUCCESS},
+            {OPPORTUNISTIC_UDP,          GETHOSTBYNAME, Edns::DROP,    EXPECT_SUCCESS},
+
+            // The failure is due to no retry on timeout. Maybe fix it?
+            {OPPORTUNISTIC_FALLBACK_UDP, GETHOSTBYNAME, Edns::DROP,    EXPECT_FAILURE},
+
+            //{OPPORTUNISTIC_TLS,        GETHOSTBYNAME, Edns::DROP,    EXPECT_FAILURE},
+            //{STRICT,                   GETHOSTBYNAME, Edns::DROP,    EXPECT_FAILURE},
+            {OFF,                        GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
+            {OPPORTUNISTIC_UDP,          GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
+            {OPPORTUNISTIC_FALLBACK_UDP, GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
+            {OPPORTUNISTIC_TLS,          GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
+            {STRICT,                     GETADDRINFO,   Edns::ON,      EXPECT_SUCCESS},
+            {OFF,                        GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
+            {OPPORTUNISTIC_UDP,          GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
+            {OPPORTUNISTIC_FALLBACK_UDP, GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_SUCCESS},
+            {OPPORTUNISTIC_TLS,          GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
+            {STRICT,                     GETADDRINFO,   Edns::FORMERR_ON_EDNS, EXPECT_FAILURE},
+            {OFF,                        GETADDRINFO,   Edns::DROP,    EXPECT_SUCCESS},
+            {OPPORTUNISTIC_UDP,          GETADDRINFO,   Edns::DROP,    EXPECT_SUCCESS},
+
+            // The failure is due to no retry on timeout. Maybe fix it?
+            {OPPORTUNISTIC_FALLBACK_UDP, GETADDRINFO,   Edns::DROP,    EXPECT_FAILURE},
+
             //{OPPORTUNISTIC_TLS, GETADDRINFO,   Edns::DROP,   EXPECT_FAILURE},
             //{STRICT,            GETADDRINFO,   Edns::DROP,   EXPECT_FAILURE},
     };
@@ -2581,13 +2609,18 @@ TEST_F(ResolverTest, BrokenEdns) {
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
                                                        kDefaultParams, ""));
             EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), false));
-        } else if (config.mode == OPPORTUNISTIC_TLS) {
+        } else if (config.mode == OPPORTUNISTIC_TLS || config.mode == OPPORTUNISTIC_FALLBACK_UDP) {
             if (!tls.running()) {
                 ASSERT_TRUE(tls.startServer());
             }
             ASSERT_TRUE(mDnsClient.SetResolversWithTls(servers, kDefaultSearchDomains,
                                                        kDefaultParams, ""));
             EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+
+            if (config.mode == OPPORTUNISTIC_FALLBACK_UDP) {
+                // Force the resolver to fallback to cleartext queries.
+                ASSERT_TRUE(tls.stopServer());
+            }
         } else if (config.mode == STRICT) {
             if (!tls.running()) {
                 ASSERT_TRUE(tls.startServer());
@@ -2630,6 +2663,9 @@ TEST_F(ResolverTest, BrokenEdns) {
 
         tls.clearQueries();
         dns.clearQueries();
+
+        // Clear the setup to force the resolver to validate private DNS servers in every test.
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(paramsForCleanup));
     }
 }
 
