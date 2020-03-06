@@ -22,7 +22,7 @@ cc_library_static {
     defaults: ["netd_defaults"],
     proto: {
         export_proto_headers: true,
-        type: "full",
+        type: "lite",
     },
     srcs: [
         "golddata.proto",
@@ -34,7 +34,7 @@ cc_test {
     test_suites: ["device-tests", "mts"],
     require_root: true,
     defaults: ["netd_defaults"],
-    data: ["testdata/*.pbtxt"],
+    data: ["testdata/pb/*.pb"],
     srcs: [
         "resolv_gold_test.cpp",
     ],
@@ -44,7 +44,6 @@ cc_test {
     shared_libs: [
         "libbinder_ndk",
         "libcrypto",
-        "libprotobuf-cpp-full",
         "libssl",
     ],
     static_libs: [
@@ -57,6 +56,7 @@ cc_test {
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_resolv_utils",
         "libnetdutils",
+        "libprotobuf-cpp-lite",
         "netd_aidl_interface-ndk_platform",
         "netd_event_listener_interface-ndk_platform",
         "server_configurable_flags",
