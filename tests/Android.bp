@@ -16,6 +16,46 @@ cc_test_library {
     ],
 }
 
+cc_library_host_static {
+    name: "golddata_proto_host",
+    proto: {
+        export_proto_headers: true,
+        type: "full",
+    },
+    srcs: [
+        "golddata.proto",
+    ],
+}
+
+cc_binary_host {
+    name: "resolv_gold_test_pbtxt2pb_host",
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    srcs: ["pbtxt2pb_converter_host.cpp"],
+    static_libs: [
+        "golddata_proto_host",
+        "libc++fs",
+        "libprotobuf-cpp-full",
+    ],
+}
+
+genrule {
+    name: "resolv_gold_test_pbtxt2pb",
+    tools: [
+        "resolv_gold_test_pbtxt2pb_host",
+        "soong_zip",
+    ],
+    srcs: ["testdata/*.pbtxt"],
+    // convert .pbtxt to .pb files; zip them as a single pb.zip.
+    cmd: "mkdir $(genDir)/pb && for fname in $(in); " +
+         "do $(location resolv_gold_test_pbtxt2pb_host) --in_file=$$fname " +
+         "--out_dir=$(genDir)/pb; done && " +
+         "$(location soong_zip) -o $(out) -C $(genDir)/pb -D $(genDir)/pb",
+    out: ["testdata/pb.zip"],
+}
+
 cc_library_static {
     name: "golddata_proto",
     defaults: ["netd_defaults"],
@@ -37,7 +77,7 @@ cc_test {
     // TODO: Remove the xml after MTS fixing the problem.
     test_config: "resolv_gold_test_config.xml",
     defaults: ["netd_defaults", "resolv_test_defaults"],
-    data: ["testdata/pb/*.pb"],
+    data: [":resolv_gold_test_pbtxt2pb"],
     srcs: [
         "resolv_gold_test.cpp",
     ],
