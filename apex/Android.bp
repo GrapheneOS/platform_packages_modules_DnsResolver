@@ -28,6 +28,7 @@ apex {
     // Use a custom AndroidManifest.xml used for API targeting.
     androidManifest: "AndroidManifest.xml",
 
+    min_sdk_version: "29",
     legacy_android10_support: true,
 }
 
