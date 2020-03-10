@@ -20,6 +20,7 @@
 #include <Fwmark.h>
 #include <android-base/chrono_utils.h>
 #include <android-base/file.h>
+#include <android-base/result.h>
 #include <android-base/stringprintf.h>
 #include <gmock/gmock-matchers.h>
 #include <google/protobuf/text_format.h>
@@ -38,6 +39,7 @@
 
 namespace android::net {
 
+using android::base::Result;
 using android::base::StringPrintf;
 using android::netdutils::ScopedAddrinfo;
 using std::chrono::milliseconds;
@@ -123,14 +125,18 @@ class TestBase : public ::testing::Test {
         return false;
     }
 
-    GoldTest ToProto(const std::string& file) {
+    Result<GoldTest> ToProto(const std::string& filename) {
         // Convert the testing configuration from .pbtxt file to proto.
-        std::string file_content;
-        const std::string file_name = kTestDataPath + file;
-        EXPECT_TRUE(android::base::ReadFileToString(file_name, &file_content))
-                << "Failed to read " << file_name << ": " << strerror(errno);
+        std::string content;
+        const std::string path = kTestDataPath + filename;
+
+        bool ret = android::base::ReadFileToString(path, &content);
+        if (!ret) return Errorf("Read {} failed: {}", path, strerror(errno));
+
         android::net::GoldTest goldtest;
-        EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(file_content, &goldtest));
+        ret = google::protobuf::TextFormat::ParseFromString(content, &goldtest);
+        if (!ret) return Errorf("Parse {} failed", path);
+
         return goldtest;
     }
 
@@ -417,7 +423,9 @@ TEST_P(ResolvGoldTest, GoldData) {
     }
 
     // Read test configuration from proto text file to proto.
-    const auto goldtest = ToProto(file);
+    const Result<GoldTest> result = ToProto(file);
+    ASSERT_TRUE(result.ok()) << result.error().message();
+    const GoldTest& goldtest = result.value();
 
     // Register packet mappings (query, response) from proto.
     SetupMappings(goldtest, dns);
