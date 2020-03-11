@@ -85,7 +85,6 @@ cc_library {
         "libbase",
         "libcutils",
         "libjsoncpp",
-        "liblog", //Used by libstatslog_resolv
         "libnetdutils",
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
@@ -100,9 +99,15 @@ cc_library {
     // integrity check (against a checksum) that is not supported for static
     // libs. See http://b/141248879
     // We're also adding libssl here to treat it consistently.
+    // liblog is added as a shared library because it provides stable C API
+    // from the platform; we don't need to include it in this module by
+    // statically linking to it. Doing so is even dangerous because the socket
+    // protocol to logd implemented in the library isn't guaranteed to be
+    // stable. See b/151051671
     shared_libs: [
         "libbinder_ndk",
         "libcrypto",
+        "liblog", //Used by libstatslog_resolv
         "libssl",
     ],
     header_libs: [
