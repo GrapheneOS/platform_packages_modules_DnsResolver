@@ -20,9 +20,9 @@
 #include <Fwmark.h>
 #include <android-base/chrono_utils.h>
 #include <android-base/file.h>
+#include <android-base/result.h>
 #include <android-base/stringprintf.h>
 #include <gmock/gmock-matchers.h>
-#include <google/protobuf/text_format.h>
 #include <gtest/gtest.h>
 
 #include "PrivateDnsConfiguration.h"
@@ -38,6 +38,7 @@
 
 namespace android::net {
 
+using android::base::Result;
 using android::base::StringPrintf;
 using android::netdutils::ScopedAddrinfo;
 using std::chrono::milliseconds;
@@ -48,17 +49,19 @@ enum class DnsProtocol { CLEARTEXT, TLS };
 // TODO: Consider moving to packages/modules/DnsResolver/tests/resolv_test_utils.h.
 constexpr unsigned int MAXPACKET = 8 * 1024;
 
-const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/";
+// The testdata/pb/*.pb are generated from testdata/*.pbtext.
+// TODO: Generate .pb files via precompiler.
+const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/pb/";
 const std::vector<std::string> kGoldFilesGetAddrInfo = {
-        "getaddrinfo.topsite.google.pbtxt",    "getaddrinfo.topsite.youtube.pbtxt",
-        "getaddrinfo.topsite.amazon.pbtxt",    "getaddrinfo.topsite.yahoo.pbtxt",
-        "getaddrinfo.topsite.facebook.pbtxt",  "getaddrinfo.topsite.reddit.pbtxt",
-        "getaddrinfo.topsite.wikipedia.pbtxt", "getaddrinfo.topsite.ebay.pbtxt",
-        "getaddrinfo.topsite.netflix.pbtxt",   "getaddrinfo.topsite.bing.pbtxt"};
-const std::vector<std::string> kGoldFilesGetAddrInfoTls = {"getaddrinfo.tls.topsite.google.pbtxt"};
-const std::vector<std::string> kGoldFilesGetHostByName = {"gethostbyname.topsite.youtube.pbtxt"};
+        "getaddrinfo.topsite.google.pb",    "getaddrinfo.topsite.youtube.pb",
+        "getaddrinfo.topsite.amazon.pb",    "getaddrinfo.topsite.yahoo.pb",
+        "getaddrinfo.topsite.facebook.pb",  "getaddrinfo.topsite.reddit.pb",
+        "getaddrinfo.topsite.wikipedia.pb", "getaddrinfo.topsite.ebay.pb",
+        "getaddrinfo.topsite.netflix.pb",   "getaddrinfo.topsite.bing.pb"};
+const std::vector<std::string> kGoldFilesGetAddrInfoTls = {"getaddrinfo.tls.topsite.google.pb"};
+const std::vector<std::string> kGoldFilesGetHostByName = {"gethostbyname.topsite.youtube.pb"};
 const std::vector<std::string> kGoldFilesGetHostByNameTls = {
-        "gethostbyname.tls.topsite.youtube.pbtxt"};
+        "gethostbyname.tls.topsite.youtube.pb"};
 
 // Fixture test class definition.
 class TestBase : public ::testing::Test {
@@ -123,14 +126,18 @@ class TestBase : public ::testing::Test {
         return false;
     }
 
-    GoldTest ToProto(const std::string& file) {
-        // Convert the testing configuration from .pbtxt file to proto.
-        std::string file_content;
-        const std::string file_name = kTestDataPath + file;
-        EXPECT_TRUE(android::base::ReadFileToString(file_name, &file_content))
-                << "Failed to read " << file_name << ": " << strerror(errno);
+    Result<GoldTest> ToProto(const std::string& filename) {
+        // Convert the testing configuration from binary .pb file to proto.
+        std::string content;
+        const std::string path = kTestDataPath + filename;
+
+        bool ret = android::base::ReadFileToString(path, &content);
+        if (!ret) return Errorf("Read {} failed: {}", path, strerror(errno));
+
         android::net::GoldTest goldtest;
-        EXPECT_TRUE(google::protobuf::TextFormat::ParseFromString(file_content, &goldtest));
+        ret = goldtest.ParseFromString(content);
+        if (!ret) return Errorf("Parse {} failed", path);
+
         return goldtest;
     }
 
@@ -417,7 +424,9 @@ TEST_P(ResolvGoldTest, GoldData) {
     }
 
     // Read test configuration from proto text file to proto.
-    const auto goldtest = ToProto(file);
+    const Result<GoldTest> result = ToProto(file);
+    ASSERT_TRUE(result.ok()) << result.error().message();
+    const GoldTest& goldtest = result.value();
 
     // Register packet mappings (query, response) from proto.
     SetupMappings(goldtest, dns);
