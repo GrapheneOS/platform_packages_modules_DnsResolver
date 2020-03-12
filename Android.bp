@@ -23,6 +23,11 @@ aidl_interface {
         "netd_event_listener_interface",
     ],
     backend: {
+        java: {
+            apex_available: [
+                "com.android.wifi",
+            ],
+        },
         ndk: {
             gen_log: true,
         },
