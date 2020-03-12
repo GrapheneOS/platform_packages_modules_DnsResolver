@@ -16,6 +16,7 @@
 
 syntax = "proto3";
 package android.net;
+option optimize_for = LITE_RUNTIME;
 
 // Used to indicate which call is invoked to send DNS lookups.
 enum CallType {
