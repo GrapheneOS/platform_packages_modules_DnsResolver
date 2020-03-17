@@ -33,6 +33,10 @@ cc_test {
     name: "resolv_gold_test",
     test_suites: ["device-tests", "mts"],
     require_root: true,
+    // b/151392634, this is a workaround because MTS
+    // can not handle the test with testdata correctly.
+    // TODO: Remove the xml after MTS fixing the problem.
+    test_config: "resolv_gold_test_config.xml",
     defaults: ["netd_defaults"],
     data: ["testdata/pb/*.pb"],
     srcs: [
