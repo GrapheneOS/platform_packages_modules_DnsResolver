@@ -119,7 +119,7 @@ std::pair<ScopedAddrinfo, int> safe_getaddrinfo_time_taken(const char* node, con
 
 class ResolverTest : public ::testing::Test {
   public:
-    static void SetUpTestCase() {
+    static void SetUpTestSuite() {
         // Get binder service.
         // Note that |mDnsClient| is not used for getting binder service in this static function.
         // The reason is that wants to keep |mDnsClient| as a non-static data member. |mDnsClient|
@@ -153,7 +153,7 @@ class ResolverTest : public ::testing::Test {
         // recipient.
         ABinderProcess_startThreadPool();
     }
-    static void TearDownTestCase() { AIBinder_DeathRecipient_delete(sResolvDeathRecipient); }
+    static void TearDownTestSuite() { AIBinder_DeathRecipient_delete(sResolvDeathRecipient); }
 
   protected:
     void SetUp() { mDnsClient.SetUp(); }
@@ -200,11 +200,11 @@ class ResolverTest : public ::testing::Test {
     // TODO: Perhaps add an unregistering listener binder call or fork a listener process which
     // could be terminated earlier.
     static std::shared_ptr<DnsMetricsListener>
-            sDnsMetricsListener;  // Initialized in SetUpTestCase.
+            sDnsMetricsListener;  // Initialized in SetUpTestSuite.
 
     // Use a shared static death recipient to monitor the service death. The static death
     // recipient could monitor the death not only during the test but also between tests.
-    static AIBinder_DeathRecipient* sResolvDeathRecipient;  // Initialized in SetUpTestCase.
+    static AIBinder_DeathRecipient* sResolvDeathRecipient;  // Initialized in SetUpTestSuite.
 };
 
 // Initialize static member of class.
