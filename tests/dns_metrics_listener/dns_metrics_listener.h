@@ -57,6 +57,13 @@ class DnsMetricsListener : public BaseMetricsListener {
     // Wait for the expected private DNS validation result until timeout.
     bool waitForPrivateDnsValidation(const std::string& serverAddr, const bool validated);
 
+    // Return true if a validation result for |serverAddr| is found; otherwise, return false.
+    // Only exists for testing.
+    bool findValidationRecord(const std::string& serverAddr) const EXCLUDES(mMutex) {
+        std::lock_guard lock(mMutex);
+        return mValidationRecords.find({mNetId, serverAddr}) != mValidationRecords.end();
+    }
+
   private:
     typedef std::pair<int32_t, std::string> ServerKey;
 
