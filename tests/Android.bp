@@ -46,8 +46,9 @@ cc_test {
         "libnetd_client_headers",
     ],
     shared_libs: [
-        "libbinder_ndk",
         "libcrypto",
+        "libbinder_ndk",
+        "liblog",
         "libssl",
     ],
     static_libs: [
@@ -55,7 +56,6 @@ cc_test {
         "golddata_proto",
         "libbase",
         "libgmock",
-        "liblog",
         "libnetd_resolv",
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_resolv_utils",
@@ -83,17 +83,18 @@ cc_test {
         "libnetd_resolv_headers",
     ],
     shared_libs: [
-        "libbase",
         "libbinder_ndk",
+        "liblog",
         "libnetd_client",
-        "libutils",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-ndk_platform",
+        "libbase",
         "libgmock",
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_resolv_utils",
         "libnetdutils",
+        "libutils",
         "netd_event_listener_interface-ndk_platform",
         "netd_aidl_interface-ndk_platform",
     ],
@@ -119,6 +120,7 @@ cc_test {
     //stl: "libc++_static",
     shared_libs: [
         "libbinder_ndk",
+        "liblog",
         "libnetd_client",
     ],
     static_libs: [
@@ -127,7 +129,6 @@ cc_test {
         "libbpf_android",
         "libcrypto_static",
         "libgmock",
-        "liblog",
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_metrics_listener",
         "libnetd_test_resolv_utils",
@@ -157,10 +158,12 @@ cc_test_library {
     ],
     defaults: ["netd_defaults"],
     export_include_dirs: ["."],
+    shared_libs: [
+        "liblog",
+    ],
     static_libs: [
         "libbase",
         "libgmock",
-        "liblog",
         "libnetdutils",
         "libprotobuf-cpp-lite",
         "stats_proto",
@@ -174,10 +177,12 @@ cc_test {
     ],
     defaults: ["netd_defaults"],
     test_suites: ["device-tests"],
+    shared_libs: [
+        "liblog",
+    ],
     static_libs: [
         "libbase",
         "libgmock",
-        "liblog",
         "libprotobuf-cpp-lite",
         "resolv_stats_test_utils",
         "stats_proto",
