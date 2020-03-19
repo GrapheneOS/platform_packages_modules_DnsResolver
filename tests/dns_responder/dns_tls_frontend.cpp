@@ -200,6 +200,7 @@ void DnsTlsFrontend::requestHandler() {
                 break;
             }
 
+            accept_connection_count_++;
             if (hangOnHandshake_) {
                 LOG(DEBUG) << "TEST ONLY: unresponsive to SSL handshake";
 
