@@ -25,6 +25,7 @@ aidl_interface {
     backend: {
         java: {
             apex_available: [
+                "com.android.bluetooth.updatable",
                 "com.android.wifi",
             ],
         },
