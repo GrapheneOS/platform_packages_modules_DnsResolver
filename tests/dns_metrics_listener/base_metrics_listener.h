@@ -45,7 +45,7 @@ class BaseMetricsListener : public aidl::android::net::metrics::BnNetdEventListe
                                                 int32_t /*uid*/) override;
     virtual ::ndk::ScopedAStatus onWakeupEvent(const std::string& /*prefix*/, int32_t /*uid*/,
                                                int32_t /*ethertype*/, int32_t /*ipNextHeader*/,
-                                               const std::vector<int8_t>& /*dstHw*/,
+                                               const std::vector<uint8_t>& /*dstHw*/,
                                                const std::string& /*srcIp*/,
                                                const std::string& /*dstIp*/, int32_t /*srcPort*/,
                                                int32_t /*dstPort*/,
