@@ -1,6 +1,6 @@
 cc_test_library {
     name: "libnetd_test_metrics_listener",
-    defaults: ["netd_defaults"],
+    defaults: ["netd_defaults", "resolv_test_defaults"],
     srcs: [
         "base_metrics_listener.cpp",
         "dns_metrics_listener.cpp",
@@ -10,7 +10,6 @@ cc_test_library {
         "libbinder_ndk",
     ],
     static_libs: [
-        "libbase",
         "libutils",
         "netd_event_listener_interface-ndk_platform",
     ],
