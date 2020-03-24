@@ -20,6 +20,7 @@
 #include <Fwmark.h>
 #include <android-base/chrono_utils.h>
 #include <android-base/file.h>
+#include <android-base/logging.h>
 #include <android-base/result.h>
 #include <android-base/stringprintf.h>
 #include <gmock/gmock-matchers.h>
@@ -49,9 +50,8 @@ enum class DnsProtocol { CLEARTEXT, TLS };
 // TODO: Consider moving to packages/modules/DnsResolver/tests/resolv_test_utils.h.
 constexpr unsigned int MAXPACKET = 8 * 1024;
 
-// The testdata/pb/*.pb are generated from testdata/*.pbtext.
-// TODO: Generate .pb files via precompiler.
-const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/pb/";
+// The testdata/*.pb are generated from testdata/*.pbtext.
+const std::string kTestDataPath = android::base::GetExecutableDirectory() + "/testdata/";
 const std::vector<std::string> kGoldFilesGetAddrInfo = {
         "getaddrinfo.topsite.google.pb",    "getaddrinfo.topsite.youtube.pb",
         "getaddrinfo.topsite.amazon.pb",    "getaddrinfo.topsite.yahoo.pb",
@@ -66,6 +66,18 @@ const std::vector<std::string> kGoldFilesGetHostByNameTls = {
 // Fixture test class definition.
 class TestBase : public ::testing::Test {
   protected:
+    static void SetUpTestSuite() {
+        // Unzip *.pb from pb.zip. The unzipped files get 777 permission by default. Remove execute
+        // permission so that Trade Federation test harness has no chance mis-executing on *.pb.
+        const std::string unzipCmd = "unzip -o " + kTestDataPath + "pb.zip -d " + kTestDataPath +
+                                     "&& chmod -R 666 " + kTestDataPath;
+        // NOLINTNEXTLINE(cert-env33-c)
+        if (W_EXITCODE(0, 0) != system(unzipCmd.c_str())) {
+            LOG(ERROR) << "fail to inflate .pb files";
+            GTEST_LOG_(FATAL) << "fail to inflate .pb files";
+        }
+    }
+
     void SetUp() override {
         // Create cache for test
         resolv_create_cache_for_net(TEST_NETID);
@@ -423,7 +435,7 @@ TEST_P(ResolvGoldTest, GoldData) {
         tls.clearQueries();
     }
 
-    // Read test configuration from proto text file to proto.
+    // Read test configuration from serialized binary to proto.
     const Result<GoldTest> result = ToProto(file);
     ASSERT_TRUE(result.ok()) << result.error().message();
     const GoldTest& goldtest = result.value();
