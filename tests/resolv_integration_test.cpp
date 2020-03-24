@@ -4246,6 +4246,16 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
     const std::string addr1 = getUniqueIPv4Address();  // For a workable DNS server.
     const std::string addr2 = getUniqueIPv4Address();  // For an unresponsive DNS server.
     const std::string unusable_addr = getUniqueIPv4Address();
+    const auto waitForPrivateDnsStateUpdated = []() {
+        // A buffer time for the PrivateDnsConfiguration instance to update its map,
+        // mPrivateDnsValidateThreads, which is used for tracking validation threads.
+        // Since there is a time gap between when PrivateDnsConfiguration reports
+        // onPrivateDnsValidationEvent and when PrivateDnsConfiguration updates the map, this is a
+        // workaround to avoid the test starts a subsequent resolver setup during the time gap.
+        // TODO: Report onPrivateDnsValidationEvent after all the relevant updates are complete.
+        // Reference to b/152009023.
+        std::this_thread::sleep_for(20ms);
+    };
 
     test::DNSResponder dns1(addr1);
     test::DNSResponder dns2(addr2);
@@ -4288,6 +4298,8 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
         parcel.caCertificate = config.tlsName.empty() ? "" : kCaCert;
 
         const bool dnsModeChanged = (TlsNameLastTime != config.tlsName);
+
+        waitForPrivateDnsStateUpdated();
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
         for (const auto& serverAddr : parcel.tlsServers) {
@@ -4316,10 +4328,12 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
         }
 
         // Repeated setups make no effect in strict mode.
+        waitForPrivateDnsStateUpdated();
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
         if (config.tlsName.empty()) {
             EXPECT_TRUE(WaitForPrivateDnsValidation(unusable_addr, false));
         }
+        waitForPrivateDnsStateUpdated();
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
         if (config.tlsName.empty()) {
             EXPECT_TRUE(WaitForPrivateDnsValidation(unusable_addr, false));
