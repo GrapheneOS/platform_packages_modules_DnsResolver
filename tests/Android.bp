@@ -1,6 +1,6 @@
 cc_test_library {
     name: "libnetd_test_resolv_utils",
-    defaults: ["netd_defaults"],
+    defaults: ["netd_defaults", "resolv_test_defaults"],
     srcs: [
         "resolv_test_utils.cpp",
     ],
@@ -8,13 +8,52 @@ cc_test_library {
         "libnetd_resolv_headers",
     ],
     shared_libs: [
-        "libbase",
         "libutils",
     ],
     static_libs: [
         "libnetd_test_dnsresponder",
         "libnetdutils",
     ],
+}
+
+cc_library_host_static {
+    name: "golddata_proto_host",
+    proto: {
+        export_proto_headers: true,
+        type: "full",
+    },
+    srcs: [
+        "golddata.proto",
+    ],
+}
+
+cc_binary_host {
+    name: "resolv_gold_test_pbtxt2pb_host",
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+    srcs: ["pbtxt2pb_converter_host.cpp"],
+    static_libs: [
+        "golddata_proto_host",
+        "libc++fs",
+        "libprotobuf-cpp-full",
+    ],
+}
+
+genrule {
+    name: "resolv_gold_test_pbtxt2pb",
+    tools: [
+        "resolv_gold_test_pbtxt2pb_host",
+        "soong_zip",
+    ],
+    srcs: ["testdata/*.pbtxt"],
+    // convert .pbtxt to .pb files; zip them as a single pb.zip.
+    cmd: "mkdir $(genDir)/pb && for fname in $(in); " +
+         "do $(location resolv_gold_test_pbtxt2pb_host) --in_file=$$fname " +
+         "--out_dir=$(genDir)/pb; done && " +
+         "$(location soong_zip) -o $(out) -C $(genDir)/pb -D $(genDir)/pb",
+    out: ["testdata/pb.zip"],
 }
 
 cc_library_static {
@@ -37,8 +76,8 @@ cc_test {
     // can not handle the test with testdata correctly.
     // TODO: Remove the xml after MTS fixing the problem.
     test_config: "resolv_gold_test_config.xml",
-    defaults: ["netd_defaults"],
-    data: ["testdata/pb/*.pb"],
+    defaults: ["netd_defaults", "resolv_test_defaults"],
+    data: [":resolv_gold_test_pbtxt2pb"],
     srcs: [
         "resolv_gold_test.cpp",
     ],
@@ -48,13 +87,11 @@ cc_test {
     shared_libs: [
         "libcrypto",
         "libbinder_ndk",
-        "liblog",
         "libssl",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-unstable-ndk_platform",
         "golddata_proto",
-        "libbase",
         "libgmock",
         "libnetd_resolv",
         "libnetd_test_dnsresponder_ndk",
@@ -75,7 +112,7 @@ cc_test {
     // This won't work with test_config
     // require_root: true,
     test_config: "resolv_stress_test_config.xml",
-    defaults: ["netd_defaults"],
+    defaults: ["netd_defaults", "resolv_test_defaults"],
     srcs: [
         "resolv_stress_test.cpp",
     ],
@@ -84,12 +121,10 @@ cc_test {
     ],
     shared_libs: [
         "libbinder_ndk",
-        "liblog",
         "libnetd_client",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-ndk_platform",
-        "libbase",
         "libgmock",
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_resolv_utils",
@@ -106,7 +141,7 @@ cc_test {
     test_suites: ["device-tests", "mts"],
     require_root: true,
     test_config: "resolv_integration_test_config.xml",
-    defaults: ["netd_defaults"],
+    defaults: ["netd_defaults", "resolv_test_defaults"],
     tidy: false, // cuts test build time by > 1m30s
     srcs: [
         "dns_responder/dns_responder.cpp",
@@ -120,12 +155,10 @@ cc_test {
     //stl: "libc++_static",
     shared_libs: [
         "libbinder_ndk",
-        "liblog",
         "libnetd_client",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-unstable-ndk_platform",
-        "libbase",
         "libbpf_android",
         "libcrypto_static",
         "libgmock",
@@ -156,13 +189,9 @@ cc_test_library {
     srcs: [
         "resolv_stats_test_utils.cpp"
     ],
-    defaults: ["netd_defaults"],
+    defaults: ["netd_defaults", "resolv_test_defaults"],
     export_include_dirs: ["."],
-    shared_libs: [
-        "liblog",
-    ],
     static_libs: [
-        "libbase",
         "libgmock",
         "libnetdutils",
         "libprotobuf-cpp-lite",
@@ -175,13 +204,9 @@ cc_test {
     srcs: [
         "resolv_stats_test_utils_test.cpp",
     ],
-    defaults: ["netd_defaults"],
+    defaults: ["netd_defaults", "resolv_test_defaults"],
     test_suites: ["device-tests"],
-    shared_libs: [
-        "liblog",
-    ],
     static_libs: [
-        "libbase",
         "libgmock",
         "libprotobuf-cpp-lite",
         "resolv_stats_test_utils",
