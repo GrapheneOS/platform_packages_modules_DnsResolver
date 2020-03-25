@@ -142,3 +142,7 @@ std::string ToString(const sockaddr_storage* addr);
 std::vector<std::string> ToStrings(const hostent* he);
 std::vector<std::string> ToStrings(const addrinfo* ai);
 std::vector<std::string> ToStrings(const android::netdutils::ScopedAddrinfo& ai);
+
+// Wait for |condition| to be met until |timeout|.
+bool PollForCondition(const std::function<bool()>& condition,
+                      std::chrono::milliseconds timeout = std::chrono::milliseconds(1000));
