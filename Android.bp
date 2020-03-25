@@ -193,11 +193,20 @@ cc_library_static {
     ],
 }
 
+filegroup {
+    name: "resolv_test_config_template",
+    srcs: [
+        "resolv_test_config_template.xml",
+    ],
+}
+
 // TODO: Move this test to tests/
 cc_test {
     name: "resolv_unit_test",
     test_suites: ["device-tests", "mts"],
     require_root: true,
+    // TODO: Remove after b/152303924 fixing
+    test_config_template: ":resolv_test_config_template",
     //TODO:  drop root privileges and make it be an real unit test.
     defaults: ["netd_defaults", "resolv_test_defaults"],
     srcs: [
