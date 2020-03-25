@@ -111,7 +111,8 @@ cc_test {
     test_suites: ["device-tests", "mts"],
     // This won't work with test_config
     // require_root: true,
-    test_config: "resolv_stress_test_config.xml",
+    // TODO: Remove after b/152303924 fixing
+    test_config_template: ":resolv_test_config_template",
     defaults: ["netd_defaults", "resolv_test_defaults"],
     srcs: [
         "resolv_stress_test.cpp",
