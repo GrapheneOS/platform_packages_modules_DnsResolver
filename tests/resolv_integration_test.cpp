@@ -4355,6 +4355,11 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
     enum TlsServerState { WORKING, UNSUPPORTED, UNRESPONSIVE };
     const std::string addr1 = getUniqueIPv4Address();
     const std::string addr2 = getUniqueIPv4Address();
+    const auto waitForPrivateDnsStateUpdated = []() {
+        // A buffer time for PrivateDnsConfiguration to update its state. It prevents this test
+        // being flaky. See b/152009023 for the reason.
+        std::this_thread::sleep_for(20ms);
+    };
 
     test::DNSResponder dns1(addr1);
     test::DNSResponder dns2(addr2);
@@ -4408,6 +4413,7 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
             tls.setHangOnHandshakeForTesting(serverState == UNRESPONSIVE);
             const int connectCountsBefore = tls.acceptConnectionsCount();
 
+            waitForPrivateDnsStateUpdated();
             ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
             parcel.servers = {config.tlsServer};
             parcel.tlsServers = {config.tlsServer};
