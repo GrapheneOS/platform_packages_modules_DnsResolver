@@ -35,14 +35,12 @@ std::string ToString(const hostent* he) {
 
 std::string ToString(const addrinfo* ai) {
     if (!ai) return "<null>";
-    for (const auto* aip = ai; aip != nullptr; aip = aip->ai_next) {
-        char host[NI_MAXHOST];
-        int rv = getnameinfo(aip->ai_addr, aip->ai_addrlen, host, sizeof(host), nullptr, 0,
-                             NI_NUMERICHOST);
-        if (rv != 0) return gai_strerror(rv);
-        return host;
-    }
-    return "<invalid>";
+
+    char host[NI_MAXHOST];
+    int rv = getnameinfo(ai->ai_addr, ai->ai_addrlen, host, sizeof(host), nullptr, 0,
+                         NI_NUMERICHOST);
+    if (rv != 0) return gai_strerror(rv);
+    return host;
 }
 
 std::string ToString(const ScopedAddrinfo& ai) {
