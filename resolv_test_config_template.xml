@@ -13,14 +13,17 @@
      See the License for the specific language governing permissions and
      limitations under the License.
 -->
-<!-- Temporary solution for MTS coverage because MTS coverage can only run with FilesPusher.
-     See b/152303924 for details.
+<!-- Workaround for MTS coverage because test infra is running the 64 bit
+     test suite on cf_x86_phone (32-bit). See b/147785146 for details.
+     We need to push the correct binary against the architecture of
+     test device with "append-bitness" option.
 -->
 <configuration description="Configuration for {MODULE} tests">
    <option name="test-suite-tag" value="mts" />
    <target_preparer class="com.android.compatibility.common.tradefed.targetprep.FilePusher">
        <option name="cleanup" value="true" />
        <option name="push" value="{MODULE}->/data/local/tmp/{MODULE}" />
+       <option name="append-bitness" value="true" />
    </target_preparer>
    <target_preparer class="com.android.tradefed.targetprep.RootTargetPreparer"/>
    <test class="com.android.tradefed.testtype.GTest" >
