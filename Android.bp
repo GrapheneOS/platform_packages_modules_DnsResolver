@@ -52,6 +52,25 @@ cc_defaults {
     ],
 }
 
+cc_defaults {
+    // This is necessary to have the coverage tests run on cf_x86_phone.
+    // Because the test_suite target is 64 bit and the test infra is running the 64 bit test
+    // suite on cf_x86_phone (32-bit) for coverage.
+    // See b/147785146 for details.
+    // TODO: Remove this target after coverage test switched to 64-bit device.
+    name: "resolv_test_mts_coverage_defaults",
+    test_config_template: ":resolv_test_config_template",
+    compile_multilib: "both",
+    multilib: {
+        lib32: {
+            suffix: "32",
+        },
+        lib64: {
+            suffix: "64",
+        },
+    },
+}
+
 cc_library {
     name: "libnetd_resolv",
     version_script: "libnetd_resolv.map.txt",
@@ -205,10 +224,9 @@ cc_test {
     name: "resolv_unit_test",
     test_suites: ["device-tests", "mts"],
     require_root: true,
-    // TODO: Remove after b/152303924 fixing
-    test_config_template: ":resolv_test_config_template",
-    //TODO:  drop root privileges and make it be an real unit test.
-    defaults: ["netd_defaults", "resolv_test_defaults"],
+    // TODO: Drop root privileges and make it be an real unit test.
+    // TODO: Remove resolv_test_mts_coverage_defaults after mts coverage switched to 64-bit device.
+    defaults: ["netd_defaults", "resolv_test_defaults", "resolv_test_mts_coverage_defaults"],
     srcs: [
         "resolv_cache_unit_test.cpp",
         "resolv_callback_unit_test.cpp",
@@ -240,5 +258,4 @@ cc_test {
         "server_configurable_flags",
         "stats_proto",
     ],
-    compile_multilib: "first",
 }
