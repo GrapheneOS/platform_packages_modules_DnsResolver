@@ -105,7 +105,7 @@ cc_test {
     ],
     // MTS test binary can't be built under compile_multilib = "both" and having test data.
     // However, MTS coverage requires 32 bit test binary to run.
-    compile_multilib: "32",
+    compile_multilib: "prefer32",
 }
 
 cc_test {
