@@ -355,6 +355,7 @@ void reportDnsEvent(int eventType, const android_net_context& netContext, int la
         const std::string& dnsQueryStats = event.dns_query_events().SerializeAsString();
         stats::BytesField dnsQueryBytesField{dnsQueryStats.c_str(), dnsQueryStats.size()};
         event.set_return_code(static_cast<ReturnCode>(returnCode));
+        event.set_network_type(resolv_get_network_types_for_net(netContext.dns_netid));
         android::net::stats::stats_write(android::net::stats::NETWORK_DNS_EVENT_REPORTED,
                                          event.event_type(), event.return_code(),
                                          event.latency_micros(), event.hints_ai_flags(),
