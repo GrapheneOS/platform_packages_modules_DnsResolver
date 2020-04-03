@@ -33,4 +33,5 @@ parcelable ResolverParamsParcel {
   @utf8InCpp String caCertificate = "";
   int tlsConnectTimeoutMs = 0;
   android.net.ResolverExperimentalOptionsParcel experimentalOptions;
+  int[] transportTypes = {};
 }
