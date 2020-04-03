@@ -49,6 +49,7 @@
 #include <net/if.h>
 #include <netdb.h>
 
+#include <aidl/android/net/IDnsResolver.h>
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/stringprintf.h>
@@ -64,6 +65,7 @@
 #include "resolv_private.h"
 #include "util.h"
 
+using aidl::android::net::IDnsResolver;
 using android::base::StringAppendF;
 using android::net::DnsQueryEvent;
 using android::net::DnsStats;
@@ -1002,6 +1004,7 @@ struct NetConfig {
     // If resolverParams.hosts is empty, the existing customized table will be erased.
     HostMapping customizedTable = {};
     int tc_mode = aidl::android::net::IDnsResolver::TC_MODE_DEFAULT;
+    std::vector<int32_t> transportTypes;
 };
 
 /* gets cache associated with a network, or NULL if none exists */
@@ -1510,6 +1513,13 @@ static void resolv_set_experiment_params(res_params* params) {
     }
 }
 
+android::net::NetworkType resolv_get_network_types_for_net(unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    NetConfig* netconfig = find_netconfig_locked(netid);
+    if (netconfig == nullptr) return android::net::NT_UNKNOWN;
+    return convert_network_type(netconfig->transportTypes);
+}
+
 namespace {
 
 // Returns valid domains without duplicates which are limited to max size |MAXDNSRCH|.
@@ -1572,7 +1582,8 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
 int resolv_set_nameservers(
         unsigned netid, const std::vector<std::string>& servers,
         const std::vector<std::string>& domains, const res_params& params,
-        const aidl::android::net::ResolverExperimentalOptionsParcel& experimentalOptions) {
+        const aidl::android::net::ResolverExperimentalOptionsParcel& experimentalOptions,
+        const std::vector<int32_t>& transportTypes) {
     std::vector<std::string> nameservers = filter_nameservers(servers);
     const int numservers = static_cast<int>(nameservers.size());
 
@@ -1637,6 +1648,8 @@ int resolv_set_nameservers(
         return -EINVAL;
     }
     netconfig->tc_mode = experimentalOptions.tcMode;
+
+    netconfig->transportTypes = transportTypes;
 
     return 0;
 }
@@ -1892,22 +1905,7 @@ bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& serv
     return false;
 }
 
-void resolv_stats_dump(DumpWriter& dw, unsigned netid) {
-    std::lock_guard guard(cache_mutex);
-    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
-        info->dnsStats.dump(dw);
-    }
-}
-
-void resolv_oem_options_dump(DumpWriter& dw, unsigned netid) {
-    std::lock_guard guard(cache_mutex);
-    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
-        // TODO: dump info->hosts
-        dw.println("TC mode: %s", tc_mode_to_str(info->tc_mode));
-    }
-}
-
-const char* tc_mode_to_str(const int mode) {
+static const char* tc_mode_to_str(const int mode) {
     switch (mode) {
         case aidl::android::net::IDnsResolver::TC_MODE_DEFAULT:
             return "default";
@@ -1915,5 +1913,84 @@ const char* tc_mode_to_str(const int mode) {
             return "UDP_TCP";
         default:
             return "unknown";
+    }
+}
+
+static android::net::NetworkType to_stats_network_type(int32_t mainType, bool withVpn) {
+    switch (mainType) {
+        case IDnsResolver::TRANSPORT_CELLULAR:
+            return withVpn ? android::net::NT_CELLULAR_VPN : android::net::NT_CELLULAR;
+        case IDnsResolver::TRANSPORT_WIFI:
+            return withVpn ? android::net::NT_WIFI_VPN : android::net::NT_WIFI;
+        case IDnsResolver::TRANSPORT_BLUETOOTH:
+            return withVpn ? android::net::NT_BLUETOOTH_VPN : android::net::NT_BLUETOOTH;
+        case IDnsResolver::TRANSPORT_ETHERNET:
+            return withVpn ? android::net::NT_ETHERNET_VPN : android::net::NT_ETHERNET;
+        case IDnsResolver::TRANSPORT_VPN:
+            return withVpn ? android::net::NT_UNKNOWN : android::net::NT_VPN;
+        case IDnsResolver::TRANSPORT_WIFI_AWARE:
+            return withVpn ? android::net::NT_UNKNOWN : android::net::NT_WIFI_AWARE;
+        case IDnsResolver::TRANSPORT_LOWPAN:
+            return withVpn ? android::net::NT_UNKNOWN : android::net::NT_LOWPAN;
+        default:
+            return android::net::NT_UNKNOWN;
+    }
+}
+
+android::net::NetworkType convert_network_type(const std::vector<int32_t>& transportTypes) {
+    // The valid transportTypes size is either 1 or 2.
+    if (transportTypes.size() > 2 || transportTypes.size() == 0) return android::net::NT_UNKNOWN;
+    // TransportTypes size == 1, map the type to stats network type directly.
+    if (transportTypes.size() == 1) return to_stats_network_type(transportTypes[0], false);
+    // TransportTypes size == 2, it shoud be 1 main type + vpn type.
+    // Otherwise, consider it as UNKNOWN.
+    bool hasVpn = false;
+    int32_t mainType = IDnsResolver::TRANSPORT_UNKNOWN;
+    for (const auto& transportType : transportTypes) {
+        if (transportType == IDnsResolver::TRANSPORT_VPN) {
+            hasVpn = true;
+            continue;
+        }
+        mainType = transportType;
+    }
+    return hasVpn ? to_stats_network_type(mainType, true) : android::net::NT_UNKNOWN;
+}
+
+static const char* transport_type_to_str(const std::vector<int32_t>& transportTypes) {
+    switch (convert_network_type(transportTypes)) {
+        case android::net::NT_CELLULAR:
+            return "CELLULAR";
+        case android::net::NT_WIFI:
+            return "WIFI";
+        case android::net::NT_BLUETOOTH:
+            return "BLUETOOTH";
+        case android::net::NT_ETHERNET:
+            return "ETHERNET";
+        case android::net::NT_VPN:
+            return "VPN";
+        case android::net::NT_WIFI_AWARE:
+            return "WIFI_AWARE";
+        case android::net::NT_LOWPAN:
+            return "LOWPAN";
+        case android::net::NT_CELLULAR_VPN:
+            return "CELLULAR_VPN";
+        case android::net::NT_WIFI_VPN:
+            return "WIFI_VPN";
+        case android::net::NT_BLUETOOTH_VPN:
+            return "BLUETOOTH_VPN";
+        case android::net::NT_ETHERNET_VPN:
+            return "ETHERNET_VPN";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+void resolv_netconfig_dump(DumpWriter& dw, unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
+        info->dnsStats.dump(dw);
+        // TODO: dump info->hosts
+        dw.println("TC mode: %s", tc_mode_to_str(info->tc_mode));
+        dw.println("TransportType: %s", transport_type_to_str(info->transportTypes));
     }
 }
