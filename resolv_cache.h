@@ -83,8 +83,9 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
 int resolv_set_nameservers(
         unsigned netid, const std::vector<std::string>& servers,
         const std::vector<std::string>& domains, const res_params& params,
-        const aidl::android::net::ResolverExperimentalOptionsParcel& experimentalOptions = {
-                {} /* hosts */, aidl::android::net::IDnsResolver::TC_MODE_DEFAULT});
+        const aidl::android::net::ResolverExperimentalOptionsParcel& experimentalOptions =
+                {{} /* hosts */, aidl::android::net::IDnsResolver::TC_MODE_DEFAULT},
+        const std::vector<int32_t>& transportTypes = {});
 
 // Creates the cache associated with the given network.
 int resolv_create_cache_for_net(unsigned netid);
@@ -94,6 +95,9 @@ void resolv_delete_cache_for_net(unsigned netid);
 
 // Flushes the cache associated with the given network.
 int resolv_flush_cache_for_net(unsigned netid);
+
+// Get transport types to a given network.
+android::net::NetworkType resolv_get_network_types_for_net(unsigned netid);
 
 // For test only.
 // Return true if the cache is existent in the given network, false otherwise.
@@ -111,12 +115,6 @@ int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::stri
 bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& server,
                       const android::net::DnsQueryEvent* record);
 
-void resolv_stats_dump(android::netdutils::DumpWriter& dw, unsigned netid);
-
-void resolv_oem_options_dump(android::netdutils::DumpWriter& dw, unsigned netid);
-
-const char* tc_mode_to_str(const int mode);
-
 /* Retrieve a local copy of the stats for the given netid. The buffer must have space for
  * MAXNS __resolver_stats. Returns the revision id of the resolvers used.
  */
@@ -130,3 +128,9 @@ int resolv_cache_get_resolver_stats(
 void resolv_cache_add_resolver_stats_sample(unsigned netid, int revision_id,
                                             const android::netdutils::IPSockAddr& serverSockAddr,
                                             const res_sample& sample, int max_samples);
+
+// Convert TRANSPORT_* to NT_*. It's public only for unit testing.
+android::net::NetworkType convert_network_type(const std::vector<int32_t>& transportTypes);
+
+// Dump net configuration log for a given network.
+void resolv_netconfig_dump(android::netdutils::DumpWriter& dw, unsigned netid);

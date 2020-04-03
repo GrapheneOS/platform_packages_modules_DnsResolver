@@ -101,7 +101,15 @@ parcelable ResolverParamsParcel {
     int tlsConnectTimeoutMs = 0;
 
     /**
-    * Knobs for OEM to control alternative behavior.
-    */
+     * Knobs for OEM to control alternative behavior.
+     */
     ResolverExperimentalOptionsParcel experimentalOptions;
+
+    /**
+     * The transport types associated to a given network.
+     * The valid value is defined in one of the IDnsResolver.TRANSPORT_* constants.
+     * If there are multiple transport types but can't be identified to a
+     * reasonable network type by DnsResolver, it would be considered as unknown.
+     */
+    int[] transportTypes = {};
 }
