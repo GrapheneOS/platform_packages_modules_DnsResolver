@@ -51,7 +51,6 @@ interface IDnsResolver {
   const int DNS_RESOLVER_LOG_ERROR = 4;
   const int TC_MODE_DEFAULT = 0;
   const int TC_MODE_UDP_TCP = 1;
-  const int TC_MODE_MAX = 2;
   const int TRANSPORT_UNKNOWN = -1;
   const int TRANSPORT_CELLULAR = 0;
   const int TRANSPORT_WIFI = 1;
