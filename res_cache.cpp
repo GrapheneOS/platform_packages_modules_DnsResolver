@@ -1643,8 +1643,9 @@ int resolv_set_nameservers(
     }
 
     if (experimentalOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
-        experimentalOptions.tcMode >= aidl::android::net::IDnsResolver::TC_MODE_MAX) {
-        LOG(WARNING) << __func__ << ": netid = " << netid << ", invalid TC mode";
+        experimentalOptions.tcMode > aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
+        LOG(WARNING) << __func__ << ": netid = " << netid
+                     << ", invalid TC mode: " << experimentalOptions.tcMode;
         return -EINVAL;
     }
     netconfig->tc_mode = experimentalOptions.tcMode;
