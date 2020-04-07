@@ -172,7 +172,7 @@ interface IDnsResolver {
     void flushNetworkCache(int netId);
 
     /**
-     * Values for {@code tcMode} of {@code ResolverExperimentalOptionsParcel}. It controls the way DNS
+     * Values for {@code tcMode} of {@code ResolverOptionsParcel}. It controls the way DNS
      * resolver handles truncated DNS response from UDP connection.
      *
      * TC_MODE_DEFAULT: resolver retries on TCP-only on each name server.
