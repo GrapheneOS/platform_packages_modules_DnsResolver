@@ -23,7 +23,7 @@ import android.net.ResolverHostsParcel;
  *
  * {@hide}
  */
-parcelable ResolverExperimentalOptionsParcel {
+parcelable ResolverOptionsParcel {
     /**
      * An IP/hostname mapping table for DNS local lookup customization.
      * WARNING: this is intended for local testing and other special situations.
