@@ -1087,7 +1087,7 @@ TEST_F(ResolverTest, GetAddrInfoFromCustTable_InvalidInput) {
     test::DNSResponder dns;
     StartDns(dns, {});
     auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
-    resolverParams.experimentalOptions.hosts = invalidCustHosts;
+    resolverParams.resolverOptions.hosts = invalidCustHosts;
     ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(resolverParams).isOk());
     for (const auto& hostname : {hostnameNoip, hostnameInvalidip}) {
         // The query won't get data from customized table because of invalid customized table
@@ -1162,7 +1162,7 @@ TEST_F(ResolverTest, GetAddrInfoFromCustTable) {
         StartDns(dns, config.dnsserverHosts);
 
         auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
-        resolverParams.experimentalOptions.hosts = config.customizedHosts;
+        resolverParams.resolverOptions.hosts = config.customizedHosts;
         ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(resolverParams).isOk());
         const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
         ScopedAddrinfo result = safe_getaddrinfo(config.name.c_str(), nullptr, &hints);
@@ -1198,7 +1198,7 @@ TEST_F(ResolverTest, GetAddrInfoFromCustTable_Modify) {
     StartDns(dns, dnsSvHostV4V6);
     auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
 
-    resolverParams.experimentalOptions.hosts = custHostV4V6;
+    resolverParams.resolverOptions.hosts = custHostV4V6;
     ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(resolverParams).isOk());
     const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
     ScopedAddrinfo result = safe_getaddrinfo(hostnameV4V6, nullptr, &hints);
@@ -1206,7 +1206,7 @@ TEST_F(ResolverTest, GetAddrInfoFromCustTable_Modify) {
     EXPECT_THAT(ToStrings(result), testing::UnorderedElementsAreArray({custAddrV4, custAddrV6}));
     EXPECT_EQ(0U, GetNumQueries(dns, hostnameV4V6));
 
-    resolverParams.experimentalOptions.hosts = {};
+    resolverParams.resolverOptions.hosts = {};
     ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(resolverParams).isOk());
     result = safe_getaddrinfo(hostnameV4V6, nullptr, &hints);
     ASSERT_TRUE(result != nullptr);
@@ -4139,7 +4139,7 @@ TEST_F(ResolverTest, TruncatedRspMode) {
         ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
         parcel.servers = {listen_addr, listen_addr2};
         if (config.tcMode) {
-            parcel.experimentalOptions.tcMode = config.tcMode.value();
+            parcel.resolverOptions.tcMode = config.tcMode.value();
         }
         ASSERT_EQ(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk(), config.ret);
 
