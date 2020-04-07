@@ -16,7 +16,7 @@ aidl_interface {
     srcs: [
         "binder/android/net/IDnsResolver.aidl",
         "binder/android/net/ResolverHostsParcel.aidl",
-        "binder/android/net/ResolverExperimentalOptionsParcel.aidl",
+        "binder/android/net/ResolverOptionsParcel.aidl",
         "binder/android/net/ResolverParamsParcel.aidl",
     ],
     imports: [
