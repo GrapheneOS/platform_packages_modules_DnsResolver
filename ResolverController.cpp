@@ -231,9 +231,9 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     res_params.base_timeout_msec = resolverParams.baseTimeoutMsec;
     res_params.retry_count = resolverParams.retryCount;
 
-    return resolv_set_nameservers(
-            resolverParams.netId, resolverParams.servers, resolverParams.domains, res_params,
-            resolverParams.experimentalOptions, resolverParams.transportTypes);
+    return resolv_set_nameservers(resolverParams.netId, resolverParams.servers,
+                                  resolverParams.domains, res_params,
+                                  resolverParams.resolverOptions, resolverParams.transportTypes);
 }
 
 int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>* servers,
