@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <aidl/android/net/IDnsResolver.h>
+#include <android-base/file.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android/binder_manager.h>
@@ -243,6 +244,37 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_Tls) {
             EXPECT_EQ(td.expectedReturnCode, status.getServiceSpecificError());
         }
     }
+}
+
+TEST_F(DnsResolverBinderTest, SetResolverConfiguration_TransportTypes) {
+    using ::testing::HasSubstr;
+    auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    resolverParams.transportTypes = {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_VPN};
+    ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
+    EXPECT_TRUE(status.isOk()) << status.getMessage();
+    // TODO: Find a way to fix a potential deadlock here if it's larger than pipe buffer
+    // size(65535).
+    android::base::unique_fd writeFd, readFd;
+    EXPECT_TRUE(Pipe(&readFd, &writeFd));
+    EXPECT_EQ(mDnsResolver->dump(writeFd.get(), nullptr, 0), 0);
+    writeFd.reset();
+    std::string str;
+    ASSERT_TRUE(ReadFdToString(readFd, &str)) << strerror(errno);
+    EXPECT_THAT(str, HasSubstr("WIFI_VPN"));
+}
+
+TEST_F(DnsResolverBinderTest, SetResolverConfiguration_TransportTypes_Default) {
+    using ::testing::HasSubstr;
+    auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
+    EXPECT_TRUE(status.isOk()) << status.getMessage();
+    android::base::unique_fd writeFd, readFd;
+    EXPECT_TRUE(Pipe(&readFd, &writeFd));
+    EXPECT_EQ(mDnsResolver->dump(writeFd.get(), nullptr, 0), 0);
+    writeFd.reset();
+    std::string str;
+    ASSERT_TRUE(ReadFdToString(readFd, &str)) << strerror(errno);
+    EXPECT_THAT(str, HasSubstr("UNKNOWN"));
 }
 
 TEST_F(DnsResolverBinderTest, GetResolverInfo) {
