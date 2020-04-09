@@ -37,6 +37,7 @@ aidl_interface {
         "1",
         "2",
         "3",
+        "4",
     ],
 }
 
@@ -222,11 +223,18 @@ filegroup {
 // TODO: Move this test to tests/
 cc_test {
     name: "resolv_unit_test",
-    test_suites: ["device-tests", "mts"],
+    test_suites: [
+        "device-tests",
+        "mts",
+    ],
     require_root: true,
     // TODO: Drop root privileges and make it be an real unit test.
     // TODO: Remove resolv_test_mts_coverage_defaults after mts coverage switched to 64-bit device.
-    defaults: ["netd_defaults", "resolv_test_defaults", "resolv_test_mts_coverage_defaults"],
+    defaults: [
+        "netd_defaults",
+        "resolv_test_defaults",
+        "resolv_test_mts_coverage_defaults",
+    ],
     srcs: [
         "resolv_cache_unit_test.cpp",
         "resolv_callback_unit_test.cpp",
