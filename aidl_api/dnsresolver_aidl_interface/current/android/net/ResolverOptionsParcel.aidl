@@ -17,7 +17,7 @@
 
 package android.net;
 /* @hide */
-parcelable ResolverExperimentalOptionsParcel {
+parcelable ResolverOptionsParcel {
   android.net.ResolverHostsParcel[] hosts = {};
   int tcMode = 0;
 }

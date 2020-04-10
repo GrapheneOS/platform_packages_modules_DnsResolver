@@ -32,7 +32,7 @@
 #include <vector>
 
 #include <aidl/android/net/IDnsResolver.h>
-#include <aidl/android/net/ResolverExperimentalOptionsParcel.h>
+#include <aidl/android/net/ResolverOptionsParcel.h>
 
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
@@ -80,12 +80,12 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
 
 // Sets name servers for a given network.
 // TODO: Pass all of ResolverParamsParcel and remove the res_params argument.
-int resolv_set_nameservers(
-        unsigned netid, const std::vector<std::string>& servers,
-        const std::vector<std::string>& domains, const res_params& params,
-        const aidl::android::net::ResolverExperimentalOptionsParcel& experimentalOptions =
-                {{} /* hosts */, aidl::android::net::IDnsResolver::TC_MODE_DEFAULT},
-        const std::vector<int32_t>& transportTypes = {});
+int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
+                           const std::vector<std::string>& domains, const res_params& params,
+                           const aidl::android::net::ResolverOptionsParcel& resolverOptions =
+                                   {{} /* hosts */,
+                                    aidl::android::net::IDnsResolver::TC_MODE_DEFAULT},
+                           const std::vector<int32_t>& transportTypes = {});
 
 // Creates the cache associated with the given network.
 int resolv_create_cache_for_net(unsigned netid);
