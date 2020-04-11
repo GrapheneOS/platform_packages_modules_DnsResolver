@@ -172,16 +172,14 @@ interface IDnsResolver {
     void flushNetworkCache(int netId);
 
     /**
-     * Values for {@code tcMode} of {@code ResolverExperimentalOptionsParcel}. It controls the way DNS
+     * Values for {@code tcMode} of {@code ResolverOptionsParcel}. It controls the way DNS
      * resolver handles truncated DNS response from UDP connection.
      *
      * TC_MODE_DEFAULT: resolver retries on TCP-only on each name server.
      * TC_MODE_UDP_TCP: resolver retries on TCP on the same server, falls back to UDP from next.
-     * TC_MODE_MAX: any value smaller than TC_MODE_DEFAULT or greater than TC_MODE_MAX is invalid.
      */
     const int TC_MODE_DEFAULT = 0;
     const int TC_MODE_UDP_TCP = 1;
-    const int TC_MODE_MAX = 2;
 
     /**
      * Values for {@code transportTypes} of {@code ResolverParamsParcel}. These values are

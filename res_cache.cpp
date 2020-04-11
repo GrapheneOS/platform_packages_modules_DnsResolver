@@ -1579,11 +1579,10 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
     return result;
 }
 
-int resolv_set_nameservers(
-        unsigned netid, const std::vector<std::string>& servers,
-        const std::vector<std::string>& domains, const res_params& params,
-        const aidl::android::net::ResolverExperimentalOptionsParcel& experimentalOptions,
-        const std::vector<int32_t>& transportTypes) {
+int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
+                           const std::vector<std::string>& domains, const res_params& params,
+                           const aidl::android::net::ResolverOptionsParcel& resolverOptions,
+                           const std::vector<int32_t>& transportTypes) {
     std::vector<std::string> nameservers = filter_nameservers(servers);
     const int numservers = static_cast<int>(nameservers.size());
 
@@ -1637,17 +1636,18 @@ int resolv_set_nameservers(
         return -EINVAL;
     }
     netconfig->customizedTable.clear();
-    for (const auto& host : experimentalOptions.hosts) {
+    for (const auto& host : resolverOptions.hosts) {
         if (!host.hostName.empty() && !host.ipAddr.empty())
             netconfig->customizedTable.emplace(host.hostName, host.ipAddr);
     }
 
-    if (experimentalOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
-        experimentalOptions.tcMode >= aidl::android::net::IDnsResolver::TC_MODE_MAX) {
-        LOG(WARNING) << __func__ << ": netid = " << netid << ", invalid TC mode";
+    if (resolverOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
+        resolverOptions.tcMode > aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
+        LOG(WARNING) << __func__ << ": netid = " << netid
+                     << ", invalid TC mode: " << resolverOptions.tcMode;
         return -EINVAL;
     }
-    netconfig->tc_mode = experimentalOptions.tcMode;
+    netconfig->tc_mode = resolverOptions.tcMode;
 
     netconfig->transportTypes = transportTypes;
 

@@ -61,7 +61,7 @@ struct SetupParams {
     std::vector<std::string> servers;
     std::vector<std::string> domains;
     res_params params;
-    aidl::android::net::ResolverExperimentalOptionsParcel experimentalOptions;
+    aidl::android::net::ResolverOptionsParcel resolverOptions;
     std::vector<int32_t> transportTypes;
 };
 
@@ -194,7 +194,7 @@ class ResolvCacheTest : public ::testing::Test {
 
     int cacheSetupResolver(uint32_t netId, const SetupParams& setup) {
         return resolv_set_nameservers(netId, setup.servers, setup.domains, setup.params,
-                                      setup.experimentalOptions, setup.transportTypes);
+                                      setup.resolverOptions, setup.transportTypes);
     }
 
     void cacheAddStats(uint32_t netId, int revision_id, const IPSockAddr& ipsa,

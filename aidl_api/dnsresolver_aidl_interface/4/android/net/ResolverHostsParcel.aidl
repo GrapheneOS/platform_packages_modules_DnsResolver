@@ -17,7 +17,7 @@
 
 package android.net;
 /* @hide */
-parcelable ResolverExperimentalOptionsParcel {
-  android.net.ResolverHostsParcel[] hosts = {};
-  int tcMode = 0;
+parcelable ResolverHostsParcel {
+  @utf8InCpp String ipAddr;
+  @utf8InCpp String hostName = "";
 }
