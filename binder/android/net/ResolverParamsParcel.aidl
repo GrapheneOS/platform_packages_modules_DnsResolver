@@ -16,7 +16,7 @@
 
 package android.net;
 
-import android.net.ResolverExperimentalOptionsParcel;
+import android.net.ResolverOptionsParcel;
 
 /**
  * Configuration for a resolver parameters.
@@ -103,7 +103,7 @@ parcelable ResolverParamsParcel {
     /**
      * Knobs for OEM to control alternative behavior.
      */
-    ResolverExperimentalOptionsParcel experimentalOptions;
+    ResolverOptionsParcel resolverOptions;
 
     /**
      * The transport types associated to a given network.
