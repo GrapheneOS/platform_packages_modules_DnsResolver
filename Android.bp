@@ -32,6 +32,9 @@ aidl_interface {
         },
         ndk: {
             gen_log: true,
+            apex_available: [
+                "com.android.resolv",
+            ],
         },
     },
     versions: [
@@ -169,6 +172,7 @@ cc_library {
     sanitize: {
         cfi: true,
     },
+    apex_available: ["com.android.resolv"],
 }
 
 cc_library_static {
@@ -181,6 +185,7 @@ cc_library_static {
     srcs: [
         "stats.proto",
     ],
+    apex_available: ["com.android.resolv"],
 }
 
 genrule {
@@ -212,6 +217,7 @@ cc_library_static {
         "libgtest_prod", // Used by libstatspush_compat
         "libstatspush_compat",
     ],
+    apex_available: ["com.android.resolv"],
 }
 
 filegroup {
