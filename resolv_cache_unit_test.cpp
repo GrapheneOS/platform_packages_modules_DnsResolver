@@ -883,8 +883,14 @@ TEST_F(ResolvCacheTest, ConvertTransportsToNetworkType) {
              {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_LOWPAN}},
             {android::net::NT_UNKNOWN, {}},
             {android::net::NT_UNKNOWN,
+             {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_BLUETOOTH,
+              IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_WIFI_CELLULAR_VPN,
              {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_WIFI,
               IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_WIFI_CELLULAR_VPN,
+             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_WIFI,
+              IDnsResolver::TRANSPORT_CELLULAR}},
     };
     for (const auto& config : testConfigs) {
         EXPECT_EQ(config.networkType, convert_network_type(config.transportTypes));

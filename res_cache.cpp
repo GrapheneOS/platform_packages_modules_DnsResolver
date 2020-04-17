@@ -1938,10 +1938,21 @@ static android::net::NetworkType to_stats_network_type(int32_t mainType, bool wi
 }
 
 android::net::NetworkType convert_network_type(const std::vector<int32_t>& transportTypes) {
-    // The valid transportTypes size is either 1 or 2.
-    if (transportTypes.size() > 2 || transportTypes.size() == 0) return android::net::NT_UNKNOWN;
+    // The valid transportTypes size is 1 to 3.
+    if (transportTypes.size() > 3 || transportTypes.size() == 0) return android::net::NT_UNKNOWN;
     // TransportTypes size == 1, map the type to stats network type directly.
     if (transportTypes.size() == 1) return to_stats_network_type(transportTypes[0], false);
+    // TransportTypes size == 3, only cellular + wifi + vpn is valid.
+    if (transportTypes.size() == 3) {
+        std::vector<int32_t> sortedTransTypes = transportTypes;
+        std::sort(sortedTransTypes.begin(), sortedTransTypes.end());
+        if (sortedTransTypes != std::vector<int32_t>{IDnsResolver::TRANSPORT_CELLULAR,
+                                                     IDnsResolver::TRANSPORT_WIFI,
+                                                     IDnsResolver::TRANSPORT_VPN}) {
+            return android::net::NT_UNKNOWN;
+        }
+        return android::net::NT_WIFI_CELLULAR_VPN;
+    }
     // TransportTypes size == 2, it shoud be 1 main type + vpn type.
     // Otherwise, consider it as UNKNOWN.
     bool hasVpn = false;
@@ -1980,6 +1991,8 @@ static const char* transport_type_to_str(const std::vector<int32_t>& transportTy
             return "BLUETOOTH_VPN";
         case android::net::NT_ETHERNET_VPN:
             return "ETHERNET_VPN";
+        case android::net::NT_WIFI_CELLULAR_VPN:
+            return "WIFI_CELLULAR_VPN";
         default:
             return "UNKNOWN";
     }
