@@ -57,6 +57,7 @@
 
 #include <android-base/logging.h>
 
+#include "Experiments.h"
 #include "netd_resolv/resolv.h"
 #include "res_comp.h"
 #include "res_debug.h"
@@ -1675,7 +1676,10 @@ static int res_queryN_parallel(const char* name, res_target* target, res_state r
     for (res_target* t = target; t; t = t->next) {
         results.emplace_back(std::async(std::launch::async, doQuery, name, t, res));
         // Avoiding gateways drop packets if queries are sent too close together
-        if (t->next) usleep(SLEEP_TIME_MS * 1000);
+        int sleepTime = android::net::Experiments::getInstance()->getFlag(
+                "parallel_lookup_sleep_time", SLEEP_TIME_MS);
+        if (sleepTime > 1000) sleepTime = 1000;
+        if (t->next) usleep(sleepTime * 1000);
     }
 
     int ancount = 0;
@@ -1701,7 +1705,8 @@ static int res_queryN_parallel(const char* name, res_target* target, res_state r
 }
 
 static int res_queryN_wrapper(const char* name, res_target* target, res_state res, int* herrno) {
-    const bool parallel_lookup = getExperimentFlagInt("parallel_lookup", 0);
+    const bool parallel_lookup =
+            android::net::Experiments::getInstance()->getFlag("parallel_lookup", 0);
     if (parallel_lookup) return res_queryN_parallel(name, target, res, herrno);
 
     return res_queryN(name, target, res, herrno);

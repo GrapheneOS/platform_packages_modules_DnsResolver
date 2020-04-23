@@ -985,7 +985,6 @@ struct NetConfig {
         cache = std::make_unique<Cache>();
         dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
     }
-
     int nameserverCount() { return nameserverSockAddrs.size(); }
 
     const unsigned netid;
