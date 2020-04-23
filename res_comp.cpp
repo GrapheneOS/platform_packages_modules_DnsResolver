@@ -148,9 +148,7 @@ bool res_hnok(const char* dn) {
 
         if (periodchar(ch)) {
             ;
-        } else if (periodchar(pch)) {
-            if (!borderchar(ch)) return false;
-        } else if (periodchar(nch) || nch == '\0') {
+        } else if (periodchar(pch) || periodchar(nch) || nch == '\0') {
             if (!borderchar(ch)) return false;
         } else {
             if (!middlechar(ch)) return false;
