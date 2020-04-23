@@ -91,6 +91,7 @@
 
 #include "netd_resolv/resolv.h"
 #include "resolv_private.h"
+#include "stats.pb.h"
 
 void res_init(ResState* statp, const struct android_net_context* _Nonnull netcontext,
               android::net::NetworkDnsEventReported* _Nonnull event) {
@@ -107,4 +108,26 @@ void res_init(ResState* statp, const struct android_net_context* _Nonnull netcon
     statp->tcp_nssock.reset();
     statp->event = event;
     statp->netcontext_flags = netcontext->flags;
+}
+
+// TODO: Have some proper constructors for ResState instead of this method and res_init().
+ResState fromResState(const ResState& other, android::net::NetworkDnsEventReported* event) {
+    ResState resOutput;
+    resOutput.netid = other.netid;
+    resOutput.uid = other.uid;
+    resOutput.pid = other.pid;
+    resOutput.id = other.id;
+
+    resOutput.nsaddrs = other.nsaddrs;
+
+    for (auto& sock : resOutput.nssocks) {
+        sock.reset();
+    }
+
+    resOutput.ndots = other.ndots;
+    resOutput._mark = other._mark;
+    resOutput.tcp_nssock.reset();
+    resOutput.event = event;
+    resOutput.netcontext_flags = other.netcontext_flags;
+    return resOutput;
 }
