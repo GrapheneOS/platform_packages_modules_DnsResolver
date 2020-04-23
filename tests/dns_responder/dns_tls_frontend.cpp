@@ -213,66 +213,68 @@ void DnsTlsFrontend::requestHandler() {
             SSL_set_fd(ssl.get(), client.get());
 
             LOG(DEBUG) << "Doing SSL handshake";
-            bool success = false;
             if (SSL_accept(ssl.get()) <= 0) {
                 LOG(INFO) << "SSL negotiation failure";
             } else {
                 LOG(DEBUG) << "SSL handshake complete";
-                success = handleOneRequest(ssl.get());
-            }
-
-            if (success) {
                 // Increment queries_ as late as possible, because it represents
                 // a query that is fully processed, and the response returned to the
                 // client, including cleanup actions.
-                ++queries_;
+                queries_ += handleRequests(ssl.get(), client.get());
             }
         }
     }
     LOG(DEBUG) << "Ending loop";
 }
 
-bool DnsTlsFrontend::handleOneRequest(SSL* ssl) {
-    uint8_t queryHeader[2];
-    if (SSL_read(ssl, &queryHeader, 2) != 2) {
-        LOG(INFO) << "Not enough header bytes";
-        return false;
-    }
-    const uint16_t qlen = (queryHeader[0] << 8) | queryHeader[1];
-    uint8_t query[qlen];
-    size_t qbytes = 0;
-    while (qbytes < qlen) {
-        int ret = SSL_read(ssl, query + qbytes, qlen - qbytes);
-        if (ret <= 0) {
-            LOG(INFO) << "Error while reading query";
-            return false;
+int DnsTlsFrontend::handleRequests(SSL* ssl, int clientFd) {
+    int queryCounts = 0;
+    pollfd fds = {.fd = clientFd, .events = POLLIN};
+    do {
+        uint8_t queryHeader[2];
+        if (SSL_read(ssl, &queryHeader, 2) != 2) {
+            LOG(INFO) << "Not enough header bytes";
+            return queryCounts;
         }
-        qbytes += ret;
-    }
-    int sent = send(backend_socket_.get(), query, qlen, 0);
-    if (sent != qlen) {
-        LOG(INFO) << "Failed to send query";
-        return false;
-    }
-    const int max_size = 4096;
-    uint8_t recv_buffer[max_size];
-    int rlen = recv(backend_socket_.get(), recv_buffer, max_size, 0);
-    if (rlen <= 0) {
-        LOG(INFO) << "Failed to receive response";
-        return false;
-    }
-    uint8_t responseHeader[2];
-    responseHeader[0] = rlen >> 8;
-    responseHeader[1] = rlen;
-    if (SSL_write(ssl, responseHeader, 2) != 2) {
-        LOG(INFO) << "Failed to write response header";
-        return false;
-    }
-    if (SSL_write(ssl, recv_buffer, rlen) != rlen) {
-        LOG(INFO) << "Failed to write response body";
-        return false;
-    }
-    return true;
+        const uint16_t qlen = (queryHeader[0] << 8) | queryHeader[1];
+        uint8_t query[qlen];
+        size_t qbytes = 0;
+        while (qbytes < qlen) {
+            int ret = SSL_read(ssl, query + qbytes, qlen - qbytes);
+            if (ret <= 0) {
+                LOG(INFO) << "Error while reading query";
+                return queryCounts;
+            }
+            qbytes += ret;
+        }
+        int sent = send(backend_socket_.get(), query, qlen, 0);
+        if (sent != qlen) {
+            LOG(INFO) << "Failed to send query";
+            return queryCounts;
+        }
+        const int max_size = 4096;
+        uint8_t recv_buffer[max_size];
+        int rlen = recv(backend_socket_.get(), recv_buffer, max_size, 0);
+        if (rlen <= 0) {
+            LOG(INFO) << "Failed to receive response";
+            return queryCounts;
+        }
+        uint8_t responseHeader[2];
+        responseHeader[0] = rlen >> 8;
+        responseHeader[1] = rlen;
+        if (SSL_write(ssl, responseHeader, 2) != 2) {
+            LOG(INFO) << "Failed to write response header";
+            return queryCounts;
+        }
+        if (SSL_write(ssl, recv_buffer, rlen) != rlen) {
+            LOG(INFO) << "Failed to write response body";
+            return queryCounts;
+        }
+        ++queryCounts;
+    } while (poll(&fds, 1, 1) > 0);
+
+    LOG(DEBUG) << __func__ << " return: " << queryCounts;
+    return queryCounts;
 }
 
 bool DnsTlsFrontend::stopServer() {
