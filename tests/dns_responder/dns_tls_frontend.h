@@ -69,7 +69,7 @@ class DnsTlsFrontend {
 
   private:
     void requestHandler();
-    bool handleOneRequest(SSL* ssl);
+    int handleRequests(SSL* ssl, int clientFd);
 
     // Trigger the handler thread to terminate.
     bool sendToEventFd();
