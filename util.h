@@ -25,4 +25,5 @@ socklen_t sockaddrSize(const sockaddr* sa);
 socklen_t sockaddrSize(const sockaddr_storage& ss);
 
 // TODO: getExperimentFlagString
+// TODO: Migrate it to DnsResolverExperiments.cpp
 int getExperimentFlagInt(const std::string& flagName, int defaultValue);
