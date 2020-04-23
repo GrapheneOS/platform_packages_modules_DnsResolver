@@ -16,7 +16,9 @@
 #pragma once
 
 #include "resolv_private.h"
+#include "stats.pb.h"
 
 // TODO: make this a constructor for ResState
 void res_init(ResState* res, const struct android_net_context* netcontext,
               android::net::NetworkDnsEventReported* event);
+ResState fromResState(const ResState& other, android::net::NetworkDnsEventReported* event);
