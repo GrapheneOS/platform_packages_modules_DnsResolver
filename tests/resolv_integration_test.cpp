@@ -193,6 +193,11 @@ class ResolverTest : public ::testing::Test {
         mDnsClient.TearDown();
     }
 
+    void resetNetwork() {
+        mDnsClient.TearDown();
+        mDnsClient.SetupOemNetwork();
+    }
+
     void StartDns(test::DNSResponder& dns, const std::vector<DnsRecord>& records) {
         for (const auto& r : records) {
             dns.addMapping(r.host_name, r.type, r.addr);
@@ -4730,6 +4735,10 @@ TEST_F(ResolverTest, KeepListeningUDP) {
     test::DNSResponder neverRespondDns(listen_addr2, "53", static_cast<ns_rcode>(-1));
     neverRespondDns.setResponseProbability(0.0);
     StartDns(neverRespondDns, records);
+    ScopedSystemProperties scopedSystemProperties(
+            "persist.device_config.netd_native.keep_listening_udp", "1");
+    // Re-setup test network to make experiment flag take effect.
+    resetNetwork();
 
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr1, listen_addr2},
                                                   kDefaultSearchDomains, params));
@@ -4740,9 +4749,7 @@ TEST_F(ResolverTest, KeepListeningUDP) {
     // because |delayTimeMs| > DNS timeout.
     // Then it's the second try, resolver will send query to |neverRespondDns| and
     // listen on both servers. Resolver will receive the answer coming from |delayedDns|.
-    const std::string udpKeepListeningFlag("persist.device_config.netd_native.keep_listening_udp");
 
-    ScopedSystemProperties scopedSystemProperties(udpKeepListeningFlag, "1");
     test::DNSResponder delayedDns(listen_addr1);
     delayedDns.setResponseDelayMs(delayTimeMs);
     StartDns(delayedDns, records);
@@ -4770,12 +4777,13 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
     test::DNSResponder neverRespondDns(listen_addr, "53", static_cast<ns_rcode>(-1));
     neverRespondDns.setResponseProbability(0.0);
     StartDns(neverRespondDns, records);
+    ScopedSystemProperties scopedSystemProperties(
+            "persist.device_config.netd_native.parallel_lookup", "1");
+    // Re-setup test network to make experiment flag take effect.
+    resetNetwork();
 
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr}, kDefaultSearchDomains, params));
     neverRespondDns.clearQueries();
-
-    const std::string udpKeepListeningFlag("persist.device_config.netd_native.parallel_lookup");
-    ScopedSystemProperties scopedSystemProperties(udpKeepListeningFlag, "1");
 
     // Use a never respond DNS server to verify if the A/AAAA queries are sent in parallel.
     // The resolver parameters are set to timeout 1s and retry 1 times.
