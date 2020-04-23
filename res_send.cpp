@@ -102,6 +102,7 @@
 #include <netdutils/Stopwatch.h>
 #include "DnsTlsDispatcher.h"
 #include "DnsTlsTransport.h"
+#include "Experiments.h"
 #include "PrivateDnsConfiguration.h"
 #include "netd_resolv/resolv.h"
 #include "private/android_filesystem_config.h"
@@ -925,7 +926,8 @@ static Result<std::vector<int>> udpRetryingPoll(res_state statp, const timespec*
 
 static Result<std::vector<int>> udpRetryingPollWrapper(res_state statp, int ns,
                                                        const timespec* finish) {
-    const bool keepListeningUdp = getExperimentFlagInt("keep_listening_udp", 0);
+    const bool keepListeningUdp =
+            android::net::Experiments::getInstance()->getFlag("keep_listening_udp", 0);
     if (keepListeningUdp) return udpRetryingPoll(statp, finish);
 
     if (int n = retrying_poll(statp->nssocks[ns], POLLIN, finish); n <= 0) {

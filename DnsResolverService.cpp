@@ -30,6 +30,7 @@
 #include <private/android_filesystem_config.h>  // AID_SYSTEM
 
 #include "DnsResolver.h"
+#include "Experiments.h"
 #include "NetdPermissions.h"  // PERM_*
 #include "ResolverEventReporter.h"
 #include "resolv_cache.h"
@@ -115,7 +116,7 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
         gDnsResolv->resolverCtrl.dump(dw, netId);
         dw.blankline();
     }
-
+    Experiments::getInstance()->dump(dw);
     return STATUS_OK;
 }
 
@@ -252,7 +253,7 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     ENFORCE_NETWORK_STACK_PERMISSIONS();
 
     gDnsResolv->resolverCtrl.destroyNetworkCache(netId);
-
+    Experiments::getInstance()->update();
     return ::ndk::ScopedAStatus(AStatus_newOk());
 }
 
@@ -261,7 +262,7 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     ENFORCE_NETWORK_STACK_PERMISSIONS();
 
     int res = gDnsResolv->resolverCtrl.createNetworkCache(netId);
-
+    Experiments::getInstance()->update();
     return statusFromErrcode(res);
 }
 
