@@ -213,7 +213,7 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
     // This file descriptor is owned by mSslFd, so don't let libssl close it.
     bssl::UniquePtr<BIO> bio(BIO_new_socket(fd, BIO_NOCLOSE));
     SSL_set_bio(ssl.get(), bio.get(), bio.get());
-    bio.release();
+    (void)bio.release();
 
     if (!mCache->prepareSsl(ssl.get())) {
         return nullptr;
