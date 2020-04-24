@@ -731,8 +731,6 @@ static int get_port(const struct addrinfo* ai, const char* servname, int matchon
             return EAI_SERVICE;
         case SOCK_DGRAM:
         case SOCK_STREAM:
-            allownumeric = 1;
-            break;
         case ANY:
             allownumeric = 1;
             break;
