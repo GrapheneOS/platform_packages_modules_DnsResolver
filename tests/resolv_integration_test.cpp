@@ -193,6 +193,11 @@ class ResolverTest : public ::testing::Test {
         mDnsClient.TearDown();
     }
 
+    void resetNetwork() {
+        mDnsClient.TearDown();
+        mDnsClient.SetupOemNetwork();
+    }
+
     void StartDns(test::DNSResponder& dns, const std::vector<DnsRecord>& records) {
         for (const auto& r : records) {
             dns.addMapping(r.host_name, r.type, r.addr);
@@ -1693,7 +1698,7 @@ TEST_F(ResolverTest, GetHostByName_TlsFailover) {
     // Wait for query to get counted.
     EXPECT_TRUE(tls1.waitForQueries(2));
     // No new queries should have reached tls2.
-    EXPECT_EQ(1, tls2.queries());
+    EXPECT_TRUE(tls2.waitForQueries(1));
 
     // Stop tls1.  Subsequent queries should attempt to reach tls1, fail, and retry to tls2.
     tls1.stopServer();
@@ -3963,7 +3968,7 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
     std::tie(result, timeTakenMs) = safe_getaddrinfo_time_taken(hostname2, nullptr, hints);
 
     EXPECT_NE(nullptr, result);
-    EXPECT_EQ(1, tls.queries());
+    EXPECT_TRUE(tls.waitForQueries(1));
     EXPECT_EQ(1U, GetNumQueries(dns, hostname2));
     EXPECT_EQ(records.at(1).addr, ToString(result));
 
@@ -4714,4 +4719,81 @@ TEST_P(ResolverParameterizedTest, TruncatedResponse) {
     VerifyQueryHelloExampleComV4(dns, calltype, false);
     EXPECT_EQ(1U, GetNumQueriesForProtocol(dns, IPPROTO_UDP, kHelloExampleCom));
     EXPECT_EQ(1U, GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom));
+}
+
+TEST_F(ResolverTest, KeepListeningUDP) {
+    constexpr char listen_addr1[] = "127.0.0.4";
+    constexpr char listen_addr2[] = "127.0.0.5";
+    constexpr char host_name[] = "howdy.example.com.";
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
+    };
+    const std::vector<int> params = {300, 25, 8, 8, 1000 /* BASE_TIMEOUT_MSEC */,
+                                     1 /* retry count */};
+    const int delayTimeMs = 1500;
+
+    test::DNSResponder neverRespondDns(listen_addr2, "53", static_cast<ns_rcode>(-1));
+    neverRespondDns.setResponseProbability(0.0);
+    StartDns(neverRespondDns, records);
+    ScopedSystemProperties scopedSystemProperties(
+            "persist.device_config.netd_native.keep_listening_udp", "1");
+    // Re-setup test network to make experiment flag take effect.
+    resetNetwork();
+
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr1, listen_addr2},
+                                                  kDefaultSearchDomains, params));
+    // There are 2 DNS servers for this test.
+    // |delayedDns| will be blocked for |delayTimeMs|, then start to respond to requests.
+    // |neverRespondDns| will never respond.
+    // In the first try, resolver will send query to |delayedDns| but get timeout error
+    // because |delayTimeMs| > DNS timeout.
+    // Then it's the second try, resolver will send query to |neverRespondDns| and
+    // listen on both servers. Resolver will receive the answer coming from |delayedDns|.
+
+    test::DNSResponder delayedDns(listen_addr1);
+    delayedDns.setResponseDelayMs(delayTimeMs);
+    StartDns(delayedDns, records);
+
+    // Specify hints to ensure resolver doing query only 1 round.
+    const addrinfo hints = {.ai_family = AF_INET6, .ai_socktype = SOCK_DGRAM};
+    ScopedAddrinfo result = safe_getaddrinfo(host_name, nullptr, &hints);
+    EXPECT_TRUE(result != nullptr);
+
+    std::string result_str = ToString(result);
+    EXPECT_TRUE(result_str == "::1.2.3.4") << ", result_str='" << result_str << "'";
+}
+
+TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
+    constexpr char listen_addr[] = "127.0.0.4";
+    constexpr char host_name[] = "howdy.example.com.";
+    constexpr int TIMING_TOLERANCE_MS = 200;
+    constexpr int DNS_TIMEOUT_MS = 1000;
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+            {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
+    };
+    const std::vector<int> params = {300, 25, 8, 8, DNS_TIMEOUT_MS /* BASE_TIMEOUT_MSEC */,
+                                     1 /* retry count */};
+    test::DNSResponder neverRespondDns(listen_addr, "53", static_cast<ns_rcode>(-1));
+    neverRespondDns.setResponseProbability(0.0);
+    StartDns(neverRespondDns, records);
+    ScopedSystemProperties scopedSystemProperties(
+            "persist.device_config.netd_native.parallel_lookup", "1");
+    // Re-setup test network to make experiment flag take effect.
+    resetNetwork();
+
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr}, kDefaultSearchDomains, params));
+    neverRespondDns.clearQueries();
+
+    // Use a never respond DNS server to verify if the A/AAAA queries are sent in parallel.
+    // The resolver parameters are set to timeout 1s and retry 1 times.
+    // So we expect the safe_getaddrinfo_time_taken() might take ~1s to
+    // return when parallel lookup is enabled. And the DNS server should receive 2 queries.
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
+    auto [result, timeTakenMs] = safe_getaddrinfo_time_taken(host_name, nullptr, hints);
+
+    EXPECT_TRUE(result == nullptr);
+    EXPECT_NEAR(DNS_TIMEOUT_MS, timeTakenMs, TIMING_TOLERANCE_MS)
+            << "took time should approximate equal timeout";
+    EXPECT_EQ(2U, GetNumQueries(neverRespondDns, host_name));
 }
