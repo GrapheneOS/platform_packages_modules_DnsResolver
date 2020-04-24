@@ -53,14 +53,18 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <future>
+
 #include <android-base/logging.h>
 
+#include "Experiments.h"
 #include "netd_resolv/resolv.h"
 #include "res_comp.h"
 #include "res_debug.h"
 #include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
+#include "util.h"
 
 #define ANY 0
 
@@ -1573,6 +1577,141 @@ static bool files_getaddrinfo(const size_t netid, const char* name, const addrin
 
 /* resolver logic */
 
+namespace {
+
+constexpr int SLEEP_TIME_MS = 2;
+
+int getHerrnoFromRcode(int rcode) {
+    switch (rcode) {
+        // Not defined in RFC.
+        case RCODE_TIMEOUT:
+            // DNS metrics monitors DNS query timeout.
+            return NETD_RESOLV_H_ERRNO_EXT_TIMEOUT;  // extended h_errno.
+        // Defined in RFC 1035 section 4.1.1.
+        case NXDOMAIN:
+            return HOST_NOT_FOUND;
+        case SERVFAIL:
+            return TRY_AGAIN;
+        case NOERROR:
+            return NO_DATA;
+        case FORMERR:
+        case NOTIMP:
+        case REFUSED:
+        default:
+            return NO_RECOVERY;
+    }
+}
+
+struct QueryResult {
+    int ancount;
+    int rcode;
+    int herrno;
+    NetworkDnsEventReported event;
+};
+
+QueryResult doQuery(const char* name, res_target* t, res_state res) {
+    HEADER* hp = (HEADER*)(void*)t->answer.data();
+
+    hp->rcode = NOERROR;  // default
+
+    const int cl = t->qclass;
+    const int type = t->qtype;
+    const int anslen = t->answer.size();
+
+    LOG(DEBUG) << __func__ << ": (" << cl << ", " << type << ")";
+
+    uint8_t buf[MAXPACKET];
+
+    int n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf, sizeof(buf),
+                         res->netcontext_flags);
+
+    if (n > 0 &&
+        (res->netcontext_flags & (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS))) {
+        n = res_nopt(res, n, buf, sizeof(buf), anslen);
+    }
+
+    NetworkDnsEventReported event;
+    if (n <= 0) {
+        LOG(ERROR) << __func__ << ": res_nmkquery failed";
+        return {0, -1, NO_RECOVERY, event};
+        return {
+                .ancount = 0,
+                .rcode = -1,
+                .herrno = NO_RECOVERY,
+                .event = event,
+        };
+    }
+
+    ResState res_temp = fromResState(*res, &event);
+
+    int rcode = NOERROR;
+    n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0);
+    if (n < 0 || hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
+        // if the query choked with EDNS0, retry without EDNS0
+        if ((res_temp.netcontext_flags &
+             (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
+            (res_temp._flags & RES_F_EDNS0ERR)) {
+            LOG(DEBUG) << __func__ << ": retry without EDNS0";
+            n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf,
+                             sizeof(buf), res->netcontext_flags);
+            n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0);
+        }
+    }
+
+    LOG(DEBUG) << __func__ << ": rcode=" << hp->rcode << ", ancount=" << ntohs(hp->ancount);
+
+    t->n = n;
+    return {
+            .ancount = ntohs(hp->ancount),
+            .rcode = rcode,
+            .event = event,
+    };
+}
+
+}  // namespace
+
+static int res_queryN_parallel(const char* name, res_target* target, res_state res, int* herrno) {
+    std::vector<std::future<QueryResult>> results;
+    results.reserve(2);
+    for (res_target* t = target; t; t = t->next) {
+        results.emplace_back(std::async(std::launch::async, doQuery, name, t, res));
+        // Avoiding gateways drop packets if queries are sent too close together
+        int sleepTime = android::net::Experiments::getInstance()->getFlag(
+                "parallel_lookup_sleep_time", SLEEP_TIME_MS);
+        if (sleepTime > 1000) sleepTime = 1000;
+        if (t->next) usleep(sleepTime * 1000);
+    }
+
+    int ancount = 0;
+    int rcode = 0;
+
+    for (auto& f : results) {
+        const QueryResult& r = f.get();
+        if (r.herrno == NO_RECOVERY) {
+            *herrno = r.herrno;
+            return -1;
+        }
+        res->event->MergeFrom(r.event);
+        ancount += r.ancount;
+        rcode = r.rcode;
+    }
+
+    if (ancount == 0) {
+        *herrno = getHerrnoFromRcode(rcode);
+        return -1;
+    }
+
+    return ancount;
+}
+
+static int res_queryN_wrapper(const char* name, res_target* target, res_state res, int* herrno) {
+    const bool parallel_lookup =
+            android::net::Experiments::getInstance()->getFlag("parallel_lookup", 0);
+    if (parallel_lookup) return res_queryN_parallel(name, target, res, herrno);
+
+    return res_queryN(name, target, res, herrno);
+}
+
 /*
  * Formulate a normal query, send, and await answer.
  * Returned answer is placed in supplied buffer "answer".
@@ -1647,29 +1786,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
     }
 
     if (ancount == 0) {
-        switch (rcode) {
-            // Not defined in RFC.
-            case RCODE_TIMEOUT:
-                // DNS metrics monitors DNS query timeout.
-                *herrno = NETD_RESOLV_H_ERRNO_EXT_TIMEOUT;  // extended h_errno.
-                break;
-            // Defined in RFC 1035 section 4.1.1.
-            case NXDOMAIN:
-                *herrno = HOST_NOT_FOUND;
-                break;
-            case SERVFAIL:
-                *herrno = TRY_AGAIN;
-                break;
-            case NOERROR:
-                *herrno = NO_DATA;
-                break;
-            case FORMERR:
-            case NOTIMP:
-            case REFUSED:
-            default:
-                *herrno = NO_RECOVERY;
-                break;
-        }
+        *herrno = getHerrnoFromRcode(rcode);
         return -1;
     }
     return ancount;
@@ -1795,10 +1912,8 @@ static int res_searchN(const char* name, res_target* target, res_state res, int*
     return -1;
 }
 
-/*
- * Perform a call on res_query on the concatenation of name and domain,
- * removing a trailing dot from name if domain is NULL.
- */
+// Perform a call on res_query on the concatenation of name and domain,
+// removing a trailing dot from name if domain is NULL.
 static int res_querydomainN(const char* name, const char* domain, res_target* target, res_state res,
                             int* herrno) {
     char nbuf[MAXDNAME];
@@ -1828,5 +1943,5 @@ static int res_querydomainN(const char* name, const char* domain, res_target* ta
         }
         snprintf(nbuf, sizeof(nbuf), "%s.%s", name, domain);
     }
-    return res_queryN(longname, target, res, herrno);
+    return res_queryN_wrapper(longname, target, res, herrno);
 }

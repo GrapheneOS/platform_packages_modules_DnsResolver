@@ -27,9 +27,10 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <set>
 
+#include <chrono>
 #include <iostream>
+#include <set>
 #include <vector>
 
 #define LOG_TAG "DNSResponder"
@@ -513,6 +514,10 @@ void DNSResponder::removeMappingBinaryPacket(const std::vector<uint8_t>& query) 
 void DNSResponder::setResponseProbability(double response_probability) {
     setResponseProbability(response_probability, IPPROTO_TCP);
     setResponseProbability(response_probability, IPPROTO_UDP);
+}
+
+void DNSResponder::setResponseDelayMs(unsigned timeMs) {
+    response_delayed_ms_ = timeMs;
 }
 
 // Set response probability on specific protocol. It's caller's duty to ensure that the |protocol|
@@ -1102,6 +1107,7 @@ void DNSResponder::handleQuery(int protocol) {
     size_t response_len = sizeof(response);
     // TODO: check whether sending malformed packets to DnsResponder
     if (handleDNSRequest(buffer, len, protocol, response, &response_len) && response_len > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(response_delayed_ms_));
         // place wait_for after handleDNSRequest() so we can check the number of queries in
         // test case before it got responded.
         std::unique_lock guard(cv_mutex_for_deferred_resp_);
