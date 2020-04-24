@@ -866,7 +866,7 @@ retry:
     else
         timeout = evConsTime(0L, 0L);
     struct pollfd fds = {.fd = sock, .events = events};
-    int n = ppoll(&fds, 1, &timeout, /*sigmask=*/NULL);
+    int n = ppoll(&fds, 1, &timeout, /*__mask=*/NULL);
     if (n == 0) {
         LOG(INFO) << __func__ << ": " << sock << " retrying_poll timeout";
         errno = ETIMEDOUT;
@@ -905,7 +905,7 @@ static Result<std::vector<int>> udpRetryingPoll(res_state statp, const timespec*
         timespec timeout = (evCmpTime(*finish, start_time) > 0) ? evSubTime(*finish, start_time)
                                                                 : evConsTime(0L, 0L);
         std::vector<pollfd> fdset = extractUdpFdset(statp);
-        const int n = ppoll(fdset.data(), fdset.size(), &timeout, /*sigmask=*/nullptr);
+        const int n = ppoll(fdset.data(), fdset.size(), &timeout, /*__mask=*/nullptr);
         if (n <= 0) {
             if (errno == EINTR && n < 0) continue;
             if (n == 0) errno = ETIMEDOUT;
