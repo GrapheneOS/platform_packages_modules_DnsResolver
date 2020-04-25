@@ -388,7 +388,7 @@ using GoldTestParamType = std::tuple<DnsProtocol, std::string /* filename */>;
 class ResolvGoldTest : public TestBase, public ::testing::WithParamInterface<GoldTestParamType> {
   public:
     // Generate readable string for test name from test parameters.
-    static std::string Name(::testing::TestParamInfo<GoldTestParamType> info) {
+    static std::string Name(const ::testing::TestParamInfo<GoldTestParamType>& info) {
         const auto& [protocol, file] = info.param;
         std::string name = StringPrintf(
                 "%s_%s", protocol == DnsProtocol::CLEARTEXT ? "CLEARTEXT" : "TLS", file.c_str());
