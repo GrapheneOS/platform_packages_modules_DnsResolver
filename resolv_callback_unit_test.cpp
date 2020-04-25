@@ -41,12 +41,12 @@ bool isApiLevelSupported(size_t requiredVersion) {
         return false;
 }
 
-#define SKIP_IF_APILEVEL_LESS_THAN(version)                                        \
-    do {                                                                           \
-        if (!isApiLevelSupported(version)) {                                       \
-            GTEST_LOG_(INFO) << "Skip. Required API version: " << version << "\n"; \
-            return;                                                                \
-        }                                                                          \
+#define SKIP_IF_APILEVEL_LESS_THAN(version)                                          \
+    do {                                                                             \
+        if (!isApiLevelSupported(version)) {                                         \
+            GTEST_LOG_(INFO) << "Skip. Required API version: " << (version) << "\n"; \
+            return;                                                                  \
+        }                                                                            \
     } while (0)
 
 void getNetworkContextCallback(uint32_t, uint32_t, android_net_context*) {
