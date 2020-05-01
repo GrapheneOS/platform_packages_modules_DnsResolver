@@ -59,6 +59,19 @@ class ExperimentsTest : public ::testing::Test {
         EXPECT_THAT(mExperiments.mFlagsMapInt, ::testing::ContainerEq(sFakeFlagsMapInt));
     }
 
+    void expectFlagsMapIntDefault() {
+        std::lock_guard guard(mExperiments.mMutex);
+        for (const auto& [key, value] : mExperiments.mFlagsMapInt) {
+            EXPECT_EQ(value, Experiments::kFlagIntDefault);
+        }
+    }
+
+    void expectGetDnsExperimentFlagIntDefault(int value) {
+        for (const auto& key : Experiments::kExperimentFlagKeyList) {
+            EXPECT_EQ(mExperiments.getFlag(key, value), value);
+        }
+    }
+
     void expectGetDnsExperimentFlagInt() {
         std::unordered_map<std::string_view, int> tempMap;
         for (const auto& key : Experiments::kExperimentFlagKeyList) {
@@ -78,6 +91,9 @@ class ExperimentsTest : public ::testing::Test {
         std::lock_guard guard(mExperiments.mMutex);
         for (const auto& [key, value] : mExperiments.mFlagsMapInt) {
             std::string flagDump = fmt::format("{}: {}", key, value);
+            if (value == Experiments::kFlagIntDefault) {
+                flagDump = fmt::format("{}: UNSET", key);
+            }
             SCOPED_TRACE(flagDump);
             size_t pos = dumpString.find(flagDump, startPos);
             EXPECT_NE(pos, std::string::npos);
@@ -110,6 +126,17 @@ TEST_F(ExperimentsTest, getDnsExperimentFlagInt) {
     }
 }
 
+TEST_F(ExperimentsTest, getDnsExperimentFlagIntDefaultValue) {
+    // Clear the map and make mExperiments initialized with our default int value.
+    sFakeFlagsMapInt.clear();
+    mExperiments.update();
+    expectFlagsMapIntDefault();
+    std::vector<int> testValues = {100, 50, 30, 5};
+    for (int testValue : testValues) {
+        expectGetDnsExperimentFlagIntDefault(testValue);
+    }
+}
+
 TEST_F(ExperimentsTest, dump) {
     std::vector<int> testValues = {100, 37, 0, 30};
     for (int testValue : testValues) {
@@ -117,6 +144,9 @@ TEST_F(ExperimentsTest, dump) {
         mExperiments.update();
         expectDumpOutput();
     }
+    sFakeFlagsMapInt.clear();
+    mExperiments.update();
+    expectDumpOutput();
 }
 
 }  // namespace android::net
