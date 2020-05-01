@@ -4779,6 +4779,8 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
     StartDns(neverRespondDns, records);
     ScopedSystemProperties scopedSystemProperties(
             "persist.device_config.netd_native.parallel_lookup", "1");
+    // The default value of parallel_lookup_sleep_time should be very small
+    // that we can ignore in this test case.
     // Re-setup test network to make experiment flag take effect.
     resetNetwork();
 
@@ -4796,4 +4798,49 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
     EXPECT_NEAR(DNS_TIMEOUT_MS, timeTakenMs, TIMING_TOLERANCE_MS)
             << "took time should approximate equal timeout";
     EXPECT_EQ(2U, GetNumQueries(neverRespondDns, host_name));
+}
+
+TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
+    constexpr char listen_addr[] = "127.0.0.4";
+    constexpr int TIMING_TOLERANCE_MS = 200;
+    const std::vector<DnsRecord> records = {
+            {kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4},
+            {kHelloExampleCom, ns_type::ns_t_aaaa, kHelloExampleComAddrV6},
+    };
+    const std::vector<int> params = {300, 25, 8, 8, 1000 /* BASE_TIMEOUT_MSEC */,
+                                     1 /* retry count */};
+    test::DNSResponder dns(listen_addr);
+    StartDns(dns, records);
+    ScopedSystemProperties scopedSystemProperties1(
+            "persist.device_config.netd_native.parallel_lookup", "1");
+    constexpr int PARALLEL_LOOKUP_SLEEP_TIME_MS = 500;
+    ScopedSystemProperties scopedSystemProperties2(
+            "persist.device_config.netd_native.parallel_lookup_sleep_time",
+            std::to_string(PARALLEL_LOOKUP_SLEEP_TIME_MS));
+    // Re-setup test network to make experiment flag take effect.
+    resetNetwork();
+
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork({listen_addr}, kDefaultSearchDomains, params));
+    dns.clearQueries();
+
+    // Expect the safe_getaddrinfo_time_taken() might take ~500ms to return because we set
+    // parallel_lookup_sleep_time to 500ms.
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
+    auto [result, timeTakenMs] = safe_getaddrinfo_time_taken(kHelloExampleCom, nullptr, hints);
+
+    EXPECT_NE(nullptr, result);
+    EXPECT_THAT(ToStrings(result), testing::UnorderedElementsAreArray(
+                                           {kHelloExampleComAddrV4, kHelloExampleComAddrV6}));
+    EXPECT_NEAR(PARALLEL_LOOKUP_SLEEP_TIME_MS, timeTakenMs, TIMING_TOLERANCE_MS)
+            << "took time should approximate equal timeout";
+    EXPECT_EQ(2U, GetNumQueries(dns, kHelloExampleCom));
+
+    // Expect the PARALLEL_LOOKUP_SLEEP_TIME_MS won't affect the query under cache hit case.
+    dns.clearQueries();
+    std::tie(result, timeTakenMs) = safe_getaddrinfo_time_taken(kHelloExampleCom, nullptr, hints);
+    EXPECT_NE(nullptr, result);
+    EXPECT_THAT(ToStrings(result), testing::UnorderedElementsAreArray(
+                                           {kHelloExampleComAddrV4, kHelloExampleComAddrV6}));
+    EXPECT_GT(PARALLEL_LOOKUP_SLEEP_TIME_MS, timeTakenMs);
+    EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));
 }
