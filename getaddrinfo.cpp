@@ -53,6 +53,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <future>
 
 #include <android-base/logging.h>
@@ -1607,7 +1608,8 @@ struct QueryResult {
     NetworkDnsEventReported event;
 };
 
-QueryResult doQuery(const char* name, res_target* t, res_state res) {
+QueryResult doQuery(const char* name, res_target* t, res_state res,
+                    std::chrono::milliseconds sleepTimeMs) {
     HEADER* hp = (HEADER*)(void*)t->answer.data();
 
     hp->rcode = NOERROR;  // default
@@ -1643,7 +1645,7 @@ QueryResult doQuery(const char* name, res_target* t, res_state res) {
     ResState res_temp = fromResState(*res, &event);
 
     int rcode = NOERROR;
-    n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0);
+    n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0, sleepTimeMs);
     if (n < 0 || hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
         // if the query choked with EDNS0, retry without EDNS0
         if ((res_temp.netcontext_flags &
@@ -1671,13 +1673,17 @@ QueryResult doQuery(const char* name, res_target* t, res_state res) {
 static int res_queryN_parallel(const char* name, res_target* target, res_state res, int* herrno) {
     std::vector<std::future<QueryResult>> results;
     results.reserve(2);
+    std::chrono::milliseconds sleepTimeMs{};
     for (res_target* t = target; t; t = t->next) {
-        results.emplace_back(std::async(std::launch::async, doQuery, name, t, res));
+        results.emplace_back(std::async(std::launch::async, doQuery, name, t, res, sleepTimeMs));
         // Avoiding gateways drop packets if queries are sent too close together
-        int sleepTime = android::net::Experiments::getInstance()->getFlag(
-                "parallel_lookup_sleep_time", SLEEP_TIME_MS);
-        if (sleepTime > 1000) sleepTime = 1000;
-        if (t->next) usleep(sleepTime * 1000);
+        // Only needed if we have multiple queries in a row.
+        if (t->next) {
+            int sleepFlag = android::net::Experiments::getInstance()->getFlag(
+                    "parallel_lookup_sleep_time", SLEEP_TIME_MS);
+            if (sleepFlag > 1000) sleepFlag = 1000;
+            sleepTimeMs = std::chrono::milliseconds(sleepFlag);
+        }
     }
 
     int ancount = 0;

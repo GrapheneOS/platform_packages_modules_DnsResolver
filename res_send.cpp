@@ -76,6 +76,8 @@
 
 #define LOG_TAG "resolv"
 
+#include <chrono>
+
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -115,6 +117,7 @@
 #include "stats.pb.h"
 #include "util.h"
 
+using namespace std::chrono_literals;
 // TODO: use the namespace something like android::netd_resolv for libnetd_resolv
 using android::base::ErrnoError;
 using android::base::Result;
@@ -408,7 +411,7 @@ static DnsQueryEvent* addDnsQueryEvent(NetworkDnsEventReported* event) {
 }
 
 int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
-              uint32_t flags) {
+              uint32_t flags, std::chrono::milliseconds sleepTimeMs) {
     LOG(DEBUG) << __func__;
 
     // Should not happen
@@ -448,6 +451,11 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         return -ESRCH;
     }
 
+    // If parallel_lookup is enabled, it might be required to wait some time to avoid
+    // gateways drop packets if queries are sent too close together
+    if (sleepTimeMs != 0ms) {
+        std::this_thread::sleep_for(sleepTimeMs);
+    }
     // DoT
     if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
         bool fallback = false;
