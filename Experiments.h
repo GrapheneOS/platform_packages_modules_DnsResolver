@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <climits>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -49,6 +50,8 @@ class Experiments {
     // (retry_count, retransmission_time_interval, dot_connect_timeout_ms)
     static constexpr const char* const kExperimentFlagKeyList[] = {
             "keep_listening_udp", "parallel_lookup", "parallel_lookup_sleep_time"};
+    // This value is used in updateInternal as the default value if any flags can't be found.
+    static constexpr int kFlagIntDefault = INT_MIN;
     // For testing.
     friend class ExperimentsTest;
     const GetExperimentFlagIntFunction mGetExperimentFlagIntFunction;
