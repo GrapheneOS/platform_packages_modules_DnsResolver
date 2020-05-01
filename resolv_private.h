@@ -140,7 +140,8 @@ int res_nsearch(res_state, const char*, int, int, uint8_t*, int, int*);
 int res_nquerydomain(res_state, const char*, const char*, int, int, uint8_t*, int, int*);
 int res_nmkquery(int op, const char* qname, int cl, int type, const uint8_t* data, int datalen,
                  uint8_t* buf, int buflen, int netcontext_flags);
-int res_nsend(res_state, const uint8_t*, int, uint8_t*, int, int*, uint32_t);
+int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
+              uint32_t flags, std::chrono::milliseconds sleepTimeMs = {});
 int res_nopt(res_state, int, uint8_t*, int, int);
 
 int getaddrinfo_numeric(const char* hostname, const char* servname, addrinfo hints,
