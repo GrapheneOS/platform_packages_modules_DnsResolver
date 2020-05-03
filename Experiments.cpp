@@ -16,6 +16,7 @@
 
 #include "Experiments.h"
 
+#include <android-base/format.h>
 #include <netdutils/DumpWriter.h>
 #include <string>
 
@@ -46,21 +47,25 @@ void Experiments::dump(DumpWriter& dw) const {
     dw.println("Experiments list: ");
     for (const auto& [key, value] : mFlagsMapInt) {
         ScopedIndent indentStats(dw);
-        dw.println("%.*s: %d", static_cast<int>(key.length()), key.data(), value);
+        if (value == Experiments::kFlagIntDefault) {
+            dw.println(fmt::format("{}: UNSET", key));
+        } else {
+            dw.println(fmt::format("{}: {}", key, value));
+        }
     }
 }
 
 void Experiments::updateInternal() {
     std::lock_guard guard(mMutex);
     for (const auto& key : kExperimentFlagKeyList) {
-        mFlagsMapInt[key] = mGetExperimentFlagIntFunction(key, 0);
+        mFlagsMapInt[key] = mGetExperimentFlagIntFunction(key, Experiments::kFlagIntDefault);
     }
 }
 
 int Experiments::getFlag(std::string_view key, int defaultValue) const {
     std::lock_guard guard(mMutex);
     auto it = mFlagsMapInt.find(key);
-    if (it != mFlagsMapInt.end()) {
+    if (it != mFlagsMapInt.end() && it->second != Experiments::kFlagIntDefault) {
         return it->second;
     }
     return defaultValue;
