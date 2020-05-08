@@ -35,6 +35,7 @@ aidl_interface {
             apex_available: [
                 "com.android.resolv",
             ],
+            min_sdk_version: "29",
         },
     },
     versions: [
@@ -174,6 +175,7 @@ cc_library {
         cfi: true,
     },
     apex_available: ["com.android.resolv"],
+    min_sdk_version: "29",
 }
 
 cc_library_static {
@@ -187,6 +189,7 @@ cc_library_static {
         "stats.proto",
     ],
     apex_available: ["com.android.resolv"],
+    min_sdk_version: "29",
 }
 
 genrule {
@@ -219,6 +222,7 @@ cc_library_static {
         "libstatspush_compat",
     ],
     apex_available: ["com.android.resolv"],
+    min_sdk_version: "29",
 }
 
 filegroup {
