@@ -122,7 +122,6 @@ cc_library {
         "dnsresolver_aidl_interface-ndk_platform",
         "libbase",
         "libcutils",
-        "libjsoncpp",
         "libnetdutils",
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
