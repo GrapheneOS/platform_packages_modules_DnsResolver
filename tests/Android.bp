@@ -11,7 +11,7 @@ cc_test_library {
         "libutils",
     ],
     static_libs: [
-        "libnetd_test_dnsresponder",
+        "libnetd_test_dnsresponder_ndk",
         "libnetdutils",
     ],
 }
