@@ -265,7 +265,7 @@ cc_test {
         "libcutils",
         "libgmock",
         "libnetd_resolv",
-        "libnetd_test_dnsresponder",
+        "libnetd_test_dnsresponder_ndk",
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libprotobuf-cpp-lite",
