@@ -53,6 +53,8 @@ MATCHER_P(DnsQueryEventEq, other, "") {
                     // Removing the latency check, because we can't predict the time.
                     /*  ::testing::Property("latency_micros", &DnsQueryEvent::latency_micros,
                              ::testing::Eq(other.latency_micros())),*/
+                    ::testing::Property("linux_errno", &DnsQueryEvent::linux_errno,
+                                        ::testing::Eq(other.linux_errno())),
                     ::testing::Property("connected", &DnsQueryEvent::connected,
                                         ::testing::Eq(other.connected()))),
             arg, result_listener);
