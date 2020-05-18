@@ -668,7 +668,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -679,7 +679,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -690,7 +690,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -701,7 +701,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -712,7 +712,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -723,7 +723,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -734,7 +734,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -745,7 +745,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -756,7 +756,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -767,7 +767,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -778,7 +778,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -789,7 +789,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -800,7 +800,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -811,7 +811,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -822,7 +822,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -833,7 +833,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 110,
                 },
                ]
              }
@@ -1026,7 +1026,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 7,
                 },
                 {
                  rcode: 0,
@@ -1068,7 +1068,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
-                 linux_errno: 0,
+                 linux_errno: 7,
                 },
                 {
                  rcode: 0,
