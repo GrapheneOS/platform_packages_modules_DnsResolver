@@ -22,7 +22,6 @@
 #include <ctime>
 #include <thread>
 
-#include <aidl/android/net/IDnsResolver.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
 #include <android/multinetwork.h>
@@ -39,7 +38,6 @@
 
 using namespace std::chrono_literals;
 
-using aidl::android::net::IDnsResolver;
 using android::netdutils::IPSockAddr;
 
 constexpr int TEST_NETID = 30;
@@ -837,64 +835,6 @@ TEST_F(ResolvCacheTest, GetHostByAddrFromCache) {
     EXPECT_TRUE(resolv_gethostbyaddr_from_cache(TEST_NETID, domain_name, NS_MAXDNAME,
                                                 query_v6_mixed, AF_INET6));
     EXPECT_STREQ(answer, domain_name);
-}
-
-TEST_F(ResolvCacheTest, GetNetworkTypesForNet) {
-    const SetupParams setup = {
-            .servers = {"127.0.0.1", "::127.0.0.2", "fe80::3"},
-            .domains = {"domain1.com", "domain2.com"},
-            .params = kParams,
-            .transportTypes = {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_VPN}};
-    EXPECT_EQ(0, cacheCreate(TEST_NETID));
-    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID, setup));
-    EXPECT_EQ(android::net::NT_WIFI_VPN, resolv_get_network_types_for_net(TEST_NETID));
-}
-
-TEST_F(ResolvCacheTest, ConvertTransportsToNetworkType) {
-    static const struct TestConfig {
-        int32_t networkType;
-        std::vector<int32_t> transportTypes;
-    } testConfigs[] = {
-            {android::net::NT_CELLULAR, {IDnsResolver::TRANSPORT_CELLULAR}},
-            {android::net::NT_WIFI, {IDnsResolver::TRANSPORT_WIFI}},
-            {android::net::NT_BLUETOOTH, {IDnsResolver::TRANSPORT_BLUETOOTH}},
-            {android::net::NT_ETHERNET, {IDnsResolver::TRANSPORT_ETHERNET}},
-            {android::net::NT_VPN, {IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_WIFI_AWARE, {IDnsResolver::TRANSPORT_WIFI_AWARE}},
-            {android::net::NT_LOWPAN, {IDnsResolver::TRANSPORT_LOWPAN}},
-            {android::net::NT_CELLULAR_VPN,
-             {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_CELLULAR_VPN,
-             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_CELLULAR}},
-            {android::net::NT_WIFI_VPN,
-             {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_WIFI_VPN,
-             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_WIFI}},
-            {android::net::NT_BLUETOOTH_VPN,
-             {IDnsResolver::TRANSPORT_BLUETOOTH, IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_BLUETOOTH_VPN,
-             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_BLUETOOTH}},
-            {android::net::NT_ETHERNET_VPN,
-             {IDnsResolver::TRANSPORT_ETHERNET, IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_ETHERNET_VPN,
-             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_ETHERNET}},
-            {android::net::NT_UNKNOWN, {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_UNKNOWN,
-             {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_LOWPAN}},
-            {android::net::NT_UNKNOWN, {}},
-            {android::net::NT_UNKNOWN,
-             {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_BLUETOOTH,
-              IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_WIFI_CELLULAR_VPN,
-             {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_WIFI,
-              IDnsResolver::TRANSPORT_VPN}},
-            {android::net::NT_WIFI_CELLULAR_VPN,
-             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_WIFI,
-              IDnsResolver::TRANSPORT_CELLULAR}},
-    };
-    for (const auto& config : testConfigs) {
-        EXPECT_EQ(config.networkType, convert_network_type(config.transportTypes));
-    }
 }
 
 namespace {
