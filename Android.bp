@@ -128,7 +128,6 @@ cc_library {
         "libstatslog_resolv",
         "libstatspush_compat",
         "libsysutils",
-        "libutils", // Used by libstatslog_resolv
         "netd_event_listener_interface-ndk_platform",
         "server_configurable_flags",
         "stats_proto",
