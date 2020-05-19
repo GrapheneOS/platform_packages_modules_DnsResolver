@@ -130,6 +130,8 @@ NetworkDnsEventReported fromNetworkDnsEventReportedStr(const std::string& str) {
                 dnsQueryEvent->set_connected(static_cast<bool>(value));
             } else if (protoField[1] == "latency_micros" && ParseInt(protoField[2], &value)) {
                 dnsQueryEvent->set_latency_micros(value);
+            } else if (protoField[1] == "linux_errno" && ParseInt(protoField[2], &value)) {
+                dnsQueryEvent->set_linux_errno(static_cast<LinuxErrno>(value));
             }
         }
     }
@@ -153,6 +155,7 @@ void PrintTo(const DnsQueryEvent& event, std::ostream* os) {
     *os << "  dns_server_index: " << event.dns_server_index() << "\n";
     *os << "  connected: " << event.connected() << "\n";
     *os << "  latency_micros: " << event.latency_micros() << "\n";
+    *os << "  linux_errno: " << event.linux_errno() << "\n";
     *os << "}";
 }
 
