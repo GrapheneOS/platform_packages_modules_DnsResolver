@@ -16,6 +16,7 @@
 
 #define LOG_TAG "resolv"
 
+#include <aidl/android/net/IDnsResolver.h>
 #include <android-base/stringprintf.h>
 #include <arpa/inet.h>
 #include <gmock/gmock-matchers.h>
@@ -36,6 +37,7 @@
 namespace android {
 namespace net {
 
+using aidl::android::net::IDnsResolver;
 using android::base::StringPrintf;
 using android::net::NetworkDnsEventReported;
 using android::netdutils::ScopedAddrinfo;
@@ -122,16 +124,6 @@ class TestBase : public ::testing::Test {
     }
 
     int SetResolvers() {
-        const std::vector<std::string> servers = {test::kDefaultListenAddr};
-        const std::vector<std::string> domains = {"example.com"};
-        const res_params params = {
-                .sample_validity = 300,
-                .success_threshold = 25,
-                .min_samples = 8,
-                .max_samples = 8,
-                .base_timeout_msec = 1000,
-                .retry_count = 2,
-        };
         return resolv_set_nameservers(TEST_NETID, servers, domains, params);
     }
 
@@ -142,10 +134,21 @@ class TestBase : public ::testing::Test {
             .dns_mark = MARK_UNSET,
             .uid = NET_CONTEXT_INVALID_UID,
     };
+    const std::vector<std::string> servers = {test::kDefaultListenAddr};
+    const std::vector<std::string> domains = {"example.com"};
+    const res_params params = {
+            .sample_validity = 300,
+            .success_threshold = 25,
+            .min_samples = 8,
+            .max_samples = 8,
+            .base_timeout_msec = 1000,
+            .retry_count = 2,
+    };
 };
 
 class ResolvGetAddrInfoTest : public TestBase {};
 class GetHostByNameForNetContextTest : public TestBase {};
+class ResolvCommonFunctionTest : public TestBase {};
 
 TEST_F(ResolvGetAddrInfoTest, InvalidParameters) {
     // Both null "netcontext" and null "res" of resolv_getaddrinfo() are not tested
@@ -1445,6 +1448,63 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
                                       &hp, &event);
         EXPECT_EQ(nullptr, hp);
         EXPECT_EQ(EAI_FAIL, rv);
+    }
+}
+
+TEST_F(ResolvCommonFunctionTest, GetNetworkTypesForNet) {
+    const aidl::android::net::ResolverOptionsParcel& resolverOptions = {
+            {} /* hosts */, aidl::android::net::IDnsResolver::TC_MODE_DEFAULT};
+    const std::vector<int32_t>& transportTypes = {IDnsResolver::TRANSPORT_WIFI,
+                                                  IDnsResolver::TRANSPORT_VPN};
+    EXPECT_EQ(0, resolv_set_nameservers(TEST_NETID, servers, domains, params, resolverOptions,
+                                        transportTypes));
+    EXPECT_EQ(android::net::NT_WIFI_VPN, resolv_get_network_types_for_net(TEST_NETID));
+}
+
+TEST_F(ResolvCommonFunctionTest, ConvertTransportsToNetworkType) {
+    static const struct TestConfig {
+        int32_t networkType;
+        std::vector<int32_t> transportTypes;
+    } testConfigs[] = {
+            {android::net::NT_CELLULAR, {IDnsResolver::TRANSPORT_CELLULAR}},
+            {android::net::NT_WIFI, {IDnsResolver::TRANSPORT_WIFI}},
+            {android::net::NT_BLUETOOTH, {IDnsResolver::TRANSPORT_BLUETOOTH}},
+            {android::net::NT_ETHERNET, {IDnsResolver::TRANSPORT_ETHERNET}},
+            {android::net::NT_VPN, {IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_WIFI_AWARE, {IDnsResolver::TRANSPORT_WIFI_AWARE}},
+            {android::net::NT_LOWPAN, {IDnsResolver::TRANSPORT_LOWPAN}},
+            {android::net::NT_CELLULAR_VPN,
+             {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_CELLULAR_VPN,
+             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_CELLULAR}},
+            {android::net::NT_WIFI_VPN,
+             {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_WIFI_VPN,
+             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_WIFI}},
+            {android::net::NT_BLUETOOTH_VPN,
+             {IDnsResolver::TRANSPORT_BLUETOOTH, IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_BLUETOOTH_VPN,
+             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_BLUETOOTH}},
+            {android::net::NT_ETHERNET_VPN,
+             {IDnsResolver::TRANSPORT_ETHERNET, IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_ETHERNET_VPN,
+             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_ETHERNET}},
+            {android::net::NT_UNKNOWN, {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_UNKNOWN,
+             {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_LOWPAN}},
+            {android::net::NT_UNKNOWN, {}},
+            {android::net::NT_UNKNOWN,
+             {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_BLUETOOTH,
+              IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_WIFI_CELLULAR_VPN,
+             {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_WIFI,
+              IDnsResolver::TRANSPORT_VPN}},
+            {android::net::NT_WIFI_CELLULAR_VPN,
+             {IDnsResolver::TRANSPORT_VPN, IDnsResolver::TRANSPORT_WIFI,
+              IDnsResolver::TRANSPORT_CELLULAR}},
+    };
+    for (const auto& config : testConfigs) {
+        EXPECT_EQ(config.networkType, convert_network_type(config.transportTypes));
     }
 }
 
