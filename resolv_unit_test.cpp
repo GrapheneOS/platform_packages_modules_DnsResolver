@@ -410,6 +410,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
                  dns_server_index: 0,
                  connected: 0,
                  latency_micros: 0,
+                 linux_errno: 0,
                 },
                 {
                  rcode: 0,
@@ -421,6 +422,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
                  dns_server_index: 0,
                  connected: 0,
                  latency_micros: 0,
+                 linux_errno: 0,
                 },
                 {
                  rcode: 0,
@@ -432,6 +434,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
                  dns_server_index: 0,
                  connected: 0,
                  latency_micros: 0,
+                 linux_errno: 0,
                 },
                 {
                  rcode: 0,
@@ -443,6 +446,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
                  dns_server_index: 0,
                  connected: 0,
                  latency_micros: 0,
+                 linux_errno: 0,
                 }
                ]
              }
@@ -486,6 +490,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 },
                 {
                  rcode: 0,
@@ -496,6 +501,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 }
                ]
              }
@@ -515,6 +521,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 },
                 {
                  rcode: 0,
@@ -525,6 +532,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 }
                ]
              }
@@ -660,6 +668,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -670,6 +679,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -680,6 +690,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -690,6 +701,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -700,6 +712,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -710,6 +723,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -720,6 +734,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -730,6 +745,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -740,6 +756,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -750,6 +767,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -760,6 +778,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -770,6 +789,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -780,6 +800,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -790,6 +811,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 }
                 {
                  rcode: 255,
@@ -800,6 +822,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                 {
                  rcode: 255,
@@ -810,6 +833,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
                  retry_times: 1,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 110,
                 },
                ]
              }
@@ -1002,6 +1026,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 7,
                 },
                 {
                  rcode: 0,
@@ -1012,6 +1037,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 },
                 {
                  rcode: 0,
@@ -1022,6 +1048,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 }
                ]
              }
@@ -1041,6 +1068,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 7,
                 },
                 {
                  rcode: 0,
@@ -1051,6 +1079,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 },
                 {
                  rcode: 0,
@@ -1061,6 +1090,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
                  retry_times: 0,
                  dns_server_index: 0,
                  connected: 0,
+                 linux_errno: 0,
                 }
                ]
              }
@@ -1128,6 +1158,7 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
                  dns_server_index: 0,
                  connected: 0,
                  latency_micros: 0,
+                 linux_errno: 0,
                 }
                ]
              }
@@ -1148,6 +1179,7 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
                  dns_server_index: 0,
                  connected: 0,
                  latency_micros: 0,
+                 linux_errno: 0,
                 }
                ]
              }
