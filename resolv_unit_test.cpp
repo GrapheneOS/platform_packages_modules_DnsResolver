@@ -1451,6 +1451,34 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
     }
 }
 
+TEST_F(ResolvCommonFunctionTest, GetCustTableByName) {
+    const char custAddrV4[] = "1.2.3.4";
+    const char custAddrV6[] = "::1.2.3.4";
+    const char hostnameV4V6[] = "v4v6.example.com.";
+    const aidl::android::net::ResolverOptionsParcel& resolverOptions = {
+            {
+                    {custAddrV4, hostnameV4V6},
+                    {custAddrV6, hostnameV4V6},
+            },
+            aidl::android::net::IDnsResolver::TC_MODE_DEFAULT};
+    const std::vector<int32_t>& transportTypes = {IDnsResolver::TRANSPORT_WIFI};
+    EXPECT_EQ(0, resolv_set_nameservers(TEST_NETID, servers, domains, params, resolverOptions,
+                                        transportTypes));
+    EXPECT_THAT(getCustomizedTableByName(TEST_NETID, hostnameV4V6),
+                testing::UnorderedElementsAreArray({custAddrV4, custAddrV6}));
+
+    // Query address by mismatch hostname.
+    ASSERT_TRUE(getCustomizedTableByName(TEST_NETID, "not.in.cust.table").empty());
+
+    // Query address by different netid.
+    ASSERT_TRUE(getCustomizedTableByName(TEST_NETID + 1, hostnameV4V6).empty());
+    resolv_create_cache_for_net(TEST_NETID + 1);
+    EXPECT_EQ(0, resolv_set_nameservers(TEST_NETID + 1, servers, domains, params, resolverOptions,
+                                        transportTypes));
+    EXPECT_THAT(getCustomizedTableByName(TEST_NETID + 1, hostnameV4V6),
+                testing::UnorderedElementsAreArray({custAddrV4, custAddrV6}));
+}
+
 TEST_F(ResolvCommonFunctionTest, GetNetworkTypesForNet) {
     const aidl::android::net::ResolverOptionsParcel& resolverOptions = {
             {} /* hosts */, aidl::android::net::IDnsResolver::TC_MODE_DEFAULT};
