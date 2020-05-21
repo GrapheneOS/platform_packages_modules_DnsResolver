@@ -49,9 +49,11 @@
 
 namespace android {
 
+using base::StringPrintf;
 using netdutils::enableSockopt;
 using netdutils::enableTcpKeepAlives;
 using netdutils::isOk;
+using netdutils::setThreadName;
 using netdutils::Slice;
 using netdutils::Status;
 
@@ -321,9 +323,7 @@ void DnsTlsSocket::loop() {
     std::deque<std::vector<uint8_t>> q;
     const int timeout_msecs = DnsTlsSocket::kIdleTimeout.count() * 1000;
 
-    Fwmark mark;
-    mark.intValue = mMark;
-    netdutils::setThreadName(android::base::StringPrintf("TlsListen_%u", mark.netId).c_str());
+    setThreadName(StringPrintf("TlsListen_%u", mMark & 0xffff).c_str());
     while (true) {
         // poll() ignores negative fds
         struct pollfd fds[2] = { { .fd = -1 }, { .fd = -1 } };
