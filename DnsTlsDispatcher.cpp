@@ -147,6 +147,10 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
                                                   const Slice query, const Slice ans, int* resplen,
                                                   bool* connectTriggered) {
     int connectCounter;
+
+    // TODO: This can cause the resolver to create multiple connections to the same DoT server
+    // merely due to different mark, such as the bit explicitlySelected unset.
+    // See if we can save them and just create one connection for one DoT server.
     const Key key = std::make_pair(mark, server);
     Transport* xport;
     {
