@@ -82,6 +82,9 @@ class Dns64Configuration {
     void stopPrefixDiscovery(unsigned netId);
     netdutils::IPPrefix getPrefix64(unsigned netId) const;
 
+    int setPrefix64(unsigned netId, const netdutils::IPPrefix* pfx);
+    int clearPrefix64(unsigned netId);
+
     void dump(netdutils::DumpWriter& dw, unsigned netId);
 
   private:
@@ -89,16 +92,24 @@ class Dns64Configuration {
         Dns64Config(unsigned pseudoRandomId, unsigned network)
             : discoveryId(pseudoRandomId), netId(network) {}
 
+        // ID of the discovery operation, or kNoDiscoveryId if no discovery was performed (i.e., the
+        // prefix was discovered and passed in via setPrefix64).
         const unsigned int discoveryId;
         const unsigned int netId;
         netdutils::IPPrefix prefix64{};
+
+        bool isFromPrefixDiscovery() const { return discoveryId != kNoDiscoveryId; }
     };
+
+    static constexpr int kNoDiscoveryId = 0;
 
     enum { PREFIX_REMOVED, PREFIX_ADDED };
 
     static bool doRfc7050PrefixDiscovery(const android_net_context& netcontext, Dns64Config* cfg);
 
-    unsigned getNextId() REQUIRES(mMutex) { return mNextId++; }
+    // Picks the next discovery ID. Never returns kNoDiscoveryId.
+    unsigned getNextId() REQUIRES(mMutex) { return ++mNextId ? mNextId : ++mNextId; }
+
     netdutils::IPPrefix getPrefix64Locked(unsigned netId) const REQUIRES(mMutex);
     bool isDiscoveryInProgress(const Dns64Config& cfg) const REQUIRES(mMutex);
     bool reportNat64PrefixStatus(unsigned netId, bool added, const netdutils::IPPrefix& pfx)
