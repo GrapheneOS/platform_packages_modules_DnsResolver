@@ -43,4 +43,18 @@ parcelable ResolverOptionsParcel {
      * Other values are invalid.
      */
     int tcMode = 0;
+
+    /**
+     * The default behavior is that plaintext DNS queries are sent by the application's UID using
+     * fchown(). DoT are sent with an UID of AID_DNS. This option control the plaintext uid of DNS
+     * query.
+     * Setting this option to true decreases battery life because it results in the device sending
+     * UDP DNS queries even if the app that made the DNS lookup does not have network access.
+     * Anecdotal data from the field suggests that about 15% of DNS lookups are in this category.
+     * This option also results in data usage for UDP DNS queries being attributed to the OS instead
+     * of to the requesting app.
+     * false: set application uid on DNS sockets (default)
+     * true: set AID_DNS on DNS sockets
+     */
+    boolean enforceDnsUid = false;
 }

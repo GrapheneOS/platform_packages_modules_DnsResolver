@@ -1003,6 +1003,7 @@ struct NetConfig {
     // If resolverParams.hosts is empty, the existing customized table will be erased.
     HostMapping customizedTable = {};
     int tc_mode = aidl::android::net::IDnsResolver::TC_MODE_DEFAULT;
+    bool enforceDnsUid = false;
     std::vector<int32_t> transportTypes;
 };
 
@@ -1645,6 +1646,7 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
         return -EINVAL;
     }
     netconfig->tc_mode = resolverOptions.tcMode;
+    netconfig->enforceDnsUid = resolverOptions.enforceDnsUid;
 
     netconfig->transportTypes = transportTypes;
 
@@ -1683,6 +1685,7 @@ void resolv_populate_res_for_net(ResState* statp) {
     statp->nsaddrs = info->nameserverSockAddrs;
     statp->search_domains = info->search_domains;
     statp->tc_mode = info->tc_mode;
+    statp->enforce_dns_uid = info->enforceDnsUid;
 }
 
 /* Resolver reachability statistics. */

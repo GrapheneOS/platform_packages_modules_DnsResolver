@@ -112,6 +112,7 @@ struct ResState {
     android::net::NetworkDnsEventReported* event;
     uint32_t netcontext_flags;
     int tc_mode = 0;
+    bool enforce_dns_uid = false;
     // clang-format on
 };
 
