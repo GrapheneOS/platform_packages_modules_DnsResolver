@@ -56,7 +56,8 @@ class DnsResolverService : public aidl::android::net::BnDnsResolver {
     ::ndk::ScopedAStatus startPrefix64Discovery(int32_t netId) override;
     ::ndk::ScopedAStatus stopPrefix64Discovery(int32_t netId) override;
     // (internal use only)
-    ::ndk::ScopedAStatus getPrefix64(int netId, std::string* stringPrefix) override;
+    ::ndk::ScopedAStatus getPrefix64(int32_t netId, std::string* stringPrefix) override;
+    ::ndk::ScopedAStatus setPrefix64(int32_t netId, const std::string& stringPrefix) override;
 
     // Debug log command
     ::ndk::ScopedAStatus setLogSeverity(int32_t logSeverity) override;

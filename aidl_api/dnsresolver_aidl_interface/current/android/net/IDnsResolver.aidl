@@ -29,6 +29,7 @@ interface IDnsResolver {
   void destroyNetworkCache(int netId);
   void setLogSeverity(int logSeverity);
   void flushNetworkCache(int netId);
+  void setPrefix64(int netId, @utf8InCpp String prefix);
   const int RESOLVER_PARAMS_SAMPLE_VALIDITY = 0;
   const int RESOLVER_PARAMS_SUCCESS_THRESHOLD = 1;
   const int RESOLVER_PARAMS_MIN_SAMPLES = 2;
