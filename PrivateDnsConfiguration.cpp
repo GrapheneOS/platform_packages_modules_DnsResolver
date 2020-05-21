@@ -31,6 +31,8 @@
 #include "resolv_cache.h"
 #include "util.h"
 
+using android::base::StringPrintf;
+using android::netdutils::setThreadName;
 using std::chrono::milliseconds;
 
 namespace android {
@@ -180,7 +182,7 @@ void PrivateDnsConfiguration::validatePrivateDnsProvider(const DnsTlsServer& ser
 
     // Note that capturing |server| and |netId| in this lambda create copies.
     std::thread validate_thread([this, server, netId, mark] {
-        netdutils::setThreadName(android::base::StringPrintf("TlsVerify_%u", netId).c_str());
+        setThreadName(StringPrintf("TlsVerify_%u", netId).c_str());
 
         // cat /proc/sys/net/ipv4/tcp_syn_retries yields "6".
         //
