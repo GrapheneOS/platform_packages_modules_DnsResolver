@@ -3683,6 +3683,141 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     EXPECT_EQ(1U, GetNumQueries(dns, dns64_name)) << dns.dumpQueries();
 }
 
+TEST_F(ResolverTest, SetAndClearNat64Prefix) {
+    constexpr char host_name[] = "v4.example.com.";
+    constexpr char listen_addr[] = "::1";
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+    };
+    const std::string kNat64Prefix1 = "64:ff9b::/96";
+    const std::string kNat64Prefix2 = "2001:db8:6464::/96";
+
+    test::DNSResponder dns(listen_addr);
+    StartDns(dns, records);
+    const std::vector<std::string> servers = {listen_addr};
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
+
+    auto resolvService = mDnsClient.resolvService();
+    addrinfo hints = {.ai_family = AF_INET6};
+
+    // No NAT64 prefix, no AAAA record.
+    ScopedAddrinfo result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_TRUE(result == nullptr);
+
+    // Set the prefix, and expect to get a synthesized AAAA record.
+    EXPECT_TRUE(resolvService->setPrefix64(TEST_NETID, kNat64Prefix2).isOk());
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+    EXPECT_EQ("2001:db8:6464::102:304", ToString(result));
+
+    // Update the prefix, expect to see AAAA records from the new prefix.
+    EXPECT_TRUE(resolvService->setPrefix64(TEST_NETID, kNat64Prefix1).isOk());
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+    EXPECT_EQ("64:ff9b::102:304", ToString(result));
+
+    // Non-/96 prefixes are ignored.
+    auto status = resolvService->setPrefix64(TEST_NETID, "64:ff9b::/64");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(EINVAL, status.getServiceSpecificError());
+
+    // Invalid prefixes are ignored.
+    status = resolvService->setPrefix64(TEST_NETID, "192.0.2.0/24");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(EINVAL, status.getServiceSpecificError());
+
+    status = resolvService->setPrefix64(TEST_NETID, "192.0.2.1");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(EINVAL, status.getServiceSpecificError());
+
+    status = resolvService->setPrefix64(TEST_NETID, "hello");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(EINVAL, status.getServiceSpecificError());
+
+    // DNS64 synthesis is still working.
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+    EXPECT_EQ("64:ff9b::102:304", ToString(result));
+
+    // Clear the prefix. No AAAA records any more.
+    EXPECT_TRUE(resolvService->setPrefix64(TEST_NETID, "").isOk());
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    EXPECT_TRUE(result == nullptr);
+
+    // Calling startPrefix64Discovery clears the prefix.
+    EXPECT_TRUE(resolvService->setPrefix64(TEST_NETID, kNat64Prefix1).isOk());
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+    EXPECT_EQ("64:ff9b::102:304", ToString(result));
+
+    EXPECT_TRUE(resolvService->startPrefix64Discovery(TEST_NETID).isOk());
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_TRUE(result == nullptr);
+
+    // setPrefix64 fails if prefix discovery is started, even if no prefix is yet discovered...
+    status = resolvService->setPrefix64(TEST_NETID, kNat64Prefix1);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(EEXIST, status.getServiceSpecificError());
+
+    // .. and clearing the prefix also has no effect.
+    status = resolvService->setPrefix64(TEST_NETID, "");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(ENOENT, status.getServiceSpecificError());
+
+    // setPrefix64 succeeds again when prefix discovery is stopped.
+    EXPECT_TRUE(resolvService->stopPrefix64Discovery(TEST_NETID).isOk());
+    EXPECT_TRUE(resolvService->setPrefix64(TEST_NETID, kNat64Prefix1).isOk());
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+    EXPECT_EQ("64:ff9b::102:304", ToString(result));
+
+    // Calling stopPrefix64Discovery clears the prefix.
+    EXPECT_TRUE(resolvService->stopPrefix64Discovery(TEST_NETID).isOk());
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_TRUE(result == nullptr);
+
+    // Set up NAT64 prefix discovery.
+    constexpr char dns64_name[] = "ipv4only.arpa.";
+    const std::vector<DnsRecord> newRecords = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+            {dns64_name, ns_type::ns_t_aaaa, "64:ff9b::192.0.0.170"},
+    };
+    dns.stopServer();
+    StartDns(dns, newRecords);
+
+    EXPECT_TRUE(resolvService->startPrefix64Discovery(TEST_NETID).isOk());
+    EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+    EXPECT_EQ("64:ff9b::102:304", ToString(result));
+
+    // setPrefix64 fails if NAT64 prefix discovery has succeeded, and the discovered prefix
+    // continues to be used.
+    status = resolvService->setPrefix64(TEST_NETID, kNat64Prefix2);
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(EEXIST, status.getServiceSpecificError());
+
+    // Clearing the prefix also has no effect if discovery is started.
+    status = resolvService->setPrefix64(TEST_NETID, "");
+    EXPECT_FALSE(status.isOk());
+    EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
+    EXPECT_EQ(ENOENT, status.getServiceSpecificError());
+
+    result = safe_getaddrinfo("v4.example.com", nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+    EXPECT_EQ("64:ff9b::102:304", ToString(result));
+
+    EXPECT_TRUE(resolvService->stopPrefix64Discovery(TEST_NETID).isOk());
+    EXPECT_TRUE(WaitForNat64Prefix(EXPECT_NOT_FOUND));
+}
+
 namespace {
 
 class ScopedSetNetworkForProcess {
