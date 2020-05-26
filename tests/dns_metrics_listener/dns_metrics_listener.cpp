@@ -33,6 +33,7 @@ constexpr milliseconds kEventTimeoutMs{5000};
                                                             const std::string& prefixString,
                                                             int32_t /*prefixLength*/) {
     std::lock_guard lock(mMutex);
+    mUnexpectedNat64PrefixUpdates++;
     if (netId == mNetId) mNat64Prefix = added ? prefixString : "";
     return ::ndk::ScopedAStatus::ok();
 }
@@ -49,15 +50,16 @@ constexpr milliseconds kEventTimeoutMs{5000};
     return ::ndk::ScopedAStatus::ok();
 }
 
-bool DnsMetricsListener::waitForNat64Prefix(ExpectNat64PrefixStatus status,
-                                            milliseconds timeout) const {
+bool DnsMetricsListener::waitForNat64Prefix(ExpectNat64PrefixStatus status, milliseconds timeout) {
     android::base::Timer t;
     while (t.duration() < timeout) {
         {
             std::lock_guard lock(mMutex);
             if ((status == EXPECT_FOUND && !mNat64Prefix.empty()) ||
-                (status == EXPECT_NOT_FOUND && mNat64Prefix.empty()))
+                (status == EXPECT_NOT_FOUND && mNat64Prefix.empty())) {
+                mUnexpectedNat64PrefixUpdates--;
                 return true;
+            }
         }
         std::this_thread::sleep_for(kRetryIntervalMs);
     }
