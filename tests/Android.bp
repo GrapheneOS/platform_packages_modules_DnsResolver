@@ -11,8 +11,10 @@ cc_test_library {
         "libutils",
     ],
     static_libs: [
+        "netd_aidl_interface-ndk_platform",
         "libnetd_test_dnsresponder_ndk",
         "libnetdutils",
+        "libgmock",
     ],
 }
 
