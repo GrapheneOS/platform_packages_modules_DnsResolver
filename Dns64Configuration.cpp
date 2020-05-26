@@ -139,7 +139,8 @@ void Dns64Configuration::dump(DumpWriter& dw, unsigned netId) {
     if (cfg.prefix64.length() == 0) {
         dw.println("%s: no prefix yet discovered", kLabel);
     } else {
-        dw.println("%s: discovered prefix %s", kLabel, cfg.prefix64.toString().c_str());
+        dw.println("%s: %s prefix %s", kLabel, cfg.isFromPrefixDiscovery() ? "discovered" : "set",
+                   cfg.prefix64.toString().c_str());
     }
 }
 
@@ -238,8 +239,8 @@ void Dns64Configuration::recordDns64Config(const Dns64Config& cfg) {
     reportNat64PrefixStatus(cfg.netId, PREFIX_ADDED, cfg.prefix64);
 }
 
-int Dns64Configuration::setPrefix64(unsigned netId, const IPPrefix* pfx) {
-    if (pfx->isUninitialized() || pfx->family() != AF_INET6 || pfx->length() != 96) {
+int Dns64Configuration::setPrefix64(unsigned netId, const IPPrefix& pfx) {
+    if (pfx.isUninitialized() || pfx.family() != AF_INET6 || pfx.length() != 96) {
         return -EINVAL;
     }
 
@@ -256,7 +257,7 @@ int Dns64Configuration::setPrefix64(unsigned netId, const IPPrefix* pfx) {
     }
 
     Dns64Config cfg(kNoDiscoveryId, netId);
-    cfg.prefix64 = *pfx;
+    cfg.prefix64 = pfx;
     mDns64Configs.emplace(std::make_pair(netId, cfg));
 
     return 0;
