@@ -54,7 +54,7 @@ class ResolverController {
     void stopPrefix64Discovery(int32_t netId);
 
     // Set or clear a NAT64 prefix discovered by other sources (e.g., RA).
-    int setPrefix64(unsigned netId, const netdutils::IPPrefix* prefix) {
+    int setPrefix64(unsigned netId, const netdutils::IPPrefix& prefix) {
         return mDns64Configuration.setPrefix64(netId, prefix);
     }
 
