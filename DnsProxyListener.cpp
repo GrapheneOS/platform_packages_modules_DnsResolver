@@ -34,7 +34,6 @@
 #include <algorithm>
 #include <vector>
 
-#include <NetdClient.h>  // NETID_USE_LOCAL_NAMESERVERS
 #include <android-base/stringprintf.h>
 #include <android/multinetwork.h>  // ResNsendFlags
 #include <cutils/misc.h>           // FIRST_APPLICATION_UID
@@ -53,6 +52,7 @@
 #include "NetdPermissions.h"
 #include "PrivateDnsConfiguration.h"
 #include "ResolverEventReporter.h"
+#include "dnsproxyd_protocol/DnsProxydProtocol.h"  // NETID_USE_LOCAL_NAMESERVERS
 #include "getaddrinfo.h"
 #include "gethnamaddr.h"
 #include "res_send.h"

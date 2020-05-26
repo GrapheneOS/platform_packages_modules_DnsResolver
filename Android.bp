@@ -10,6 +10,11 @@ cc_library_headers {
     export_include_dirs: ["."],
 }
 
+cc_library_headers {
+    name: "dnsproxyd_protocol_headers",
+    export_include_dirs: ["include/dnsproxyd_protocol"],
+}
+
 aidl_interface {
     name: "dnsresolver_aidl_interface",
     local_include_dir: "binder",
@@ -149,7 +154,7 @@ cc_library {
         "libssl",
     ],
     header_libs: [
-        "libnetd_client_headers",
+        "libnetdbinder_utils_headers",
     ],
     export_include_dirs: ["include"],
 
