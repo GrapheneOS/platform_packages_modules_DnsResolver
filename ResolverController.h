@@ -40,8 +40,6 @@ class ResolverController {
     int createNetworkCache(unsigned netid);
     int flushNetworkCache(unsigned netid);
 
-    int getPrefix64(unsigned netId, netdutils::IPPrefix* prefix);
-
     // Binder specific functions, which convert between the ResolverParamsParcel and the
     // actual data structures.
     int setResolverConfiguration(const aidl::android::net::ResolverParamsParcel& resolverParams);
@@ -51,8 +49,19 @@ class ResolverController {
                         std::vector<int32_t>* params, std::vector<int32_t>* stats,
                         std::vector<int32_t>* wait_for_pending_req_timeout_count);
 
+    // Start or stop NAT64 prefix discovery.
     void startPrefix64Discovery(int32_t netId);
     void stopPrefix64Discovery(int32_t netId);
+
+    // Set or clear a NAT64 prefix discovered by other sources (e.g., RA).
+    int setPrefix64(unsigned netId, const netdutils::IPPrefix* prefix) {
+        return mDns64Configuration.setPrefix64(netId, prefix);
+    }
+
+    int clearPrefix64(unsigned netId) { return mDns64Configuration.clearPrefix64(netId); }
+
+    // Return the current NAT64 prefix network, regardless of how it was discovered.
+    int getPrefix64(unsigned netId, netdutils::IPPrefix* prefix);
 
     void dump(netdutils::DumpWriter& dw, unsigned netId);
 
