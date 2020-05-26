@@ -24,7 +24,6 @@
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/ThreadUtil.h>
-#include <netid_client.h>
 #include <thread>
 #include <utility>
 
