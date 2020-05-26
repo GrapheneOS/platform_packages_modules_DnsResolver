@@ -32,7 +32,6 @@
 #include "DnsTlsSessionCache.h"
 #include "IDnsTlsSocketObserver.h"
 
-#include <Fwmark.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
 #include <netdutils/SocketOption.h>
@@ -49,9 +48,11 @@
 
 namespace android {
 
+using base::StringPrintf;
 using netdutils::enableSockopt;
 using netdutils::enableTcpKeepAlives;
 using netdutils::isOk;
+using netdutils::setThreadName;
 using netdutils::Slice;
 using netdutils::Status;
 
@@ -68,13 +69,6 @@ int waitForReading(int fd, int timeoutMs = -1) {
 int waitForWriting(int fd, int timeoutMs = -1) {
     pollfd fds = {.fd = fd, .events = POLLOUT};
     return TEMP_FAILURE_RETRY(poll(&fds, 1, timeoutMs));
-}
-
-std::string markToFwmarkString(unsigned mMark) {
-    Fwmark mark;
-    mark.intValue = mMark;
-    return android::base::StringPrintf("%d, %d, %d, %d, %d", mark.netId, mark.explicitlySelected,
-                                       mark.protectedFromVpn, mark.permission, mark.uidBillingDone);
 }
 
 }  // namespace
@@ -243,9 +237,9 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
     }
 
     for (;;) {
-        LOG(DEBUG) << " Calling SSL_connect with " << markToFwmarkString(mMark);
+        LOG(DEBUG) << " Calling SSL_connect with mark 0x" << std::hex << mMark;
         int ret = SSL_connect(ssl.get());
-        LOG(DEBUG) << " SSL_connect returned " << ret << " with " << markToFwmarkString(mMark);
+        LOG(DEBUG) << " SSL_connect returned " << ret << " with mark 0x" << std::hex << mMark;
         if (ret == 1) break;  // SSL handshake complete;
 
         const int ssl_err = SSL_get_error(ssl.get(), ret);
@@ -255,8 +249,8 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
                 // the TCP connection handshake, the device is waiting for the SSL handshake reply
                 // from the server.
                 if (int err = waitForReading(fd, mServer.connectTimeout.count()); err <= 0) {
-                    PLOG(WARNING) << "SSL_connect read error " << err << ", "
-                                  << markToFwmarkString(mMark);
+                    PLOG(WARNING) << "SSL_connect read error " << err << ", mark 0x" << std::hex
+                                  << mMark;
                     return nullptr;
                 }
                 break;
@@ -264,14 +258,14 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
                 // If no application data is sent during the TCP connection handshake, the
                 // device is waiting for the connection established to perform SSL handshake.
                 if (int err = waitForWriting(fd, mServer.connectTimeout.count()); err <= 0) {
-                    PLOG(WARNING) << "SSL_connect write error " << err << ", "
-                                  << markToFwmarkString(mMark);
+                    PLOG(WARNING) << "SSL_connect write error " << err << ", mark 0x" << std::hex
+                                  << mMark;
                     return nullptr;
                 }
                 break;
             default:
-                PLOG(WARNING) << "SSL_connect ssl error =" << ssl_err << ", "
-                              << markToFwmarkString(mMark);
+                PLOG(WARNING) << "SSL_connect ssl error =" << ssl_err << ", mark 0x" << std::hex
+                              << mMark;
                 return nullptr;
         }
     }
@@ -321,9 +315,7 @@ void DnsTlsSocket::loop() {
     std::deque<std::vector<uint8_t>> q;
     const int timeout_msecs = DnsTlsSocket::kIdleTimeout.count() * 1000;
 
-    Fwmark mark;
-    mark.intValue = mMark;
-    netdutils::setThreadName(android::base::StringPrintf("TlsListen_%u", mark.netId).c_str());
+    setThreadName(StringPrintf("TlsListen_%u", mMark & 0xffff).c_str());
     while (true) {
         // poll() ignores negative fds
         struct pollfd fds[2] = { { .fd = -1 }, { .fd = -1 } };

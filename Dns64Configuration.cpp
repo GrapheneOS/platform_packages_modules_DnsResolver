@@ -37,11 +37,13 @@
 
 namespace android {
 
+using android::base::StringPrintf;
 using android::net::NetworkDnsEventReported;
 using netdutils::DumpWriter;
 using netdutils::IPAddress;
 using netdutils::IPPrefix;
 using netdutils::ScopedAddrinfo;
+using netdutils::setThreadName;
 
 namespace net {
 
@@ -64,7 +66,7 @@ void Dns64Configuration::startPrefixDiscovery(unsigned netId) {
 
     // Note that capturing |cfg| in this lambda creates a copy.
     std::thread discovery_thread([this, cfg, netId] {
-        netdutils::setThreadName(android::base::StringPrintf("Nat64Pfx_%u", netId).c_str());
+        setThreadName(StringPrintf("Nat64Pfx_%u", netId).c_str());
 
         // Make a mutable copy rather than mark the whole lambda mutable.
         // No particular reason.
