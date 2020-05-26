@@ -253,7 +253,7 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
         return statusFromErrcode(-EINVAL);
     }
 
-    return statusFromErrcode(gDnsResolv->resolverCtrl.setPrefix64(netId, &prefix));
+    return statusFromErrcode(gDnsResolv->resolverCtrl.setPrefix64(netId, prefix));
 }
 
 ::ndk::ScopedAStatus DnsResolverService::setLogSeverity(int32_t logSeverity) {
