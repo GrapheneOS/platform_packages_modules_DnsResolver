@@ -82,8 +82,8 @@ class Dns64Configuration {
     void stopPrefixDiscovery(unsigned netId);
     netdutils::IPPrefix getPrefix64(unsigned netId) const;
 
-    int setPrefix64(unsigned netId, const netdutils::IPPrefix* pfx);
-    int clearPrefix64(unsigned netId);
+    int setPrefix64(unsigned netId, const netdutils::IPPrefix& pfx) EXCLUDES(mMutex);
+    int clearPrefix64(unsigned netId) EXCLUDES(mMutex);
 
     void dump(netdutils::DumpWriter& dw, unsigned netId);
 
