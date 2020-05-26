@@ -51,8 +51,14 @@ class DnsMetricsListener : public BaseMetricsListener {
                                                      bool validated) override;
 
     // Wait for expected NAT64 prefix status until timeout.
-    bool waitForNat64Prefix(ExpectNat64PrefixStatus status,
-                            std::chrono::milliseconds timeout) const;
+    bool waitForNat64Prefix(ExpectNat64PrefixStatus status, std::chrono::milliseconds timeout)
+            EXCLUDES(mMutex);
+
+    // Returns the number of updates to the NAT64 prefix that have not yet been waited for.
+    int getUnexpectedNat64PrefixUpdates() const EXCLUDES(mMutex) {
+        std::lock_guard lock(mMutex);
+        return mUnexpectedNat64PrefixUpdates;
+    }
 
     // Wait for the expected private DNS validation result until timeout.
     bool waitForPrivateDnsValidation(const std::string& serverAddr, const bool validated);
@@ -62,6 +68,12 @@ class DnsMetricsListener : public BaseMetricsListener {
     bool findValidationRecord(const std::string& serverAddr) const EXCLUDES(mMutex) {
         std::lock_guard lock(mMutex);
         return mValidationRecords.find({mNetId, serverAddr}) != mValidationRecords.end();
+    }
+
+    void reset() EXCLUDES(mMutex) {
+        std::lock_guard lock(mMutex);
+        mUnexpectedNat64PrefixUpdates = 0;
+        mValidationRecords.clear();
     }
 
   private:
@@ -76,6 +88,13 @@ class DnsMetricsListener : public BaseMetricsListener {
 
     // The NAT64 prefix of the network |mNetId|. It is updated by the event onNat64PrefixEvent().
     std::string mNat64Prefix GUARDED_BY(mMutex);
+
+    // The number of updates to the NAT64 prefix of network |mNetId| that have not yet been waited
+    // for. Increases by 1 every time onNat64PrefixEvent is called, and decreases by 1 every time
+    // waitForNat64Prefix returns true.
+    // This allows tests to check that no unexpected events have been received without having to
+    // resort to timeouts that make the tests slower and flakier.
+    int mUnexpectedNat64PrefixUpdates GUARDED_BY(mMutex);
 
     // Used to store the data from onPrivateDnsValidationEvent.
     std::map<ServerKey, bool> mValidationRecords GUARDED_BY(mMutex);
