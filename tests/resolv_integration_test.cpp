@@ -185,7 +185,11 @@ class ResolverTest : public ::testing::Test {
     static void TearDownTestSuite() { AIBinder_DeathRecipient_delete(sResolvDeathRecipient); }
 
   protected:
-    void SetUp() { mDnsClient.SetUp(); }
+    void SetUp() {
+        mDnsClient.SetUp();
+        sDnsMetricsListener->reset();
+    }
+
     void TearDown() {
         // Ensure the dump works at the end of each test.
         DumpResolverService();
@@ -3816,6 +3820,8 @@ TEST_F(ResolverTest, SetAndClearNat64Prefix) {
 
     EXPECT_TRUE(resolvService->stopPrefix64Discovery(TEST_NETID).isOk());
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_NOT_FOUND));
+
+    EXPECT_EQ(0, sDnsMetricsListener->getUnexpectedNat64PrefixUpdates());
 }
 
 namespace {
