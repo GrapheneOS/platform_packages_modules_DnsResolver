@@ -139,7 +139,8 @@ void Dns64Configuration::dump(DumpWriter& dw, unsigned netId) {
     if (cfg.prefix64.length() == 0) {
         dw.println("%s: no prefix yet discovered", kLabel);
     } else {
-        dw.println("%s: discovered prefix %s", kLabel, cfg.prefix64.toString().c_str());
+        dw.println("%s: %s prefix %s", kLabel, cfg.isFromPrefixDiscovery() ? "discovered" : "set",
+                   cfg.prefix64.toString().c_str());
     }
 }
 
@@ -216,10 +217,15 @@ bool Dns64Configuration::shouldContinueDiscovery(const Dns64Config& cfg) {
 }
 
 void Dns64Configuration::removeDns64Config(unsigned netId) REQUIRES(mMutex) {
-    IPPrefix prefix = getPrefix64Locked(netId);
-    mDns64Configs.erase(netId);
-    if (!prefix.isUninitialized()) {
-        reportNat64PrefixStatus(netId, PREFIX_REMOVED, prefix);
+    const auto& iter = mDns64Configs.find(netId);
+    if (iter == mDns64Configs.end()) return;
+
+    Dns64Config cfg = iter->second;
+    mDns64Configs.erase(iter);
+
+    // Only report a prefix removed event if the prefix was discovered, not if it was set.
+    if (cfg.isFromPrefixDiscovery() && !cfg.prefix64.isUninitialized()) {
+        reportNat64PrefixStatus(netId, PREFIX_REMOVED, cfg.prefix64);
     }
 }
 
@@ -231,9 +237,43 @@ void Dns64Configuration::recordDns64Config(const Dns64Config& cfg) {
     mDns64Configs.emplace(std::make_pair(cfg.netId, cfg));
 
     reportNat64PrefixStatus(cfg.netId, PREFIX_ADDED, cfg.prefix64);
+}
 
-    // TODO: consider extending INetdEventListener to report the DNS64 prefix
-    // up to ConnectivityService to potentially include this in LinkProperties.
+int Dns64Configuration::setPrefix64(unsigned netId, const IPPrefix& pfx) {
+    if (pfx.isUninitialized() || pfx.family() != AF_INET6 || pfx.length() != 96) {
+        return -EINVAL;
+    }
+
+    std::lock_guard guard(mMutex);
+
+    // This method may only be called if prefix discovery has been stopped or was never started.
+    auto iter = mDns64Configs.find(netId);
+    if (iter != mDns64Configs.end()) {
+        if (iter->second.isFromPrefixDiscovery()) {
+            return -EEXIST;
+        } else {
+            mDns64Configs.erase(iter);
+        }
+    }
+
+    Dns64Config cfg(kNoDiscoveryId, netId);
+    cfg.prefix64 = pfx;
+    mDns64Configs.emplace(std::make_pair(netId, cfg));
+
+    return 0;
+}
+
+int Dns64Configuration::clearPrefix64(unsigned netId) {
+    std::lock_guard guard(mMutex);
+
+    const auto& iter = mDns64Configs.find(netId);
+    if (iter == mDns64Configs.end() || iter->second.isFromPrefixDiscovery()) {
+        return -ENOENT;
+    }
+
+    mDns64Configs.erase(iter);
+
+    return 0;
 }
 
 }  // namespace net

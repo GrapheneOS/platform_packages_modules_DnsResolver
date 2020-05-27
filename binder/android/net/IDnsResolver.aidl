@@ -195,4 +195,23 @@ interface IDnsResolver {
     const int TRANSPORT_WIFI_AWARE = 5;
     const int TRANSPORT_LOWPAN = 6;
     const int TRANSPORT_TEST = 7;
+
+    /**
+     * Sets the NAT64 prefix for the given network.
+     *
+     * Used when the NAT64 prefix has been discovered outside the DNS resolver, e.g., from an RA.
+     * This method may only be called if prefix discovery on the given network has been stopped or
+     * was never started. Any prefix set by this method will be cleared if startPrefix64Discovery or
+     * stopPrefix64Discovery are called.
+     *
+     * Currently only /96 prefixes are supported. If an invalid, IPv4, or non-/96 prefix is passed
+     * in, EINVAL is returned.
+     * An empty string will clear the prefix if one was already set by this method.
+     *
+     * @param netId the netId on which to set the NAT64 prefix.
+     * @param prefix the NAT64 prefix to use. Must be a valid IPv6 prefix or an empty string.
+     * @throws ServiceSpecificException in case of failure, with an error code corresponding to the
+     *         unix errno.
+     */
+    void setPrefix64(int netId, @utf8InCpp String prefix);
 }
