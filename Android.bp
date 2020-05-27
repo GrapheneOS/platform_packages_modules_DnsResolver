@@ -261,7 +261,7 @@ cc_test {
         "libssl",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-ndk_platform",
+        "dnsresolver_aidl_interface-unstable-ndk_platform",
         "netd_event_listener_interface-ndk_platform",
         "libcutils",
         "libgmock",
