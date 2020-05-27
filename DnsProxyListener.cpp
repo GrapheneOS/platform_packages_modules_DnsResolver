@@ -739,21 +739,25 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
     event.set_event_type(EVENT_GETADDRINFO);
     event.set_hints_ai_flags((mHints ? mHints->ai_flags : 0));
 
+    bool success = true;
     if (rv) {
         // getaddrinfo failed
-        mClient->sendBinaryMsg(ResponseCode::DnsProxyOperationFailed, &rv, sizeof(rv));
+        success = !mClient->sendBinaryMsg(ResponseCode::DnsProxyOperationFailed, &rv, sizeof(rv));
     } else {
-        bool success = !mClient->sendCode(ResponseCode::DnsProxyQueryResult);
+        success = !mClient->sendCode(ResponseCode::DnsProxyQueryResult);
         addrinfo* ai = result;
         while (ai && success) {
             success = sendBE32(mClient, 1) && sendaddrinfo(mClient, ai);
             ai = ai->ai_next;
         }
         success = success && sendBE32(mClient, 0);
-        if (!success) {
-            LOG(WARNING) << "GetAddrInfoHandler::run: Error writing DNS result to client";
-        }
     }
+
+    if (!success) {
+        PLOG(WARNING) << "GetAddrInfoHandler::run: Error writing DNS result to client uid " << uid
+                      << " pid " << mClient->getPid();
+    }
+
     std::vector<std::string> ip_addrs;
     const int total_ip_addr_count = extractGetAddrInfoAnswers(result, &ip_addrs);
     reportDnsEvent(INetdEventListener::EVENT_GETADDRINFO, mNetContext, latencyUs, rv, event, mHost,
@@ -958,7 +962,10 @@ void DnsProxyListener::ResNSendHandler::run() {
 
     // Fail, send -errno
     if (nsendAns < 0) {
-        sendBE32(mClient, nsendAns);
+        if (!sendBE32(mClient, nsendAns)) {
+            PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send errno to uid " << uid
+                          << " pid " << mClient->getPid();
+        }
         if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
             reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
                            resNSendToAiError(nsendAns, rcode), event, rr_name);
@@ -968,14 +975,16 @@ void DnsProxyListener::ResNSendHandler::run() {
 
     // Send rcode
     if (!sendBE32(mClient, rcode)) {
-        PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send rcode to uid " << uid;
+        PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send rcode to uid " << uid
+                      << " pid " << mClient->getPid();
         return;
     }
 
     // Restore query id and send answer
     if (!setQueryId(ansBuf.data(), nsendAns, original_query_id) ||
         !sendLenAndData(mClient, nsendAns, ansBuf.data())) {
-        PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send answer to uid " << uid;
+        PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send answer to uid " << uid
+                      << " pid " << mClient->getPid();
         return;
     }
 
@@ -1033,7 +1042,15 @@ int DnsProxyListener::GetDnsNetIdCommand::runCommand(SocketClient* cli, int argc
         netcontext.app_netid |= NETID_USE_LOCAL_NAMESERVERS;
     }
 
-    return sendCodeAndBe32(cli, ResponseCode::DnsProxyQueryResult, netcontext.app_netid) ? 0 : -1;
+    const bool success =
+            sendCodeAndBe32(cli, ResponseCode::DnsProxyQueryResult, netcontext.app_netid);
+    if (!success) {
+        PLOG(WARNING)
+                << "GetDnsNetIdCommand::runCommand: getdnsnetid: failed to send result to uid "
+                << uid << " pid " << cli->getPid();
+    }
+
+    return success ? 0 : -1;
 }
 
 /*******************************************************
@@ -1165,7 +1182,8 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     }
 
     if (!success) {
-        LOG(WARNING) << "GetHostByNameHandler::run: Error writing DNS result to client";
+        PLOG(WARNING) << "GetHostByNameHandler::run: Error writing DNS result to client uid " << uid
+                      << " pid " << mClient->getPid();
     }
 
     std::vector<std::string> ip_addrs;
@@ -1327,7 +1345,8 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     }
 
     if (!success) {
-        LOG(WARNING) << "GetHostByAddrHandler::run: Error writing DNS result to client";
+        PLOG(WARNING) << "GetHostByAddrHandler::run: Error writing DNS result to client uid " << uid
+                      << " pid " << mClient->getPid();
     }
 
     reportDnsEvent(INetdEventListener::EVENT_GETHOSTBYADDR, mNetContext, latencyUs, rv, event,
