@@ -2238,13 +2238,13 @@ TEST_F(ResolverTest, Async_MalformedQuery) {
 
 TEST_F(ResolverTest, Async_CacheFlags) {
     constexpr char listen_addr[] = "127.0.0.4";
-    constexpr char host_name[] = "howdy.example.com.";
-    constexpr char another_host_name[] = "howdy.example2.com.";
+    constexpr char host_name1[] = "howdy.example.com.";
+    constexpr char host_name2[] = "howdy.example2.com.";
+    constexpr char host_name3[] = "howdy.example3.com.";
     const std::vector<DnsRecord> records = {
-            {host_name, ns_type::ns_t_a, "1.2.3.4"},
-            {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
-            {another_host_name, ns_type::ns_t_a, "1.2.3.5"},
-            {another_host_name, ns_type::ns_t_aaaa, "::1.2.3.5"},
+            {host_name1, ns_type::ns_t_a, "1.2.3.4"}, {host_name1, ns_type::ns_t_aaaa, "::1.2.3.4"},
+            {host_name2, ns_type::ns_t_a, "1.2.3.5"}, {host_name2, ns_type::ns_t_aaaa, "::1.2.3.5"},
+            {host_name3, ns_type::ns_t_a, "1.2.3.6"}, {host_name3, ns_type::ns_t_aaaa, "::1.2.3.6"},
     };
 
     test::DNSResponder dns(listen_addr);
@@ -2268,17 +2268,28 @@ TEST_F(ResolverTest, Async_CacheFlags) {
     expectAnswersValid(fd1, AF_INET, "1.2.3.4");
 
     // No cache exists, expect 3 queries
-    EXPECT_EQ(3U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(3U, GetNumQueries(dns, host_name1));
 
-    // Re-query and cache
+    // Raise a query with no flags to ensure no cache exists. Also make an cache entry for the
+    // query.
     fd1 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a, 0);
 
     EXPECT_TRUE(fd1 != -1);
 
     expectAnswersValid(fd1, AF_INET, "1.2.3.4");
 
-    // Now we have cache, expect 4 queries
-    EXPECT_EQ(4U, GetNumQueries(dns, host_name));
+    // Expect 4 queries because there should be no cache before this query.
+    EXPECT_EQ(4U, GetNumQueries(dns, host_name1));
+
+    // Now we have the cache entry, re-query with ANDROID_RESOLV_NO_CACHE_STORE to ensure
+    // that ANDROID_RESOLV_NO_CACHE_STORE implied ANDROID_RESOLV_NO_CACHE_LOOKUP.
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a,
+                          ANDROID_RESOLV_NO_CACHE_STORE);
+    EXPECT_TRUE(fd1 != -1);
+    expectAnswersValid(fd1, AF_INET, "1.2.3.4");
+    // Expect 5 queries because we shouldn't do cache lookup for the query which has
+    // ANDROID_RESOLV_NO_CACHE_STORE.
+    EXPECT_EQ(5U, GetNumQueries(dns, host_name1));
 
     // ANDROID_RESOLV_NO_CACHE_LOOKUP
     fd1 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a,
@@ -2292,78 +2303,77 @@ TEST_F(ResolverTest, Async_CacheFlags) {
     expectAnswersValid(fd2, AF_INET, "1.2.3.4");
     expectAnswersValid(fd1, AF_INET, "1.2.3.4");
 
-    // Skip cache, expect 6 queries
-    EXPECT_EQ(6U, GetNumQueries(dns, host_name));
+    // Cache was skipped, expect 2 more queries.
+    EXPECT_EQ(7U, GetNumQueries(dns, host_name1));
 
     // Re-query verify cache works
-    fd1 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a,
-                          ANDROID_RESOLV_NO_CACHE_STORE);
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_a, 0);
     EXPECT_TRUE(fd1 != -1);
     expectAnswersValid(fd1, AF_INET, "1.2.3.4");
 
-    // Cache hits,  expect still 6 queries
-    EXPECT_EQ(6U, GetNumQueries(dns, host_name));
+    // Cache hits,  expect still 7 queries
+    EXPECT_EQ(7U, GetNumQueries(dns, host_name1));
 
     // Start to verify if ANDROID_RESOLV_NO_CACHE_LOOKUP does write response into cache
     dns.clearQueries();
 
-    fd1 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_aaaa,
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_aaaa,
                           ANDROID_RESOLV_NO_CACHE_LOOKUP);
-    fd2 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_aaaa,
+    fd2 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_aaaa,
                           ANDROID_RESOLV_NO_CACHE_LOOKUP);
 
     EXPECT_TRUE(fd1 != -1);
     EXPECT_TRUE(fd2 != -1);
 
-    expectAnswersValid(fd2, AF_INET6, "::1.2.3.4");
-    expectAnswersValid(fd1, AF_INET6, "::1.2.3.4");
+    expectAnswersValid(fd2, AF_INET6, "::1.2.3.5");
+    expectAnswersValid(fd1, AF_INET6, "::1.2.3.5");
 
     // Skip cache, expect 2 queries
-    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(2U, GetNumQueries(dns, host_name2));
 
     // Re-query without flags
-    fd1 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_aaaa, 0);
-    fd2 = resNetworkQuery(TEST_NETID, "howdy.example.com", ns_c_in, ns_t_aaaa, 0);
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_aaaa, 0);
+    fd2 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_aaaa, 0);
 
     EXPECT_TRUE(fd1 != -1);
     EXPECT_TRUE(fd2 != -1);
 
-    expectAnswersValid(fd2, AF_INET6, "::1.2.3.4");
-    expectAnswersValid(fd1, AF_INET6, "::1.2.3.4");
+    expectAnswersValid(fd2, AF_INET6, "::1.2.3.5");
+    expectAnswersValid(fd1, AF_INET6, "::1.2.3.5");
 
     // Cache hits, expect still 2 queries
-    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(2U, GetNumQueries(dns, host_name2));
 
     // Test both ANDROID_RESOLV_NO_CACHE_STORE and ANDROID_RESOLV_NO_CACHE_LOOKUP are set
     dns.clearQueries();
 
-    // Make sure that the cache of "howdy.example2.com" exists.
-    fd1 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_aaaa, 0);
+    // Make sure that the cache of "howdy.example3.com" exists.
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example3.com", ns_c_in, ns_t_aaaa, 0);
     EXPECT_TRUE(fd1 != -1);
-    expectAnswersValid(fd1, AF_INET6, "::1.2.3.5");
-    EXPECT_EQ(1U, GetNumQueries(dns, another_host_name));
+    expectAnswersValid(fd1, AF_INET6, "::1.2.3.6");
+    EXPECT_EQ(1U, GetNumQueries(dns, host_name3));
 
     // Re-query with testFlags
     const int testFlag = ANDROID_RESOLV_NO_CACHE_STORE | ANDROID_RESOLV_NO_CACHE_LOOKUP;
-    fd1 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_aaaa, testFlag);
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example3.com", ns_c_in, ns_t_aaaa, testFlag);
     EXPECT_TRUE(fd1 != -1);
-    expectAnswersValid(fd1, AF_INET6, "::1.2.3.5");
+    expectAnswersValid(fd1, AF_INET6, "::1.2.3.6");
     // Expect cache lookup is skipped.
-    EXPECT_EQ(2U, GetNumQueries(dns, another_host_name));
+    EXPECT_EQ(2U, GetNumQueries(dns, host_name3));
 
     // Do another query with testFlags
-    fd1 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_a, testFlag);
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example3.com", ns_c_in, ns_t_a, testFlag);
     EXPECT_TRUE(fd1 != -1);
-    expectAnswersValid(fd1, AF_INET, "1.2.3.5");
+    expectAnswersValid(fd1, AF_INET, "1.2.3.6");
     // Expect cache lookup is skipped.
-    EXPECT_EQ(3U, GetNumQueries(dns, another_host_name));
+    EXPECT_EQ(3U, GetNumQueries(dns, host_name3));
 
     // Re-query with no flags
-    fd1 = resNetworkQuery(TEST_NETID, "howdy.example2.com", ns_c_in, ns_t_a, 0);
+    fd1 = resNetworkQuery(TEST_NETID, "howdy.example3.com", ns_c_in, ns_t_a, 0);
     EXPECT_TRUE(fd1 != -1);
-    expectAnswersValid(fd1, AF_INET, "1.2.3.5");
+    expectAnswersValid(fd1, AF_INET, "1.2.3.6");
     // Expect no cache hit because cache storing is also skipped in previous query.
-    EXPECT_EQ(4U, GetNumQueries(dns, another_host_name));
+    EXPECT_EQ(4U, GetNumQueries(dns, host_name3));
 }
 
 TEST_F(ResolverTest, Async_NoCacheStoreFlagDoesNotRefreshStaleCacheEntry) {

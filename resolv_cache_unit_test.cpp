@@ -353,7 +353,7 @@ TEST_F(ResolvCacheTest, CacheLookup_CacheFlags) {
     EXPECT_TRUE(cacheLookup(RESOLV_CACHE_NOTFOUND, TEST_NETID, ce, ANDROID_RESOLV_NO_CACHE_LOOKUP));
 
     // Now no-cache-store has no effect if a same entry is existent in the cache.
-    EXPECT_TRUE(cacheLookup(RESOLV_CACHE_FOUND, TEST_NETID, ce, ANDROID_RESOLV_NO_CACHE_STORE));
+    EXPECT_TRUE(cacheLookup(RESOLV_CACHE_SKIP, TEST_NETID, ce, ANDROID_RESOLV_NO_CACHE_STORE));
 
     // Skip the cache lookup again regardless of a same entry being already in the cache.
     EXPECT_TRUE(cacheLookup(RESOLV_CACHE_SKIP, TEST_NETID, ce,
