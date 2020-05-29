@@ -73,9 +73,6 @@
 constexpr int TEST_VPN_NETID = 65502;
 constexpr int MAXPACKET = (8 * 1024);
 
-// Use maximum reserved appId for applications to avoid conflict with existing uids.
-static const int TEST_UID = 99999;
-
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
 extern "C" int android_getaddrinfofornet(const char* hostname, const char* servname,
@@ -4004,24 +4001,7 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     dns1.clearQueries();
     dns2.clearQueries();
 
-    // Add drop rule for TEST_UID. Also enable the standby chain because it might not be enabled.
-    // Unfortunately we cannot use FIREWALL_CHAIN_NONE, or custom iptables rules, for this purpose
-    // because netd calls fchown() on the DNS query sockets, and "iptables -m owner" matches the
-    // UID of the socket creator, not the UID set by fchown().
-    //
-    // TODO: migrate FIREWALL_CHAIN_NONE to eBPF as well.
-    EXPECT_TRUE(netdService->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, true).isOk());
-    EXPECT_TRUE(netdService
-                        ->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, TEST_UID,
-                                             INetd::FIREWALL_RULE_DENY)
-                        .isOk());
-
-    // Save uid
-    int suid = getuid();
-
-    // Switch to TEST_UID
-    EXPECT_TRUE(seteuid(TEST_UID) == 0);
-
+    ScopeBlockedUIDRule scopeBlockUidRule(netdService, TEST_UID);
     // Dns Query
     int fd1 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_a, 0);
     int fd2 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_aaaa, 0);
@@ -4036,16 +4016,6 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     memset(buf, 0, MAXPACKET);
     res = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
     EXPECT_EQ(-ECONNREFUSED, res);
-
-    // Restore uid
-    EXPECT_TRUE(seteuid(suid) == 0);
-
-    // Remove drop rule for TEST_UID, and disable the standby chain.
-    EXPECT_TRUE(netdService
-                        ->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, TEST_UID,
-                                             INetd::FIREWALL_RULE_ALLOW)
-                        .isOk());
-    EXPECT_TRUE(netdService->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, false).isOk());
 }
 
 namespace {
@@ -4995,4 +4965,39 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
                                            {kHelloExampleComAddrV4, kHelloExampleComAddrV6}));
     EXPECT_GT(PARALLEL_LOOKUP_SLEEP_TIME_MS, timeTakenMs);
     EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));
+}
+
+TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
+    // This test relies on blocking traffic on loopback, which xt_qtaguid does not do.
+    // See aosp/358413 and b/34444781 for why.
+    SKIP_IF_BPF_NOT_SUPPORTED;
+
+    constexpr char listen_addr1[] = "127.0.0.4";
+    constexpr char listen_addr2[] = "::1";
+    test::DNSResponder dns1(listen_addr1);
+    test::DNSResponder dns2(listen_addr2);
+    StartDns(dns1, {});
+    StartDns(dns2, {});
+
+    std::vector<std::string> servers = {listen_addr1, listen_addr2};
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
+    dns1.clearQueries();
+    dns2.clearQueries();
+    {
+        ScopeBlockedUIDRule scopeBlockUidRule(mDnsClient.netdService(), TEST_UID);
+        // Start querying ten times.
+        for (int i = 0; i < 10; i++) {
+            std::string hostName = fmt::format("blocked{}.com", i);
+            const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+            EXPECT_EQ(safe_getaddrinfo(hostName.c_str(), nullptr, &hints), nullptr);
+        }
+    }
+    // Since all query packets are blocked, we should not see any stats of them.
+    const std::vector<NameserverStats> expectedEmptyDnsStats = {
+            NameserverStats(listen_addr1),
+            NameserverStats(listen_addr2),
+    };
+    expectStatsFromGetResolverInfo(expectedEmptyDnsStats);
+    EXPECT_EQ(dns1.queries().size(), 0U);
+    EXPECT_EQ(dns2.queries().size(), 0U);
 }
