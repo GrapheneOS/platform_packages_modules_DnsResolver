@@ -411,6 +411,15 @@ static DnsQueryEvent* addDnsQueryEvent(NetworkDnsEventReported* event) {
     return event->mutable_dns_query_events()->add_dns_query_event();
 }
 
+static bool isNetworkRestricted(int terrno) {
+    // It's possible that system was in some network restricted mode, which blocked
+    // the operation of sending packet and resulted in EPERM errno.
+    // It would be no reason to keep retrying on that case.
+    // TODO: Check the system status to know if network restricted mode is
+    // enabled.
+    return (terrno == EPERM);
+}
+
 int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
               uint32_t flags, std::chrono::milliseconds sleepTimeMs) {
     LOG(DEBUG) << __func__;
@@ -537,14 +546,14 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                     // TCP fallback retry and current server does not support TCP connectin
                     useTcp = false;
                 }
-                LOG(INFO) << __func__ << ": used send_vc " << resplen;
+                LOG(INFO) << __func__ << ": used send_vc " << resplen << " terrno: " << terrno;
             } else {
                 // UDP
                 resplen = send_dg(statp, &params, buf, buflen, ans, anssiz, &terrno, &actualNs,
                                   &useTcp, &gotsomewhere, &query_time, rcode, &delay);
                 fallbackTCP = useTcp ? true : false;
                 retry_count_for_event = attempt;
-                LOG(INFO) << __func__ << ": used send_dg " << resplen;
+                LOG(INFO) << __func__ << ": used send_dg " << resplen << " terrno: " << terrno;
             }
 
             const IPSockAddr& receivedServerAddr = statp->nsaddrs[actualNs];
@@ -568,13 +577,19 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             // queries that deterministically fail (e.g., a name that always returns
             // SERVFAIL or times out) do not unduly affect the stats.
             if (shouldRecordStats) {
-                res_sample sample;
-                res_stats_set_sample(&sample, query_time, *rcode, delay);
-                // KeepListening UDP mechanism is incompatible with usable_servers of legacy stats,
-                // so keep the old logic for now.
-                // TODO: Replace usable_servers of legacy stats with new one.
-                resolv_cache_add_resolver_stats_sample(statp->netid, revision_id, serverSockAddr,
-                                                       sample, params.max_samples);
+                // (b/151166599): This is a workaround to prevent that DnsResolver calculates the
+                // reliability of DNS servers from being broken when network restricted mode is
+                // enabled.
+                // TODO: Introduce the new server selection instead of skipping stats recording.
+                if (!isNetworkRestricted(terrno)) {
+                    res_sample sample;
+                    res_stats_set_sample(&sample, query_time, *rcode, delay);
+                    // KeepListening UDP mechanism is incompatible with usable_servers of legacy
+                    // stats, so keep the old logic for now.
+                    // TODO: Replace usable_servers of legacy stats with new one.
+                    resolv_cache_add_resolver_stats_sample(
+                            statp->netid, revision_id, serverSockAddr, sample, params.max_samples);
+                }
                 resolv_stats_add(statp->netid, receivedServerAddr, dnsQueryEvent);
             }
 
