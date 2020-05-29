@@ -53,6 +53,7 @@
 #include <numeric>
 #include <thread>
 
+#include <DnsProxydProtocol.h>  // NETID_USE_LOCAL_NAMESERVERS
 #include <aidl/android/net/IDnsResolver.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
