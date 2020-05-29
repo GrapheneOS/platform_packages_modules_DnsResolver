@@ -151,6 +151,7 @@ cc_test {
         "resolv_integration_test.cpp",
     ],
     header_libs: [
+        "dnsproxyd_protocol_headers",
         "libnetd_resolv_headers",
     ],
     // TODO: make static link libc++ work.
