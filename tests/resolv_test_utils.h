@@ -23,9 +23,44 @@
 #include <string>
 #include <vector>
 
+#include <aidl/android/net/INetd.h>
+#include <gtest/gtest.h>
 #include <netdutils/InternetAddresses.h>
 
 #include "dns_responder/dns_responder.h"
+
+class ScopeBlockedUIDRule {
+    using INetd = aidl::android::net::INetd;
+
+  public:
+    ScopeBlockedUIDRule(INetd* netSrv, uid_t testUid)
+        : mNetSrv(netSrv), mTestUid(testUid), mSavedUid(getuid()) {
+        // Add drop rule for testUid. Also enable the standby chain because it might not be
+        // enabled. Unfortunately we cannot use FIREWALL_CHAIN_NONE, or custom iptables rules, for
+        // this purpose because netd calls fchown() on the DNS query sockets, and "iptables -m
+        // owner" matches the UID of the socket creator, not the UID set by fchown().
+        // TODO: migrate FIREWALL_CHAIN_NONE to eBPF as well.
+        EXPECT_TRUE(mNetSrv->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, true).isOk());
+        EXPECT_TRUE(mNetSrv->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, mTestUid,
+                                                INetd::FIREWALL_RULE_DENY)
+                            .isOk());
+        EXPECT_TRUE(seteuid(mTestUid) == 0);
+    };
+    ~ScopeBlockedUIDRule() {
+        // Restore uid
+        EXPECT_TRUE(seteuid(mSavedUid) == 0);
+        // Remove drop rule for testUid, and disable the standby chain.
+        EXPECT_TRUE(mNetSrv->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, mTestUid,
+                                                INetd::FIREWALL_RULE_ALLOW)
+                            .isOk());
+        EXPECT_TRUE(mNetSrv->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, false).isOk());
+    }
+
+  private:
+    INetd* mNetSrv;
+    const uid_t mTestUid;
+    const uid_t mSavedUid;
+};
 
 struct DnsRecord {
     std::string host_name;  // host name
@@ -35,6 +70,8 @@ struct DnsRecord {
 
 // TODO: make this dynamic and stop depending on implementation details.
 constexpr int TEST_NETID = 30;
+// Use maximum reserved appId for applications to avoid conflict with existing uids.
+constexpr int TEST_UID = 99999;
 
 static constexpr char kLocalHost[] = "localhost";
 static constexpr char kLocalHostAddr[] = "127.0.0.1";
