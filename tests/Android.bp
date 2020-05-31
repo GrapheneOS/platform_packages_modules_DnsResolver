@@ -11,8 +11,10 @@ cc_test_library {
         "libutils",
     ],
     static_libs: [
-        "libnetd_test_dnsresponder",
+        "netd_aidl_interface-ndk_platform",
+        "libnetd_test_dnsresponder_ndk",
         "libnetdutils",
+        "libgmock",
     ],
 }
 
@@ -151,6 +153,7 @@ cc_test {
         "resolv_integration_test.cpp",
     ],
     header_libs: [
+        "dnsproxyd_protocol_headers",
         "libnetd_resolv_headers",
     ],
     // TODO: make static link libc++ work.
