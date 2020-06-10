@@ -167,7 +167,6 @@ cc_library {
         debuggable: {
             cppflags: [
                 "-DRESOLV_ALLOW_VERBOSE_LOGGING=1",
-                "-DRESOLV_INJECT_CA_CERTIFICATE=1",
             ],
         },
     },
