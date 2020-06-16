@@ -4591,6 +4591,18 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
     EXPECT_FALSE(hasUncaughtPrivateDnsValidation(addr2));
 }
 
+TEST_F(ResolverTest, PermissionCheckOnCertificateInjection) {
+    ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    parcel.caCertificate = kCaCert;
+    ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk());
+
+    for (const uid_t uid : {AID_SYSTEM, TEST_UID}) {
+        ScopedChangeUID scopedChangeUID(uid);
+        auto status = mDnsClient.resolvService()->setResolverConfiguration(parcel);
+        EXPECT_EQ(status.getExceptionCode(), EX_SECURITY);
+    }
+}
+
 // Parameterized tests.
 // TODO: Merge the existing tests as parameterized test if possible.
 // TODO: Perhaps move parameterized tests to an independent file.
