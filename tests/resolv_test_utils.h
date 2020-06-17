@@ -62,6 +62,18 @@ class ScopeBlockedUIDRule {
     const uid_t mSavedUid;
 };
 
+class ScopedChangeUID {
+  public:
+    ScopedChangeUID(uid_t testUid) : mTestUid(testUid), mSavedUid(getuid()) {
+        EXPECT_TRUE(seteuid(mTestUid) == 0);
+    };
+    ~ScopedChangeUID() { EXPECT_TRUE(seteuid(mSavedUid) == 0); }
+
+  private:
+    const uid_t mTestUid;
+    const uid_t mSavedUid;
+};
+
 struct DnsRecord {
     std::string host_name;  // host name
     ns_type type;           // record type
