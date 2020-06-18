@@ -61,6 +61,7 @@
 #include "ResolverStats.h"
 #include "netid_client.h"  // NETID_UNSET
 #include "params.h"        // MAXNS
+#include "stats.h"         // RCODE_TIMEOUT
 #include "test_utils.h"
 #include "tests/dns_metrics_listener/dns_metrics_listener.h"
 #include "tests/dns_responder/dns_responder.h"
@@ -84,6 +85,7 @@ using namespace std::chrono_literals;
 using aidl::android::net::IDnsResolver;
 using aidl::android::net::INetd;
 using aidl::android::net::ResolverParamsParcel;
+using aidl::android::net::metrics::INetdEventListener;
 using android::base::ParseInt;
 using android::base::StringPrintf;
 using android::base::unique_fd;
@@ -228,6 +230,16 @@ class ResolverTest : public ::testing::Test {
 
     bool hasUncaughtPrivateDnsValidation(const std::string& serverAddr) {
         return sDnsMetricsListener->findValidationRecord(serverAddr);
+    }
+
+    void ExpectDnsEvent(int32_t eventType, int32_t returnCode, const std::string& hostname,
+                        const std::vector<std::string>& ipAddresses) {
+        const DnsMetricsListener::DnsEvent expect = {
+                TEST_NETID, eventType,   returnCode,
+                hostname,   ipAddresses, static_cast<int32_t>(ipAddresses.size())};
+        const auto dnsEvent = sDnsMetricsListener->popDnsEvent();
+        ASSERT_TRUE(dnsEvent.has_value());
+        EXPECT_EQ(dnsEvent.value(), expect);
     }
 
     bool expectStatsFromGetResolverInfo(const std::vector<NameserverStats>& nameserversStats) {
@@ -953,6 +965,7 @@ TEST_F(ResolverTest, GetAddrInfoV6_nonresponsive) {
     EXPECT_TRUE(result != nullptr);
     EXPECT_EQ(1U, GetNumQueries(dns0, host_name1));
     EXPECT_EQ(1U, GetNumQueries(dns1, host_name1));
+    ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, 0, host_name1, {"2001:db8::6"});
 
     // Now make dns1 also ignore 100% requests... The resolve should alternate
     // queries between the nameservers and fail
@@ -962,6 +975,7 @@ TEST_F(ResolverTest, GetAddrInfoV6_nonresponsive) {
     EXPECT_EQ(nullptr, result2);
     EXPECT_EQ(1U, GetNumQueries(dns0, host_name2));
     EXPECT_EQ(1U, GetNumQueries(dns1, host_name2));
+    ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, RCODE_TIMEOUT, host_name2, {});
 }
 
 TEST_F(ResolverTest, GetAddrInfoV6_concurrent) {
@@ -2170,6 +2184,12 @@ TEST_F(ResolverTest, Async_EmptyAnswer) {
     res = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
     EXPECT_GT(res, 0);
     EXPECT_EQ("::1.2.3.4", toString(buf, res, AF_INET6));
+
+    // Trailing dot is removed. Is it intended?
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, 0, "howdy.example.com", {"::1.2.3.4"});
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, RCODE_TIMEOUT, "howdy.example.com", {});
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, RCODE_TIMEOUT, "howdy.example.com", {});
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, 0, "howdy.example.com", {"1.2.3.4"});
 }
 
 TEST_F(ResolverTest, Async_MalformedQuery) {
@@ -2452,6 +2472,8 @@ TEST_F(ResolverTest, Async_NoRetryFlag) {
     // expect no response
     expectAnswersNotValid(fd1, -ETIMEDOUT);
     expectAnswersNotValid(fd2, -ETIMEDOUT);
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, RCODE_TIMEOUT, "howdy.example.com", {});
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, RCODE_TIMEOUT, "howdy.example.com", {});
 
     // No retry case, expect total 2 queries. The server is selected randomly.
     EXPECT_EQ(2U, GetNumQueries(dns0, host_name) + GetNumQueries(dns1, host_name));
@@ -2468,6 +2490,8 @@ TEST_F(ResolverTest, Async_NoRetryFlag) {
     // expect no response
     expectAnswersNotValid(fd1, -ETIMEDOUT);
     expectAnswersNotValid(fd2, -ETIMEDOUT);
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, RCODE_TIMEOUT, "howdy.example.com", {});
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, RCODE_TIMEOUT, "howdy.example.com", {});
 
     // Retry case, expect 4 queries
     EXPECT_EQ(4U, GetNumQueries(dns0, host_name));
@@ -2707,10 +2731,13 @@ TEST_F(ResolverTest, BrokenEdns) {
                 ASSERT_FALSE(h_result->h_addr_list[0] == nullptr);
                 EXPECT_EQ(ADDR4, ToString(h_result));
                 EXPECT_TRUE(h_result->h_addr_list[1] == nullptr);
+                ExpectDnsEvent(INetdEventListener::EVENT_GETHOSTBYNAME, 0, host_name, {ADDR4});
             } else {
                 EXPECT_EQ(0U, GetNumQueriesForType(dns, ns_type::ns_t_a, host_name));
                 ASSERT_TRUE(h_result == nullptr);
                 ASSERT_EQ(HOST_NOT_FOUND, h_errno);
+                int returnCode = (config.edns == Edns::DROP) ? RCODE_TIMEOUT : EAI_FAIL;
+                ExpectDnsEvent(INetdEventListener::EVENT_GETHOSTBYNAME, returnCode, host_name, {});
             }
         } else if (config.method == GETADDRINFO) {
             ScopedAddrinfo ai_result;
@@ -2721,9 +2748,12 @@ TEST_F(ResolverTest, BrokenEdns) {
                 EXPECT_EQ(1U, GetNumQueries(dns, host_name));
                 const std::string result_str = ToString(ai_result);
                 EXPECT_EQ(ADDR4, result_str);
+                ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, 0, host_name, {ADDR4});
             } else {
                 EXPECT_TRUE(ai_result == nullptr);
                 EXPECT_EQ(0U, GetNumQueries(dns, host_name));
+                int returnCode = (config.edns == Edns::DROP) ? RCODE_TIMEOUT : EAI_FAIL;
+                ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, returnCode, host_name, {});
             }
         } else {
             FAIL() << "Unsupported query method: " << config.method;
@@ -4016,6 +4046,9 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     memset(buf, 0, MAXPACKET);
     res = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
     EXPECT_EQ(-ECONNREFUSED, res);
+
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
 }
 
 namespace {
@@ -4932,6 +4965,7 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
     EXPECT_NEAR(DNS_TIMEOUT_MS, timeTakenMs, TIMING_TOLERANCE_MS)
             << "took time should approximate equal timeout";
     EXPECT_EQ(2U, GetNumQueries(neverRespondDns, host_name));
+    ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, RCODE_TIMEOUT, host_name, {});
 }
 
 TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
