@@ -178,8 +178,11 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     // Locking happens in PrivateDnsConfiguration and res_* functions.
     ENFORCE_INTERNAL_PERMISSIONS();
 
+    // TODO@: Switch to selinux based permission check if AIBinder_getCallingSid and
+    //        AIBinder_setRequestingSid can be supported by libbinder_dnk (b/159135973).
     uid_t uid = AIBinder_getCallingUid();
-    if (resolverParams.caCertificate.size() != 0 && uid == AID_SYSTEM) {
+    // CAUTION: caCertificate should NOT be used except for internal testing.
+    if (resolverParams.caCertificate.size() != 0 && uid != AID_ROOT) {
         auto err = StringPrintf("UID %d is not authorized to set a non-empty CA certificate", uid);
         return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(EX_SECURITY, err.c_str()));
     }
