@@ -237,9 +237,13 @@ class ResolverTest : public ::testing::Test {
         const DnsMetricsListener::DnsEvent expect = {
                 TEST_NETID, eventType,   returnCode,
                 hostname,   ipAddresses, static_cast<int32_t>(ipAddresses.size())};
-        const auto dnsEvent = sDnsMetricsListener->popDnsEvent();
-        ASSERT_TRUE(dnsEvent.has_value());
-        EXPECT_EQ(dnsEvent.value(), expect);
+        do {
+            // Blocking call until timeout.
+            const auto dnsEvent = sDnsMetricsListener->popDnsEvent();
+            ASSERT_TRUE(dnsEvent.has_value()) << "Expected DnsEvent " << expect;
+            if (dnsEvent.value() == expect) break;
+            LOG(INFO) << "Skip unexpected DnsEvent: " << dnsEvent.value();
+        } while (true);
     }
 
     bool expectStatsFromGetResolverInfo(const std::vector<NameserverStats>& nameserversStats) {
