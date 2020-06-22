@@ -707,7 +707,8 @@ same_ns:
                     return -1;
             }
         }
-        resolv_tag_socket(statp->tcp_nssock, statp->uid, statp->pid);
+        const uid_t uid = statp->enforce_dns_uid ? AID_DNS : statp->uid;
+        resolv_tag_socket(statp->tcp_nssock, uid, statp->pid);
         if (statp->_mark != MARK_UNSET) {
             if (setsockopt(statp->tcp_nssock, SOL_SOCKET, SO_MARK, &statp->_mark,
                            sizeof(statp->_mark)) < 0) {
@@ -1018,7 +1019,8 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
             }
         }
 
-        resolv_tag_socket(statp->nssocks[*ns], statp->uid, statp->pid);
+        const uid_t uid = statp->enforce_dns_uid ? AID_DNS : statp->uid;
+        resolv_tag_socket(statp->nssocks[*ns], uid, statp->pid);
         if (statp->_mark != MARK_UNSET) {
             if (setsockopt(statp->nssocks[*ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
                            sizeof(statp->_mark)) < 0) {
