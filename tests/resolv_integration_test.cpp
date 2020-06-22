@@ -4055,6 +4055,71 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
 }
 
+TEST_F(ResolverTest, EnforceDnsUid) {
+    SKIP_IF_BPF_NOT_SUPPORTED;
+
+    constexpr char listen_addr1[] = "127.0.0.4";
+    constexpr char listen_addr2[] = "::1";
+    constexpr char host_name[] = "howdy.example.com.";
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+            {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
+    };
+    INetd* netdService = mDnsClient.netdService();
+
+    test::DNSResponder dns1(listen_addr1);
+    test::DNSResponder dns2(listen_addr2);
+    StartDns(dns1, records);
+    StartDns(dns2, records);
+
+    // switch uid of DNS queries from applications to AID_DNS
+    ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    parcel.servers = {listen_addr1, listen_addr2};
+    ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk());
+
+    uint8_t buf[MAXPACKET] = {};
+    int rcode;
+    {
+        ScopeBlockedUIDRule scopeBlockUidRule(netdService, TEST_UID);
+        // Dns Queries should be blocked
+        int fd1 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_a, 0);
+        int fd2 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_aaaa, 0);
+        EXPECT_TRUE(fd1 != -1);
+        EXPECT_TRUE(fd2 != -1);
+
+        int res = getAsyncResponse(fd2, &rcode, buf, MAXPACKET);
+        EXPECT_EQ(-ECONNREFUSED, res);
+
+        memset(buf, 0, MAXPACKET);
+        res = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
+        EXPECT_EQ(-ECONNREFUSED, res);
+    }
+
+    parcel.resolverOptions.enforceDnsUid = true;
+    ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk());
+    {
+        ScopeBlockedUIDRule scopeBlockUidRule(netdService, TEST_UID);
+        // Dns Queries should NOT be blocked
+        int fd1 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_a, 0);
+        int fd2 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_aaaa, 0);
+        EXPECT_TRUE(fd1 != -1);
+        EXPECT_TRUE(fd2 != -1);
+
+        int res = getAsyncResponse(fd2, &rcode, buf, MAXPACKET);
+        EXPECT_EQ("::1.2.3.4", toString(buf, res, AF_INET6));
+
+        memset(buf, 0, MAXPACKET);
+        res = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
+        EXPECT_EQ("1.2.3.4", toString(buf, res, AF_INET));
+
+        // @TODO: So far we know that uid of DNS queries are no more set to DNS requester. But we
+        // don't check if they are actually being set to AID_DNS, because system uids are always
+        // allowed in bpf_owner_match(). Audit by firewallSetUidRule(AID_DNS) + sending queries is
+        // infeasible. Fix it if the behavior of bpf_owner_match() is changed in the future, or if
+        // we have better idea to deal with this.
+    }
+}
+
 namespace {
 
 const std::string kDotConnectTimeoutMsFlag(
