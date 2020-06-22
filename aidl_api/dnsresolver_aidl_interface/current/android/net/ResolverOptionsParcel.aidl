@@ -20,4 +20,5 @@ package android.net;
 parcelable ResolverOptionsParcel {
   android.net.ResolverHostsParcel[] hosts = {};
   int tcMode = 0;
+  boolean enforceDnsUid = false;
 }
