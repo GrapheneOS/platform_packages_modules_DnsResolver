@@ -146,8 +146,6 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
 DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, unsigned mark,
                                                   const Slice query, const Slice ans, int* resplen,
                                                   bool* connectTriggered) {
-    int connectCounter;
-
     // TODO: This can cause the resolver to create multiple connections to the same DoT server
     // merely due to different mark, such as the bit explicitlySelected unset.
     // See if we can save them and just create one connection for one DoT server.
@@ -163,13 +161,19 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
             xport = it->second.get();
         }
         ++xport->useCount;
-        connectCounter = xport->transport.getConnectCounter();
     }
+
+    // Don't call this function and hold sLock at the same time because of the following reason:
+    // TLS handshake requires a lock which is also needed by this function, if the handshake gets
+    // stuck, this function also gets blocked.
+    const int connectCounter = xport->transport.getConnectCounter();
 
     LOG(DEBUG) << "Sending query of length " << query.size();
     auto res = xport->transport.query(query);
     LOG(DEBUG) << "Awaiting response";
     const auto& result = res.get();
+    *connectTriggered = (xport->transport.getConnectCounter() > connectCounter);
+
     DnsTlsTransport::Response code = result.code;
     if (code == DnsTlsTransport::Response::success) {
         if (result.response.size() > ans.size()) {
@@ -187,7 +191,6 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     auto now = std::chrono::steady_clock::now();
     {
         std::lock_guard guard(sLock);
-        *connectTriggered = (xport->transport.getConnectCounter() > connectCounter);
         --xport->useCount;
         xport->lastUsed = now;
         cleanup(now);
