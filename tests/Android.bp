@@ -73,7 +73,7 @@ cc_library_static {
 
 cc_test {
     name: "resolv_gold_test",
-    test_suites: ["device-tests", "mts"],
+    test_suites: ["general-tests", "mts"],
     require_root: true,
     // b/151392634, this is a workaround because MTS
     // can not handle the test with testdata correctly.
@@ -113,7 +113,7 @@ cc_test {
 
 cc_test {
     name: "resolv_stress_test",
-    test_suites: ["device-tests", "mts"],
+    test_suites: ["general-tests", "mts"],
     // This won't work with test_config
     // require_root: true,
     // TODO: Remove resolv_test_mts_coverage_defaults after mts coverage switched to 64-bit device.
@@ -142,7 +142,7 @@ cc_test {
 
 cc_test {
     name: "resolv_integration_test",
-    test_suites: ["device-tests", "mts"],
+    test_suites: ["general-tests", "mts"],
     require_root: true,
     test_config_template: ":resolv_test_config_template",
     defaults: ["netd_defaults", "resolv_test_defaults"],
@@ -213,7 +213,8 @@ cc_test {
         "resolv_stats_test_utils_test.cpp",
     ],
     defaults: ["netd_defaults", "resolv_test_defaults"],
-    test_suites: ["device-tests"],
+    test_suites: ["general-tests"],
+    test_mainline_modules: ["CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex+com.google.android.tethering.apex"],
     static_libs: [
         "libgmock",
         "libprotobuf-cpp-lite",
