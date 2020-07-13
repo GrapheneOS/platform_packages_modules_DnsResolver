@@ -151,6 +151,7 @@ cc_test {
         "dns_responder/dns_responder.cpp",
         "dnsresolver_binder_test.cpp",
         "resolv_integration_test.cpp",
+        "tun_forwarder.cpp",
     ],
     header_libs: [
         "dnsproxyd_protocol_headers",
@@ -170,13 +171,12 @@ cc_test {
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_metrics_listener",
         "libnetd_test_resolv_utils",
-        "libnetd_test_tun_interface",
-        "libnetd_test_utils",
         "libnetdutils",
         "libssl",
         "libutils",
         "netd_aidl_interface-ndk_platform",
         "netd_event_listener_interface-ndk_platform",
+        "libipchecksum",
     ],
     // This test talks to the DnsResolver module over a binary protocol on a socket, so keep it as
     // multilib setting is worth because we might be able to get some coverage for the case where
