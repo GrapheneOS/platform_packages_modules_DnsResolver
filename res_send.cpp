@@ -497,6 +497,15 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     int usableServersCount = android_net_res_stats_get_usable_servers(
             &params, stats, statp->nameserverCount(), usable_servers);
 
+    if (statp->sort_nameservers) {
+        // It's unnecessary to mark a DNS server as unusable since broken servers will be less
+        // likely to be chosen.
+        for (int i = 0; i < statp->nameserverCount(); i++) {
+            usable_servers[i] = true;
+        }
+    }
+
+    // TODO: Let it always choose the first nameserver when sort_nameservers is enabled.
     if ((flags & ANDROID_RESOLV_NO_RETRY) && usableServersCount > 1) {
         auto hp = reinterpret_cast<const HEADER*>(buf);
 
