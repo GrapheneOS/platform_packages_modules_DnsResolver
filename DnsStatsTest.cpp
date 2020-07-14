@@ -52,6 +52,8 @@ StatsData makeStatsData(const IPSockAddr& server, const int total, const millise
 
 }  // namespace
 
+// TODO: add StatsDataTest to ensure its methods return correct outputs.
+
 class StatsRecordsTest : public ::testing::Test {};
 
 TEST_F(StatsRecordsTest, PushRecord) {
@@ -95,9 +97,9 @@ class DnsStatsTest : public ::testing::Test {
     void verifyDumpOutput(const std::vector<StatsData>& tcpData,
                           const std::vector<StatsData>& udpData,
                           const std::vector<StatsData>& dotData) {
-        // A simple pattern to capture two matches:
-        //     server address (empty allowed) and its statistics.
-        const std::regex pattern(R"(\s{4,}([0-9a-fA-F:\.]*) ([<(].*[>)]))");
+        // A pattern to capture three matches:
+        //     server address (empty allowed), the statistics, and the score.
+        const std::regex pattern(R"(\s{4,}([0-9a-fA-F:\.]*)[ ]?([<(].*[>)])[ ]?(\S*))");
         std::string dumpString = captureDumpOutput();
 
         const auto check = [&](const std::vector<StatsData>& statsData, const std::string& protocol,
@@ -111,6 +113,7 @@ class DnsStatsTest : public ::testing::Test {
                 ASSERT_TRUE(std::regex_search(*dumpString, sm, pattern));
                 EXPECT_TRUE(sm[1].str().empty());
                 EXPECT_EQ(sm[2], "<no server>");
+                EXPECT_TRUE(sm[3].str().empty());
                 *dumpString = sm.suffix();
                 return;
             }
@@ -119,6 +122,7 @@ class DnsStatsTest : public ::testing::Test {
                 ASSERT_TRUE(std::regex_search(*dumpString, sm, pattern));
                 EXPECT_EQ(sm[1], stats.serverSockAddr.ip().toString());
                 EXPECT_FALSE(sm[2].str().empty());
+                EXPECT_FALSE(sm[3].str().empty());
                 *dumpString = sm.suffix();
             }
         };
@@ -377,6 +381,112 @@ TEST_F(DnsStatsTest, AddStatsRecords_100000) {
     EXPECT_THAT(mDnsStats.getStats(PROTO_UDP), UnorderedElementsAreArray(expectedStats));
     EXPECT_THAT(mDnsStats.getStats(PROTO_DOT), UnorderedElementsAreArray(expectedStats));
     verifyDumpOutput(expectedStats, expectedStats, expectedStats);
+}
+
+TEST_F(DnsStatsTest, GetServers_SortingByLatency) {
+    const IPSockAddr server1 = IPSockAddr::toIPSockAddr("127.0.0.1", 53);
+    const IPSockAddr server2 = IPSockAddr::toIPSockAddr("127.0.0.2", 53);
+    const IPSockAddr server3 = IPSockAddr::toIPSockAddr("2001:db8:cafe:d00d::1", 53);
+    const IPSockAddr server4 = IPSockAddr::toIPSockAddr("2001:db8:cafe:d00d::2", 53);
+
+    // Return empty list before setup.
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP), IsEmpty());
+
+    // Before there's any stats, the list of the sorted servers is the same as the setup's one.
+    EXPECT_TRUE(mDnsStats.setServers({server1, server2, server3, server4}, PROTO_UDP));
+    EXPECT_TRUE(mDnsStats.setServers({server1, server2, server3, server4}, PROTO_DOT));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server1, server2, server3, server4}));
+
+    // Add a record to server1. The qualities of the other servers increase.
+    EXPECT_TRUE(mDnsStats.addStats(server1, makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 10ms)));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server2, server3, server4, server1}));
+
+    // Add a record, with less repose time than server1, to server3.
+    EXPECT_TRUE(mDnsStats.addStats(server3, makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 5ms)));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server2, server4, server3, server1}));
+
+    // Even though server2 has zero response time, select server4 as the first server because it
+    // doesn't have stats yet.
+    EXPECT_TRUE(mDnsStats.addStats(server2, makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 0ms)));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server4, server2, server3, server1}));
+
+    // Updating DoT record to server4 changes nothing.
+    EXPECT_TRUE(mDnsStats.addStats(server4, makeDnsQueryEvent(PROTO_DOT, NS_R_NO_ERROR, 10ms)));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server4, server2, server3, server1}));
+
+    // Add a record, with a very large value of respose time, to server4.
+    EXPECT_TRUE(mDnsStats.addStats(server4, makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 500000ms)));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server2, server3, server1, server4}));
+
+    // The list of the DNS servers changed.
+    EXPECT_TRUE(mDnsStats.setServers({server2, server4}, PROTO_UDP));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server2, server4}));
+
+    // It fails to add records to an non-existing server, and nothing is changed in getting
+    // the sorted servers.
+    EXPECT_FALSE(mDnsStats.addStats(server1, makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 10ms)));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server2, server4}));
+}
+
+TEST_F(DnsStatsTest, GetServers_DeprioritizingBadServers) {
+    const IPSockAddr server1 = IPSockAddr::toIPSockAddr("127.0.0.1", 53);
+    const IPSockAddr server2 = IPSockAddr::toIPSockAddr("127.0.0.2", 53);
+    const IPSockAddr server3 = IPSockAddr::toIPSockAddr("127.0.0.3", 53);
+    const IPSockAddr server4 = IPSockAddr::toIPSockAddr("127.0.0.4", 53);
+
+    EXPECT_TRUE(mDnsStats.setServers({server1, server2, server3, server4}, PROTO_UDP));
+
+    int server1Counts = 0;
+    int server2Counts = 0;
+    for (int i = 0; i < 5000; i++) {
+        const auto servers = mDnsStats.getSortedServers(PROTO_UDP);
+        EXPECT_EQ(servers.size(), 4U);
+        if (servers[0] == server1) {
+            // server1 is relatively slowly responsive.
+            EXPECT_TRUE(mDnsStats.addStats(servers[0],
+                                           makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 200ms)));
+            server1Counts++;
+        } else if (servers[0] == server2) {
+            // server2 is relatively quickly responsive.
+            EXPECT_TRUE(mDnsStats.addStats(servers[0],
+                                           makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 100ms)));
+            server2Counts++;
+        } else if (servers[0] == server3) {
+            // server3 always times out.
+            EXPECT_TRUE(mDnsStats.addStats(servers[0],
+                                           makeDnsQueryEvent(PROTO_UDP, NS_R_TIMEOUT, 1000ms)));
+        } else if (servers[0] == server4) {
+            // server4 is unusable.
+            EXPECT_TRUE(mDnsStats.addStats(servers[0],
+                                           makeDnsQueryEvent(PROTO_UDP, NS_R_INTERNAL_ERROR, 1ms)));
+        }
+    }
+
+    const std::vector<StatsData> allStatsData = mDnsStats.getStats(PROTO_UDP);
+    for (const auto& data : allStatsData) {
+        EXPECT_EQ(data.rcodeCounts.size(), 1U);
+        if (data.serverSockAddr == server1 || data.serverSockAddr == server2) {
+            const auto it = data.rcodeCounts.find(NS_R_NO_ERROR);
+            ASSERT_NE(it, data.rcodeCounts.end());
+            EXPECT_GT(server2Counts, 2 * server1Counts);  // At least twice larger.
+        } else if (data.serverSockAddr == server3) {
+            const auto it = data.rcodeCounts.find(NS_R_TIMEOUT);
+            ASSERT_NE(it, data.rcodeCounts.end());
+            EXPECT_LT(it->second, 10);
+        } else if (data.serverSockAddr == server4) {
+            const auto it = data.rcodeCounts.find(NS_R_INTERNAL_ERROR);
+            ASSERT_NE(it, data.rcodeCounts.end());
+            EXPECT_LT(it->second, 10);
+        }
+    }
 }
 
 }  // namespace android::net

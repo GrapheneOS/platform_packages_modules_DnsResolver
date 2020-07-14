@@ -148,6 +148,19 @@ struct NameserverStats {
     int internal_errors = 0;
 };
 
+class ScopedSystemProperties {
+  public:
+    ScopedSystemProperties(const std::string& key, const std::string& value) : mStoredKey(key) {
+        mStoredValue = android::base::GetProperty(key, "");
+        android::base::SetProperty(key, value);
+    }
+    ~ScopedSystemProperties() { android::base::SetProperty(mStoredKey, mStoredValue); }
+
+  private:
+    std::string mStoredKey;
+    std::string mStoredValue;
+};
+
 }  // namespace
 
 class ResolverTest : public ::testing::Test {
@@ -250,7 +263,18 @@ class ResolverTest : public ::testing::Test {
         } while (true);
     }
 
-    bool expectStatsFromGetResolverInfo(const std::vector<NameserverStats>& nameserversStats) {
+    enum class StatsCmp { LE, EQ };
+
+    bool expectStatsNotGreaterThan(const std::vector<NameserverStats>& nameserversStats) {
+        return expectStatsFromGetResolverInfo(nameserversStats, StatsCmp::LE);
+    }
+
+    bool expectStatsEqualTo(const std::vector<NameserverStats>& nameserversStats) {
+        return expectStatsFromGetResolverInfo(nameserversStats, StatsCmp::EQ);
+    }
+
+    bool expectStatsFromGetResolverInfo(const std::vector<NameserverStats>& nameserversStats,
+                                        const StatsCmp cmp) {
         std::vector<std::string> res_servers;
         std::vector<std::string> res_domains;
         std::vector<std::string> res_tls_servers;
@@ -289,10 +313,23 @@ class ResolverTest : public ::testing::Test {
 
             // The check excludes rtt_avg, last_sample_time, and usable since they will be obsolete
             // after |res_stats| is retrieved from NetConfig.dnsStats rather than NetConfig.nsstats.
-            EXPECT_EQ(res_stats[index].successes, stats.successes);
-            EXPECT_EQ(res_stats[index].errors, stats.errors);
-            EXPECT_EQ(res_stats[index].timeouts, stats.timeouts);
-            EXPECT_EQ(res_stats[index].internal_errors, stats.internal_errors);
+            switch (cmp) {
+                case StatsCmp::EQ:
+                    EXPECT_EQ(res_stats[index].successes, stats.successes);
+                    EXPECT_EQ(res_stats[index].errors, stats.errors);
+                    EXPECT_EQ(res_stats[index].timeouts, stats.timeouts);
+                    EXPECT_EQ(res_stats[index].internal_errors, stats.internal_errors);
+                    break;
+                case StatsCmp::LE:
+                    EXPECT_LE(res_stats[index].successes, stats.successes);
+                    EXPECT_LE(res_stats[index].errors, stats.errors);
+                    EXPECT_LE(res_stats[index].timeouts, stats.timeouts);
+                    EXPECT_LE(res_stats[index].internal_errors, stats.internal_errors);
+                    break;
+                default:
+                    ADD_FAILURE() << "Unknown comparator " << static_cast<int>(cmp);
+                    return false;
+            }
         }
 
         return true;
@@ -1040,39 +1077,66 @@ TEST_F(ResolverTest, GetAddrInfoV6_concurrent) {
 }
 
 TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
+    const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
     constexpr char listen_addr1[] = "fe80::1";
     constexpr char listen_addr2[] = "255.255.255.255";
     constexpr char listen_addr3[] = "127.0.0.3";
-
+    int counter = 0;  // To generate unique hostnames.
     test::DNSResponder dns(listen_addr3);
     ASSERT_TRUE(dns.startServer());
 
-    ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
-    parcel.servers = {listen_addr1, listen_addr2, listen_addr3};
+    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    setupParams.servers = {listen_addr1, listen_addr2, listen_addr3};
+    setupParams.minSamples = 2;  // Recognize bad servers in two attempts when sorting not enabled.
 
-    // Bad servers can be distinguished after two attempts.
-    parcel.minSamples = 2;
-    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    ResolverParamsParcel cleanupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    cleanupParams.servers.clear();
+    cleanupParams.tlsServers.clear();
 
-    // Start querying five times.
-    for (int i = 0; i < 5; i++) {
-        std::string hostName = StringPrintf("hello%d.com.", i);
-        dns.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
-        const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
-        EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
+    for (const auto& sortNameserversFlag : {"" /* unset */, "0" /* off */, "1" /* on */}) {
+        SCOPED_TRACE(fmt::format("sortNameversFlag_{}", sortNameserversFlag));
+        ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, sortNameserversFlag);
+
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+
+        // Start sending synchronized querying.
+        for (int i = 0; i < 100; i++) {
+            std::string hostName = StringPrintf("hello%d.com.", counter++);
+            dns.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
+            const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+            EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
+        }
+
+        const std::vector<NameserverStats> targetStats = {
+                NameserverStats(listen_addr1).setInternalErrors(5),
+                NameserverStats(listen_addr2).setInternalErrors(5),
+                NameserverStats(listen_addr3).setSuccesses(setupParams.maxSamples),
+        };
+        EXPECT_TRUE(expectStatsNotGreaterThan(targetStats));
+
+        // Also verify the number of queries received in the server because res_stats.successes has
+        // a maximum.
+        EXPECT_EQ(dns.queries().size(), 100U);
+
+        // Reset the state.
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(cleanupParams));
+        dns.clearQueries();
     }
-
-    const std::vector<NameserverStats> expectedCleartextDnsStats = {
-            NameserverStats(listen_addr1).setInternalErrors(2),
-            NameserverStats(listen_addr2).setInternalErrors(2),
-            NameserverStats(listen_addr3).setSuccesses(5),
-    };
-    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
 }
 
 TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
+    const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
     constexpr char listen_addr1[] = "127.0.0.3";
     constexpr char listen_addr2[] = "127.0.0.4";
+    int counter = 0;  // To generate unique hostnames.
+
+    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    setupParams.servers = {listen_addr1, listen_addr2};
+    setupParams.minSamples = 2;  // Recognize bad servers in two attempts when sorting not enabled.
+
+    ResolverParamsParcel cleanupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    cleanupParams.servers.clear();
+    cleanupParams.tlsServers.clear();
 
     // Set dns1 non-responsive and dns2 workable.
     test::DNSResponder dns1(listen_addr1, test::kDefaultListenService, static_cast<ns_rcode>(-1));
@@ -1081,29 +1145,38 @@ TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
     ASSERT_TRUE(dns1.startServer());
     ASSERT_TRUE(dns2.startServer());
 
-    ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
-    parcel.servers = {listen_addr1, listen_addr2};
+    for (const auto& sortNameserversFlag : {"" /* unset */, "0" /* off */, "1" /* on */}) {
+        SCOPED_TRACE(fmt::format("sortNameversFlag_{}", sortNameserversFlag));
+        ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, sortNameserversFlag);
 
-    // Bad servers can be distinguished after two attempts.
-    parcel.minSamples = 2;
-    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
 
-    // Start querying five times.
-    for (int i = 0; i < 5; i++) {
-        std::string hostName = StringPrintf("hello%d.com.", i);
-        dns1.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
-        dns2.addMapping(hostName, ns_type::ns_t_a, "1.2.3.5");
-        const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
-        EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
+        // Start sending synchronized querying.
+        for (int i = 0; i < 100; i++) {
+            std::string hostName = StringPrintf("hello%d.com.", counter++);
+            dns1.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
+            dns2.addMapping(hostName, ns_type::ns_t_a, "1.2.3.5");
+            const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+            EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
+        }
+
+        const std::vector<NameserverStats> targetStats = {
+                NameserverStats(listen_addr1).setTimeouts(5),
+                NameserverStats(listen_addr2).setSuccesses(setupParams.maxSamples),
+        };
+        EXPECT_TRUE(expectStatsNotGreaterThan(targetStats));
+
+        // Also verify the number of queries received in the server because res_stats.successes has
+        // an upper bound.
+        EXPECT_GT(dns1.queries().size(), 0U);
+        EXPECT_LT(dns1.queries().size(), 5U);
+        EXPECT_EQ(dns2.queries().size(), 100U);
+
+        // Reset the state.
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(cleanupParams));
+        dns1.clearQueries();
+        dns2.clearQueries();
     }
-
-    const std::vector<NameserverStats> expectedCleartextDnsStats = {
-            NameserverStats(listen_addr1).setTimeouts(2),
-            NameserverStats(listen_addr2).setSuccesses(5),
-    };
-    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
-    EXPECT_EQ(dns1.queries().size(), 2U);
-    EXPECT_EQ(dns2.queries().size(), 5U);
 }
 
 TEST_F(ResolverTest, GetAddrInfoFromCustTable_InvalidInput) {
@@ -1489,7 +1562,7 @@ TEST_F(ResolverTest, ResolverStats) {
             NameserverStats(listen_addr2).setErrors(1),
             NameserverStats(listen_addr3).setSuccesses(1),
     };
-    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
+    EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
 }
 
 TEST_F(ResolverTest, AlwaysUseLatestSetupParamsInLookups) {
@@ -1547,7 +1620,7 @@ TEST_F(ResolverTest, AlwaysUseLatestSetupParamsInLookups) {
             NameserverStats(listen_addr2),
             NameserverStats(listen_addr3).setSuccesses(1),
     };
-    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
+    EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
 }
 
 // Test what happens if the specified TLS server is nonexistent.
@@ -4124,28 +4197,9 @@ TEST_F(ResolverTest, EnforceDnsUid) {
     }
 }
 
-namespace {
-
-const std::string kDotConnectTimeoutMsFlag(
-        "persist.device_config.netd_native.dot_connect_timeout_ms");
-
-class ScopedSystemProperties {
-  public:
-    explicit ScopedSystemProperties(const std::string& key, const std::string& value)
-        : mStoredKey(key) {
-        mStoredValue = android::base::GetProperty(key, "");
-        android::base::SetProperty(key, value);
-    }
-    ~ScopedSystemProperties() { android::base::SetProperty(mStoredKey, mStoredValue); }
-
-  private:
-    std::string mStoredKey;
-    std::string mStoredValue;
-};
-
-}  // namespace
-
 TEST_F(ResolverTest, ConnectTlsServerTimeout) {
+    const std::string kDotConnectTimeoutMsFlag(
+            "persist.device_config.netd_native.dot_connect_timeout_ms");
     constexpr int expectedTimeout = 1000;
     constexpr char hostname1[] = "query1.example.com.";
     constexpr char hostname2[] = "query2.example.com.";
@@ -4390,6 +4444,11 @@ TEST_F(ResolverTest, TruncatedRspMode) {
         dns.clearQueries();
         dns2.clearQueries();
         ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+
+        // Clear the stats to make the resolver always choose the same server for the first query.
+        parcel.servers.clear();
+        parcel.tlsServers.clear();
+        ASSERT_EQ(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk(), config.ret);
     }
 }
 
@@ -4423,7 +4482,7 @@ TEST_F(ResolverTest, RepeatedSetup_ResolverStatusRemains) {
             NameserverStats(unusable_listen_addr).setInternalErrors(1),
             NameserverStats(listen_addr).setSuccesses(1),
     };
-    EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
+    EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
     EXPECT_EQ(GetNumQueries(dns, hostname), 1U);
 
     // The stats is supposed to remain as long as the list of cleartext DNS servers is unchanged.
@@ -4453,12 +4512,12 @@ TEST_F(ResolverTest, RepeatedSetup_ResolverStatusRemains) {
         parcel.tlsServers = config.tlsServers;
         parcel.tlsName = config.tlsName;
         repeatedSetResolversFromParcel(parcel);
-        EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
+        EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
 
         // The stats remains when the list of search domains changes.
         parcel.domains.push_back("tmp.domains");
         repeatedSetResolversFromParcel(parcel);
-        EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
+        EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
 
         // The stats remains when the parameters change (except maxSamples).
         parcel.sampleValiditySeconds++;
@@ -4467,7 +4526,7 @@ TEST_F(ResolverTest, RepeatedSetup_ResolverStatusRemains) {
         parcel.baseTimeoutMsec++;
         parcel.retryCount++;
         repeatedSetResolversFromParcel(parcel);
-        EXPECT_TRUE(expectStatsFromGetResolverInfo(expectedCleartextDnsStats));
+        EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
     }
 
     // The cache remains.
@@ -5116,7 +5175,7 @@ TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
             NameserverStats(listen_addr1),
             NameserverStats(listen_addr2),
     };
-    expectStatsFromGetResolverInfo(expectedEmptyDnsStats);
+    expectStatsEqualTo(expectedEmptyDnsStats);
     EXPECT_EQ(dns1.queries().size(), 0U);
     EXPECT_EQ(dns2.queries().size(), 0U);
 }
