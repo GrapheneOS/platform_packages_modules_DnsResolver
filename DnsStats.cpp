@@ -77,11 +77,14 @@ bool StatsData::operator==(const StatsData& o) const {
            std::tie(o.serverSockAddr, o.total, o.rcodeCounts, o.latencyUs);
 }
 
+int StatsData::averageLatencyMs() const {
+    return (total == 0) ? 0 : duration_cast<milliseconds>(latencyUs).count() / total;
+}
+
 std::string StatsData::toString() const {
     if (total == 0) return StringPrintf("%s <no data>", serverSockAddr.ip().toString().c_str());
 
     const auto now = std::chrono::steady_clock::now();
-    const int meanLatencyMs = duration_cast<milliseconds>(latencyUs).count() / total;
     const int lastUpdateSec = duration_cast<seconds>(now - lastUpdate).count();
     std::string buf;
     for (const auto& [rcode, counts] : rcodeCounts) {
@@ -90,7 +93,7 @@ std::string StatsData::toString() const {
         }
     }
     return StringPrintf("%s (%d, %dms, [%s], %ds)", serverSockAddr.ip().toString().c_str(), total,
-                        meanLatencyMs, buf.c_str(), lastUpdateSec);
+                        averageLatencyMs(), buf.c_str(), lastUpdateSec);
 }
 
 StatsRecords::StatsRecords(const IPSockAddr& ipSockAddr, size_t size)
@@ -104,6 +107,10 @@ void StatsRecords::push(const Record& record) {
         updateStatsData(mRecords.front(), false);
         mRecords.pop_front();
     }
+
+    // Update the quality factors.
+    mSkippedCount = 0;
+    updatePenalty(record);
 }
 
 void StatsRecords::updateStatsData(const Record& record, const bool add) {
@@ -118,6 +125,41 @@ void StatsRecords::updateStatsData(const Record& record, const bool add) {
         mStatsData.latencyUs -= record.latencyUs;
     }
     mStatsData.lastUpdate = std::chrono::steady_clock::now();
+}
+
+void StatsRecords::updatePenalty(const Record& record) {
+    switch (record.rcode) {
+        case NS_R_NO_ERROR:
+        case NS_R_NXDOMAIN:
+        case NS_R_NOTAUTH:
+            mPenalty = 0;
+            return;
+        default:
+            // NS_R_TIMEOUT and NS_R_INTERNAL_ERROR are in this case.
+            if (mPenalty == 0) {
+                mPenalty = 100;
+            } else {
+                // The evaluated quality drops more quickly when continuous failures happen.
+                mPenalty = std::min(mPenalty * 2, kMaxQuality);
+            }
+            return;
+    }
+}
+
+double StatsRecords::score() const {
+    const int avgRtt = mStatsData.averageLatencyMs();
+
+    // Set the lower bound to -1 in case of "avgRtt + mPenalty < mSkippedCount"
+    //   1) when the server doesn't have any stats yet.
+    //   2) when the sorting has been disabled while it was enabled before.
+    int quality = std::clamp(avgRtt + mPenalty - mSkippedCount, -1, kMaxQuality);
+
+    // Normalization.
+    return static_cast<double>(kMaxQuality - quality) * 100 / kMaxQuality;
+}
+
+void StatsRecords::incrementSkippedCount() {
+    mSkippedCount = std::min(mSkippedCount + 1, kMaxQuality);
 }
 
 bool DnsStats::setServers(const std::vector<netdutils::IPSockAddr>& servers, Protocol protocol) {
@@ -147,6 +189,7 @@ bool DnsStats::setServers(const std::vector<netdutils::IPSockAddr>& servers, Pro
 bool DnsStats::addStats(const IPSockAddr& ipSockAddr, const DnsQueryEvent& record) {
     if (ipSockAddr.ip() == INVALID_IPADDRESS) return false;
 
+    bool added = false;
     for (auto& [serverSockAddr, statsRecords] : mStats[record.protocol()]) {
         if (serverSockAddr == ipSockAddr) {
             const StatsRecords::Record rec = {
@@ -154,10 +197,36 @@ bool DnsStats::addStats(const IPSockAddr& ipSockAddr, const DnsQueryEvent& recor
                     .latencyUs = microseconds(record.latency_micros()),
             };
             statsRecords.push(rec);
-            return true;
+            added = true;
+        } else {
+            statsRecords.incrementSkippedCount();
         }
     }
-    return false;
+
+    return added;
+}
+
+std::vector<IPSockAddr> DnsStats::getSortedServers(Protocol protocol) const {
+    // DoT unsupported. The handshake overhead is expensive, and the connection will hang for a
+    // while. Need to figure out if it is worth doing for DoT servers.
+    if (protocol == PROTO_DOT) return {};
+
+    auto it = mStats.find(protocol);
+    if (it == mStats.end()) return {};
+
+    // Sorting on insertion in decreasing order.
+    std::multimap<double, IPSockAddr, std::greater<double>> sortedData;
+    for (const auto& [ip, statsRecords] : it->second) {
+        sortedData.insert({statsRecords.score(), ip});
+    }
+
+    std::vector<IPSockAddr> ret;
+    ret.reserve(sortedData.size());
+    for (auto& [_, v] : sortedData) {
+        ret.push_back(v);  // IPSockAddr is trivially-copyable.
+    }
+
+    return ret;
 }
 
 std::vector<StatsData> DnsStats::getStats(Protocol protocol) const {
@@ -179,7 +248,10 @@ void DnsStats::dump(DumpWriter& dw) {
             return;
         }
         for (const auto& [_, statsRecords] : statsMap) {
-            dw.println("%s", statsRecords.getStatsData().toString().c_str());
+            const StatsData& data = statsRecords.getStatsData();
+            std::string str = data.toString();
+            str += StringPrintf(" score{%.1f}", statsRecords.score());
+            dw.println("%s", str.c_str());
         }
     };
 

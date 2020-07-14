@@ -113,6 +113,8 @@ struct ResState {
     uint32_t netcontext_flags;
     int tc_mode = 0;
     bool enforce_dns_uid = false;
+    bool sort_nameservers = false;              // A flag to indicate whether nsaddrs has been
+                                                // sorted or not.
     // clang-format on
 };
 
