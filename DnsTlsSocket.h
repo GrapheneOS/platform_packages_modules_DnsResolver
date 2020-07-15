@@ -44,6 +44,27 @@ class DnsTlsSessionCache;
 // or the destructor in a callback.  Doing so will result in deadlocks.
 // This class may call the observer at any time after initialize(), until the destructor
 // returns (but not after).
+//
+// Calls to IDnsTlsSocketObserver in a DnsTlsSocket life cycle:
+//
+//                                    START
+//                                      |
+//                                      v
+//                            +--startHandshake()--+
+//            Handshake fails |                    | Handshake succeeds
+//                            |                    |
+//                            |                    v
+//                            |        +--------> loop --+
+//                            |        |           |     |
+//                            |        +-----------+     | Idle timeout
+//                            |   Send/Recv queries      | onClose()
+//                            |   onResponse()           |
+//                            |                          |
+//                            |                          |
+//                            +------> END <-------------+
+//
+//
+// TODO: Add onHandshakeFinished() for handshake results.
 class DnsTlsSocket : public IDnsTlsSocket {
   public:
     DnsTlsSocket(const DnsTlsServer& server, unsigned mark,
@@ -51,10 +72,13 @@ class DnsTlsSocket : public IDnsTlsSocket {
         : mMark(mark), mServer(server), mObserver(observer), mCache(cache) {}
     ~DnsTlsSocket();
 
-    // Creates the SSL context for this session and connect.  Returns false on failure.
+    // Creates the SSL context for this session. Returns false on failure.
     // This method should be called after construction and before use of a DnsTlsSocket.
     // Only call this method once per DnsTlsSocket.
     bool initialize() EXCLUDES(mLock);
+
+    // A blocking call to start handshaking until it finishes.
+    bool startHandshake() EXCLUDES(mLock);
 
     // Send a query on the provided SSL socket.  |query| contains
     // the body of a query, not including the ID header. This function will typically return before

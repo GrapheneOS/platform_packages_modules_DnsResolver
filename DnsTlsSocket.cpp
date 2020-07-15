@@ -169,6 +169,23 @@ bool DnsTlsSocket::initialize() {
     // Enable session cache
     mCache->prepareSslContext(mSslCtx.get());
 
+    mEventFd.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
+
+    return true;
+}
+
+bool DnsTlsSocket::startHandshake() {
+    std::lock_guard guard(mLock);
+    if (!mSslCtx) {
+        LOG(ERROR) << "Calling startHandshake before initializing";
+        return false;
+    }
+
+    if (mLoopThread) {
+        LOG(WARNING) << "The loop thread has been created. Ignore the handshake request";
+        return false;
+    }
+
     // Connect
     Status status = tcpConnect();
     if (!status.ok()) {
@@ -178,8 +195,6 @@ bool DnsTlsSocket::initialize() {
     if (!mSsl) {
         return false;
     }
-
-    mEventFd.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
 
     // Start the I/O loop.
     mLoopThread.reset(new std::thread(&DnsTlsSocket::loop, this));
