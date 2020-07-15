@@ -240,7 +240,7 @@ filegroup {
 cc_test {
     name: "resolv_unit_test",
     test_suites: [
-        "device-tests",
+        "general-tests",
         "mts",
     ],
     require_root: true,
