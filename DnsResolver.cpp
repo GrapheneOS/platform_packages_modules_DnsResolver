@@ -30,8 +30,11 @@ bool resolv_init(const ResolverNetdCallbacks* callbacks) {
     LOG(INFO) << __func__ << ": Initializing resolver";
     resolv_set_log_severity(android::base::WARNING);
 
+    uint64_t buildVersionSdk = android::base::GetUintProperty<uint64_t>("ro.build.version.sdk", 0);
+    uint64_t firstApiLevel =
+            android::base::GetUintProperty<uint64_t>("ro.product.first_api_level", 0);
     using android::net::gApiLevel;
-    gApiLevel = android::base::GetUintProperty<uint64_t>("ro.build.version.sdk", 0);
+    gApiLevel = std::max(buildVersionSdk, firstApiLevel);
     using android::net::gResNetdCallbacks;
     gResNetdCallbacks.check_calling_permission = callbacks->check_calling_permission;
     gResNetdCallbacks.get_network_context = callbacks->get_network_context;
