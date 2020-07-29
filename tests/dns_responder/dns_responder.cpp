@@ -171,7 +171,7 @@ char* DNSName::write(char* buffer, const char* buffer_end) const {
     for (size_t pos = 0; pos < name.size();) {
         size_t dot_pos = name.find('.', pos);
         if (dot_pos == std::string::npos) {
-            // Sanity check, should never happen unless parseField is broken.
+            // Soundness check, should never happen unless parseField is broken.
             LOG(ERROR) << "logic error: all names are expected to end with a '.'";
             return nullptr;
         }
