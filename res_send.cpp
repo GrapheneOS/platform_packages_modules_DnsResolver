@@ -125,7 +125,6 @@ using android::net::CacheStatus;
 using android::net::DnsQueryEvent;
 using android::net::DnsTlsDispatcher;
 using android::net::DnsTlsTransport;
-using android::net::gPrivateDnsConfiguration;
 using android::net::IpVersion;
 using android::net::IV_IPV4;
 using android::net::IV_IPV6;
@@ -135,6 +134,7 @@ using android::net::NetworkDnsEventReported;
 using android::net::NS_T_INVALID;
 using android::net::NsRcode;
 using android::net::NsType;
+using android::net::PrivateDnsConfiguration;
 using android::net::PrivateDnsMode;
 using android::net::PrivateDnsModes;
 using android::net::PrivateDnsStatus;
@@ -1209,7 +1209,8 @@ static int res_tls_send(res_state statp, const Slice query, const Slice answer, 
     int resplen = 0;
     const unsigned netId = statp->netid;
 
-    PrivateDnsStatus privateDnsStatus = gPrivateDnsConfiguration.getStatus(netId);
+    auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
+    PrivateDnsStatus privateDnsStatus = privateDnsConfiguration.getStatus(netId);
     statp->event->set_private_dns_modes(convertEnumType(privateDnsStatus.mode));
 
     if (privateDnsStatus.mode == PrivateDnsMode::OFF) {
@@ -1238,8 +1239,8 @@ static int res_tls_send(res_state statp, const Slice query, const Slice answer, 
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 // Calling getStatus() to merely check if there's any validated server seems
                 // wasteful. Consider adding a new method in PrivateDnsConfiguration for speed ups.
-                if (!gPrivateDnsConfiguration.getStatus(netId).validatedServers().empty()) {
-                    privateDnsStatus = gPrivateDnsConfiguration.getStatus(netId);
+                if (!privateDnsConfiguration.getStatus(netId).validatedServers().empty()) {
+                    privateDnsStatus = privateDnsConfiguration.getStatus(netId);
                     break;
                 }
             }

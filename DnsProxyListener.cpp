@@ -116,7 +116,7 @@ constexpr bool requestingUseLocalNameservers(unsigned flags) {
 }
 
 bool queryingViaTls(unsigned dns_netid) {
-    const auto privateDnsStatus = gPrivateDnsConfiguration.getStatus(dns_netid);
+    const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(dns_netid);
     switch (privateDnsStatus.mode) {
         case PrivateDnsMode::OPPORTUNISTIC:
             return !privateDnsStatus.validatedServers().empty();
@@ -294,7 +294,7 @@ bool parseQuery(const uint8_t* msg, size_t msgLen, uint16_t* query_id, int* rr_t
 // Note: Even if it returns PDM_OFF, it doesn't mean there's no DoT stats in the message
 // because Private DNS mode can change at any time.
 PrivateDnsModes getPrivateDnsModeForMetrics(uint32_t netId) {
-    switch (gPrivateDnsConfiguration.getStatus(netId).mode) {
+    switch (PrivateDnsConfiguration::getInstance().getStatus(netId).mode) {
         case PrivateDnsMode::OFF:
             // It can also be due to netId not found.
             return PrivateDnsModes::PDM_OFF;
