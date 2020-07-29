@@ -469,7 +469,7 @@ TEST_F(ResolverTest, GetHostByName_localhost) {
     constexpr char name_ip6_dot[] = "ip6-localhost.";
     constexpr char name_ip6_fqdn[] = "ip6-localhost.example.com.";
 
-    // Add a dummy nameserver which shouldn't receive any queries
+    // Add a no-op nameserver which shouldn't receive any queries
     test::DNSResponder dns;
     StartDns(dns, {});
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
@@ -518,7 +518,7 @@ TEST_F(ResolverTest, GetHostByName_localhost) {
 }
 
 TEST_F(ResolverTest, GetHostByName_numeric) {
-    // Add a dummy nameserver which shouldn't receive any queries
+    // Add a no-op nameserver which shouldn't receive any queries
     test::DNSResponder dns;
     StartDns(dns, {});
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
@@ -699,7 +699,7 @@ TEST_F(ResolverTest, GetAddrInfoV4) {
 }
 
 TEST_F(ResolverTest, GetAddrInfo_localhost) {
-    // Add a dummy nameserver which shouldn't receive any queries
+    // Add a no-op nameserver which shouldn't receive any queries
     test::DNSResponder dns;
     StartDns(dns, {});
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
@@ -2048,8 +2048,8 @@ int getAsyncResponse(int fd, int* rcode, uint8_t* buf, int bufLen) {
     if (revents & POLLIN) {
         int n = resNetworkResult(fd, rcode, buf, bufLen);
         // Verify that resNetworkResult() closed the fd
-        char dummy;
-        EXPECT_EQ(-1, read(fd, &dummy, sizeof dummy));
+        char unused;
+        EXPECT_EQ(-1, read(fd, &unused, sizeof unused));
         EXPECT_EQ(EBADF, errno);
         return n;
     }
@@ -5269,7 +5269,7 @@ class ResolverMultinetworkTest : public ResolverTest {
   private:
     // Use a different netId because this class inherits from the class ResolverTest which
     // always creates TEST_NETID in setup. It's incremented when CreateScopedNetwork() is called.
-    // Note: Don't create more than 20 networks in the class since 51 is used for the dummy network.
+    // Note: Don't create more than 20 networks in the class since 51 is used for the mock network.
     unsigned mNextNetId = 31;
 };
 
