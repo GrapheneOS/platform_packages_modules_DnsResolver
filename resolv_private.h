@@ -50,6 +50,8 @@
 
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
+#include <private/android_filesystem_config.h>  // AID_DNS
+
 #include <net/if.h>
 #include <time.h>
 #include <string>
@@ -176,11 +178,9 @@ inline void resolv_tag_socket(int sock, uid_t uid, pid_t pid) {
         }
     }
 
-    // R+, since fchown() incompatible with Q's ebpf vpn isolation feature
-    if (android::net::gApiLevel >= 30) {
-        if (fchown(sock, uid, -1) == -1) {
-            LOG(WARNING) << "Failed to chown socket: " << strerror(errno);
-        }
+    // fchown() apps' uid only in R+, since it's incompatible with Q's ebpf vpn isolation feature.
+    if (fchown(sock, (android::net::gApiLevel >= 30) ? uid : AID_DNS, -1) == -1) {
+        PLOG(WARNING) << "Failed to chown socket";
     }
 }
 
