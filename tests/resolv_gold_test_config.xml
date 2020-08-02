@@ -15,6 +15,7 @@
 -->
 <configuration description="Configuration for resolv gold tests">
    <option name="test-suite-tag" value="mts" />
+   <option name="config-descriptor:metadata" key="mainline-param" value="CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex+com.google.android.tethering.apex" />
    <target_preparer class="com.android.compatibility.common.tradefed.targetprep.FilePusher">
        <option name="cleanup" value="true" />
        <option name="push" value="resolv_gold_test->/data/local/tmp/resolv_gold_test" />
