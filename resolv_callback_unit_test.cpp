@@ -16,34 +16,34 @@
 
 #define LOG_TAG "resolv_callback_unit_test"
 
+#include <sys/stat.h>
+
+#include <android-base/file.h>
 #include <android-base/properties.h>
 #include <gtest/gtest.h>
+#include <private/android_filesystem_config.h>  // AID_DNS
 
 #include "DnsResolver.h"
 #include "getaddrinfo.h"
 #include "resolv_cache.h"
+#include "resolv_private.h"
 #include "tests/resolv_test_utils.h"
 
 namespace android::net {
 
+using android::base::unique_fd;
 using android::net::NetworkDnsEventReported;
 using android::netdutils::ScopedAddrinfo;
 
 // Use maximum reserved appId for applications to avoid conflict with existing uids.
-const int TEST_UID = 99999;
+const uid_t TEST_UID = 99999;
 // Use testUid to make sure TagSocketCallback is called.
-static int testUid = 0;
+static uid_t testUid = 0;
 
-bool isApiLevelSupported(size_t requiredVersion) {
-    if (android::base::GetUintProperty<uint64_t>("ro.build.version.sdk", 0) >= requiredVersion)
-        return true;
-    else
-        return false;
-}
-
+// gApiLevel would be initialized in resolv_init().
 #define SKIP_IF_APILEVEL_LESS_THAN(version)                                          \
     do {                                                                             \
-        if (!isApiLevelSupported(version)) {                                         \
+        if (android::net::gApiLevel < (version)) {                                   \
             GTEST_LOG_(INFO) << "Skip. Required API version: " << (version) << "\n"; \
             return;                                                                  \
         }                                                                            \
@@ -141,9 +141,9 @@ class CallbackTest : public ::testing::Test {
 };
 
 TEST_F(CallbackTest, tagSocketCallback) {
-    // tagSocketCallback is used when ro.build.version.sdk >=30.
-    // If ro.build.version.sdk < 30, don't run this test case.
+    // tagSocketCallback is used when supported sdk version >=30.
     SKIP_IF_APILEVEL_LESS_THAN(30);
+
     test::DNSResponder dns;
     dns.addMapping(kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4);
     ASSERT_TRUE(dns.startServer());
@@ -158,4 +158,27 @@ TEST_F(CallbackTest, tagSocketCallback) {
     EXPECT_EQ(testUid, TEST_UID);
     EXPECT_EQ(rv, 0);
 }
+
+TEST_F(CallbackTest, tagSocketFchown) {
+    const uint64_t tmpApiLevel = gApiLevel;
+
+    // Expect the given socket will be fchown() with given uid.
+    gApiLevel = 30;  // R
+    unique_fd sk(socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0));
+    EXPECT_GE(sk, 3);
+    resolv_tag_socket(sk, TEST_UID, -1);
+    struct stat sb;
+    EXPECT_EQ(fstat(sk, &sb), 0);
+    EXPECT_EQ(sb.st_uid, TEST_UID);
+
+    // Expect the given socket will be fchown() with AID_DNS.
+    gApiLevel = 29;  // Q
+    resolv_tag_socket(sk, TEST_UID, -1);
+    EXPECT_EQ(fstat(sk, &sb), 0);
+    EXPECT_EQ(sb.st_uid, static_cast<uid_t>(AID_DNS));
+
+    // restore API level.
+    gApiLevel = tmpApiLevel;
+}
+
 }  // end of namespace android::net
