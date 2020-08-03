@@ -350,7 +350,5 @@ bool PrivateDnsConfiguration::needsValidation(const PrivateDnsTracker& tracker,
     return (iter == tracker.end()) || (iter->second == Validation::fail);
 }
 
-PrivateDnsConfiguration gPrivateDnsConfiguration;
-
 }  // namespace net
 }  // namespace android
