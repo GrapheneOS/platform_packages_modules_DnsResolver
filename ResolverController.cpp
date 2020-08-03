@@ -184,7 +184,7 @@ void ResolverController::destroyNetworkCache(unsigned netId) {
 
     resolv_delete_cache_for_net(netId);
     mDns64Configuration.stopPrefixDiscovery(netId);
-    gPrivateDnsConfiguration.clear(netId);
+    PrivateDnsConfiguration::getInstance().clear(netId);
 }
 
 int ResolverController::createNetworkCache(unsigned netId) {
@@ -215,9 +215,9 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     // through a different network. For example, on a VPN with no DNS servers (Do53), if the VPN
     // applies to UID 0, dns_mark is assigned for default network rathan the VPN. (note that it's
     // possible that a VPN doesn't have any DNS servers but DoT servers in DNS strict mode)
-    const int err =
-            gPrivateDnsConfiguration.set(resolverParams.netId, netcontext.app_mark, tlsServers,
-                                         resolverParams.tlsName, resolverParams.caCertificate);
+    const int err = PrivateDnsConfiguration::getInstance().set(
+            resolverParams.netId, netcontext.app_mark, tlsServers, resolverParams.tlsName,
+            resolverParams.caCertificate);
 
     if (err != 0) {
         return err;
@@ -254,7 +254,7 @@ int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>*
     // Serialize the information for binder.
     ResolverStats::encodeAll(res_stats, stats);
 
-    const auto privateDnsStatus = gPrivateDnsConfiguration.getStatus(netId);
+    const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(netId);
     for (const auto& pair : privateDnsStatus.serversMap) {
         tlsServers->push_back(addrToString(&pair.first.ss));
     }
@@ -347,7 +347,7 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
         }
 
         mDns64Configuration.dump(dw, netId);
-        const auto privateDnsStatus = gPrivateDnsConfiguration.getStatus(netId);
+        const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(netId);
         dw.println("Private DNS mode: %s", getPrivateDnsModeString(privateDnsStatus.mode));
         if (privateDnsStatus.serversMap.size() == 0) {
             dw.println("No Private DNS servers configured");
