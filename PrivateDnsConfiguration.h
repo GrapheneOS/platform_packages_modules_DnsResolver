@@ -52,6 +52,12 @@ struct PrivateDnsStatus {
 
 class PrivateDnsConfiguration {
   public:
+    // The only instance of PrivateDnsConfiguration.
+    static PrivateDnsConfiguration& getInstance() {
+        static PrivateDnsConfiguration instance;
+        return instance;
+    }
+
     int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
             const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
 
@@ -62,6 +68,8 @@ class PrivateDnsConfiguration {
   private:
     typedef std::map<DnsTlsServer, Validation, AddressComparator> PrivateDnsTracker;
     typedef std::set<DnsTlsServer, AddressComparator> ThreadTracker;
+
+    PrivateDnsConfiguration() = default;
 
     void validatePrivateDnsProvider(const DnsTlsServer& server, PrivateDnsTracker& tracker,
                                     unsigned netId, uint32_t mark) REQUIRES(mPrivateDnsLock);
@@ -84,8 +92,6 @@ class PrivateDnsConfiguration {
     std::map<unsigned, PrivateDnsTracker> mPrivateDnsTransports GUARDED_BY(mPrivateDnsLock);
     std::map<unsigned, ThreadTracker> mPrivateDnsValidateThreads GUARDED_BY(mPrivateDnsLock);
 };
-
-extern PrivateDnsConfiguration gPrivateDnsConfiguration;
 
 }  // namespace net
 }  // namespace android
