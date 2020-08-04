@@ -161,6 +161,10 @@ class DNSResponder {
         : DNSResponder(kDefaultListenAddr, kDefaultListenService, kDefaultErrorCode,
                        mapping_type){};
 
+    DNSResponder(unsigned netId, std::string listen_address) : DNSResponder(listen_address) {
+        mNetId = netId;
+    };
+
     ~DNSResponder();
 
     // Functions used for accessing mapping {ADDRESS_OR_HOSTNAME, DNS_HEADER, BINARY_PACKET}.
