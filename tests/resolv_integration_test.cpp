@@ -59,6 +59,7 @@
 #include <aidl/android/net/IDnsResolver.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
+#include <util.h>  // getApiLevel
 #include "NetdClient.h"
 #include "ResolverStats.h"
 #include "netid_client.h"  // NETID_UNSET
@@ -161,6 +162,8 @@ class ScopedSystemProperties {
     std::string mStoredKey;
     std::string mStoredValue;
 };
+
+const bool isAtLeastR = (getApiLevel() >= 30);
 
 }  // namespace
 
@@ -4120,17 +4123,24 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     EXPECT_TRUE(fd1 != -1);
     EXPECT_TRUE(fd2 != -1);
 
-    uint8_t buf[MAXPACKET] = {};
+    uint8_t buf1[MAXPACKET] = {};
+    uint8_t buf2[MAXPACKET] = {};
     int rcode;
-    int res = getAsyncResponse(fd2, &rcode, buf, MAXPACKET);
-    EXPECT_EQ(-ECONNREFUSED, res);
-
-    memset(buf, 0, MAXPACKET);
-    res = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
-    EXPECT_EQ(-ECONNREFUSED, res);
-
-    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
-    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
+    int res2 = getAsyncResponse(fd2, &rcode, buf2, MAXPACKET);
+    int res1 = getAsyncResponse(fd1, &rcode, buf1, MAXPACKET);
+    // If API level >= 30 (R+), these queries should be blocked.
+    if (isAtLeastR) {
+        EXPECT_EQ(res2, -ECONNREFUSED);
+        EXPECT_EQ(res1, -ECONNREFUSED);
+        ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
+        ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
+    } else {
+        EXPECT_GT(res2, 0);
+        EXPECT_EQ("::1.2.3.4", toString(buf2, res2, AF_INET6));
+        EXPECT_GT(res1, 0);
+        EXPECT_EQ("1.2.3.4", toString(buf1, res1, AF_INET));
+        // To avoid flaky test, do not evaluate DnsEvent since event order is not guaranteed.
+    }
 }
 
 TEST_F(ResolverTest, EnforceDnsUid) {
@@ -4156,23 +4166,31 @@ TEST_F(ResolverTest, EnforceDnsUid) {
     ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk());
 
     uint8_t buf[MAXPACKET] = {};
+    uint8_t buf2[MAXPACKET] = {};
     int rcode;
     {
         ScopeBlockedUIDRule scopeBlockUidRule(netdService, TEST_UID);
         // Dns Queries should be blocked
-        int fd1 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_a, 0);
-        int fd2 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_aaaa, 0);
+        const int fd1 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_a, 0);
+        const int fd2 = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_aaaa, 0);
         EXPECT_TRUE(fd1 != -1);
         EXPECT_TRUE(fd2 != -1);
 
-        int res = getAsyncResponse(fd2, &rcode, buf, MAXPACKET);
-        EXPECT_EQ(-ECONNREFUSED, res);
-
-        memset(buf, 0, MAXPACKET);
-        res = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
-        EXPECT_EQ(-ECONNREFUSED, res);
+        const int res2 = getAsyncResponse(fd2, &rcode, buf2, MAXPACKET);
+        const int res1 = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
+        // If API level >= 30 (R+), the query should be blocked.
+        if (isAtLeastR) {
+            EXPECT_EQ(res2, -ECONNREFUSED);
+            EXPECT_EQ(res1, -ECONNREFUSED);
+        } else {
+            EXPECT_GT(res2, 0);
+            EXPECT_EQ("::1.2.3.4", toString(buf2, res2, AF_INET6));
+            EXPECT_GT(res1, 0);
+            EXPECT_EQ("1.2.3.4", toString(buf, res1, AF_INET));
+        }
     }
 
+    memset(buf, 0, MAXPACKET);
     parcel.resolverOptions.enforceDnsUid = true;
     ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk());
     {
@@ -5168,16 +5186,23 @@ TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
         for (int i = 0; i < 10; i++) {
             std::string hostName = fmt::format("blocked{}.com", i);
             const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
-            EXPECT_EQ(safe_getaddrinfo(hostName.c_str(), nullptr, &hints), nullptr);
+            // The query result between R+ and Q would be different, but we don't really care
+            // about the result here because this test is only used to ensure blocked uid rule
+            // won't cause bad servers.
+            safe_getaddrinfo(hostName.c_str(), nullptr, &hints);
         }
     }
-    // Since all query packets are blocked, we should not see any stats of them.
-    const std::vector<NameserverStats> expectedEmptyDnsStats = {
-            NameserverStats(listen_addr1),
+    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    // If api level >= 30 (R+), expect all query packets to be blocked, hence we should not see any
+    // of their stats show up. Otherwise, all queries should succeed.
+    const std::vector<NameserverStats> expectedDnsStats = {
+            NameserverStats(listen_addr1).setSuccesses(isAtLeastR ? 0 : setupParams.maxSamples),
             NameserverStats(listen_addr2),
     };
-    expectStatsEqualTo(expectedEmptyDnsStats);
-    EXPECT_EQ(dns1.queries().size(), 0U);
+    expectStatsEqualTo(expectedDnsStats);
+    // If api level >= 30 (R+), expect server won't receive any queries,
+    // otherwise expect 20 == 10 * (setupParams.domains.size() + 1) queries.
+    EXPECT_EQ(dns1.queries().size(), isAtLeastR ? 0U : 10 * (setupParams.domains.size() + 1));
     EXPECT_EQ(dns2.queries().size(), 0U);
 }
 

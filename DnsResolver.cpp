@@ -17,26 +17,20 @@
 #include "DnsResolver.h"
 
 #include <android-base/logging.h>
-#include <android-base/properties.h>
 
 #include "DnsProxyListener.h"
 #include "DnsResolverService.h"
 #include "netd_resolv/resolv.h"
 #include "res_debug.h"
+#include "util.h"
 
 bool resolv_init(const ResolverNetdCallbacks* callbacks) {
     android::base::InitLogging(/*argv=*/nullptr);
     android::base::SetDefaultTag("libnetd_resolv");
     LOG(INFO) << __func__ << ": Initializing resolver";
     resolv_set_log_severity(android::base::WARNING);
-
-    uint64_t buildVersionSdk = android::base::GetUintProperty<uint64_t>("ro.build.version.sdk", 0);
-    uint64_t buildVersionPreviewSdk =
-            android::base::GetUintProperty<uint64_t>("ro.build.version.preview_sdk", 0);
-    uint64_t firstApiLevel =
-            android::base::GetUintProperty<uint64_t>("ro.product.first_api_level", 0);
     using android::net::gApiLevel;
-    gApiLevel = std::max(buildVersionSdk + !!buildVersionPreviewSdk, firstApiLevel);
+    gApiLevel = getApiLevel();
     using android::net::gResNetdCallbacks;
     gResNetdCallbacks.check_calling_permission = callbacks->check_calling_permission;
     gResNetdCallbacks.get_network_context = callbacks->get_network_context;
