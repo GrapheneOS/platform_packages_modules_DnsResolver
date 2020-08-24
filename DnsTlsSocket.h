@@ -47,26 +47,37 @@ class DnsTlsSessionCache;
 //
 // Calls to IDnsTlsSocketObserver in a DnsTlsSocket life cycle:
 //
-//                                    START
+//                                UNINITIALIZED
 //                                      |
 //                                      v
-//                            +--startHandshake()--+
+//                                 INITIALIZED
+//                                      |
+//                                      v
+//                            +----CONNECTING------+
 //            Handshake fails |                    | Handshake succeeds
 //                            |                    |
 //                            |                    v
-//                            |        +--------> loop --+
+//                            |        +---> CONNECTED --+
 //                            |        |           |     |
 //                            |        +-----------+     | Idle timeout
 //                            |   Send/Recv queries      | onClose()
 //                            |   onResponse()           |
 //                            |                          |
 //                            |                          |
-//                            +------> END <-------------+
+//                            +--> WAIT_FOR_DELETE <-----+
 //
 //
 // TODO: Add onHandshakeFinished() for handshake results.
 class DnsTlsSocket : public IDnsTlsSocket {
   public:
+    enum class State {
+        UNINITIALIZED,
+        INITIALIZED,
+        CONNECTING,
+        CONNECTED,
+        WAIT_FOR_DELETE,
+    };
+
     DnsTlsSocket(const DnsTlsServer& server, unsigned mark,
                  IDnsTlsSocketObserver* _Nonnull observer, DnsTlsSessionCache* _Nonnull cache)
         : mMark(mark), mServer(server), mObserver(observer), mCache(cache) {}
@@ -136,6 +147,9 @@ class DnsTlsSocket : public IDnsTlsSocket {
     // the loop thread by incrementing mEventFd.  loop() reads items off the queue.
     LockedQueue<std::vector<uint8_t>> mQueue;
 
+    // Transition the state from expected state |from| to new state |to|.
+    void transitionState(State from, State to) REQUIRES(mLock);
+
     // eventfd socket used for notifying the SSL thread when queries are ready to send.
     // This socket acts similarly to an atomic counter, incremented by query() and cleared
     // by loop().  We have to use a socket because the SSL thread needs to wait in poll()
@@ -155,6 +169,7 @@ class DnsTlsSocket : public IDnsTlsSocket {
     const DnsTlsServer mServer;
     IDnsTlsSocketObserver* _Nonnull const mObserver;
     DnsTlsSessionCache* _Nonnull const mCache;
+    State mState GUARDED_BY(mLock) = State::UNINITIALIZED;
 };
 
 }  // end of namespace net

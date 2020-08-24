@@ -173,28 +173,28 @@ bool DnsTlsSocket::initialize() {
 
     mEventFd.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
 
+    transitionState(State::UNINITIALIZED, State::INITIALIZED);
+
     return true;
 }
 
 bool DnsTlsSocket::startHandshake() {
     std::lock_guard guard(mLock);
-    if (!mSslCtx) {
-        LOG(ERROR) << "Calling startHandshake before initializing";
+    if (mState != State::INITIALIZED) {
+        LOG(ERROR) << "Calling startHandshake in unexpected state " << static_cast<int>(mState);
         return false;
     }
-
-    if (mLoopThread) {
-        LOG(WARNING) << "The loop thread has been created. Ignore the handshake request";
-        return false;
-    }
+    transitionState(State::INITIALIZED, State::CONNECTING);
 
     // Connect
     Status status = tcpConnect();
     if (!status.ok()) {
+        transitionState(State::CONNECTING, State::WAIT_FOR_DELETE);
         return false;
     }
     mSsl = sslConnect(mSslFd.get());
     if (!mSsl) {
+        transitionState(State::CONNECTING, State::WAIT_FOR_DELETE);
         return false;
     }
 
@@ -326,7 +326,9 @@ void DnsTlsSocket::loop() {
     std::deque<std::vector<uint8_t>> q;
     const int timeout_msecs = DnsTlsSocket::kIdleTimeout.count() * 1000;
 
+    transitionState(State::CONNECTING, State::CONNECTED);
     setThreadName(StringPrintf("TlsListen_%u", mMark & 0xffff).c_str());
+
     while (true) {
         // poll() ignores negative fds
         struct pollfd fds[2] = { { .fd = -1 }, { .fd = -1 } };
@@ -396,6 +398,7 @@ void DnsTlsSocket::loop() {
     sslDisconnect();
     LOG(DEBUG) << "Calling onClosed";
     mObserver->onClosed();
+    transitionState(State::CONNECTED, State::WAIT_FOR_DELETE);
     LOG(DEBUG) << "Ending loop";
 }
 
@@ -456,6 +459,15 @@ bool DnsTlsSocket::incrementEventFd(const int64_t count) {
         return false;
     }
     return true;
+}
+
+void DnsTlsSocket::transitionState(State from, State to) {
+    if (mState != from) {
+        LOG(WARNING) << "BUG: transitioning from an unexpected state " << static_cast<int>(mState)
+                     << ", expect: from " << static_cast<int>(from) << " to "
+                     << static_cast<int>(to);
+    }
+    mState = to;
 }
 
 // Read exactly len bytes into buffer or fail with an SSL error code
