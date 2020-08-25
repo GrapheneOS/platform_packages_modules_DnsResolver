@@ -22,6 +22,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/macros.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <netdutils/Slice.h>
 
@@ -39,8 +40,9 @@
 namespace android {
 namespace net {
 
-using netdutils::Slice;
 using netdutils::makeSlice;
+using netdutils::Slice;
+using ::testing::NiceMock;
 
 typedef std::vector<uint8_t> bytevec;
 
@@ -979,12 +981,10 @@ TEST(QueryMapTest, FillHole) {
     EXPECT_FALSE(map.recordQuery(makeSlice(QUERY)));
 }
 
-class StubObserver : public IDnsTlsSocketObserver {
+class MockDnsTlsSocketObserver : public IDnsTlsSocketObserver {
   public:
-    bool closed = false;
-    void onResponse(std::vector<uint8_t>) override {}
-
-    void onClosed() override { closed = true; }
+    MOCK_METHOD(void, onClosed, (), (override));
+    MOCK_METHOD(void, onResponse, (std::vector<uint8_t>), (override));
 };
 
 TEST(DnsTlsSocketTest, SlowDestructor) {
@@ -1000,8 +1000,7 @@ TEST(DnsTlsSocketTest, SlowDestructor) {
     DnsTlsServer server;
     parseServer(tls_addr, 8530, &server.ss);
 
-    StubObserver observer;
-    ASSERT_FALSE(observer.closed);
+    MockDnsTlsSocketObserver observer;
     DnsTlsSessionCache cache;
     auto socket = std::make_unique<DnsTlsSocket>(server, MARK, &observer, &cache);
     ASSERT_TRUE(socket->initialize());
@@ -1009,11 +1008,11 @@ TEST(DnsTlsSocketTest, SlowDestructor) {
 
     // Test: Time the socket destructor.  This should be fast.
     auto before = std::chrono::steady_clock::now();
+    EXPECT_CALL(observer, onClosed);
     socket.reset();
     auto after = std::chrono::steady_clock::now();
     auto delay = after - before;
     LOG(DEBUG) << "Shutdown took " << delay / std::chrono::nanoseconds{1} << "ns";
-    EXPECT_TRUE(observer.closed);
     // Shutdown should complete in milliseconds, but if the shutdown signal is lost
     // it will wait for the timeout, which is expected to take 20seconds.
     EXPECT_LT(delay, std::chrono::seconds{5});
@@ -1031,8 +1030,9 @@ TEST(DnsTlsSocketTest, StartHandshake) {
     DnsTlsServer server;
     parseServer(tls_addr, 8530, &server.ss);
 
-    StubObserver observer;
-    ASSERT_FALSE(observer.closed);
+    // Use NiceMock to suppress the "uninteresting calls" warning.
+    // (onClose will be called when running |socket|'s destructor)
+    NiceMock<MockDnsTlsSocketObserver> observer;
     DnsTlsSessionCache cache;
     auto socket = std::make_unique<DnsTlsSocket>(server, MARK, &observer, &cache);
 
