@@ -152,7 +152,8 @@ bool DnsTlsFrontend::startServer() {
 
     // connect() always fails in the test DnsTlsSocketTest.SlowDestructor because of
     // no backend server. Don't check it.
-    connect(backend_socket_.get(), backend_ai_res->ai_addr, backend_ai_res->ai_addrlen);
+    static_cast<void>(
+            connect(backend_socket_.get(), backend_ai_res->ai_addr, backend_ai_res->ai_addrlen));
 
     // Set up eventfd socket.
     event_fd_.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
