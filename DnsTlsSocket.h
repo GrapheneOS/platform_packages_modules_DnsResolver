@@ -189,6 +189,12 @@ class DnsTlsSocket : public IDnsTlsSocket {
     // thread (the call to startHandshake()).
     bool mAsyncHandshake GUARDED_BY(mLock) = false;
 
+    // The time to wait for the attempt on connecting to the server.
+    // Set the default value 127 seconds to be consistent with TCP connect timeout.
+    // (presume net.ipv4.tcp_syn_retries = 6)
+    static constexpr int kDotConnectTimeoutMs = 127 * 1000;
+    int mConnectTimeoutMs;
+
     // For testing.
     friend class DnsTlsSocketTest;
 };

@@ -176,7 +176,14 @@ bool DnsTlsSocket::initialize() {
     mEventFd.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
     mShutdownEvent.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
 
-    mAsyncHandshake = Experiments::getInstance()->getFlag("dot_async_handshake", 0);
+    const Experiments* const instance = Experiments::getInstance();
+    mConnectTimeoutMs = instance->getFlag("dot_connect_timeout_ms", kDotConnectTimeoutMs);
+    if (mConnectTimeoutMs < 1000) mConnectTimeoutMs = 1000;
+
+    mAsyncHandshake = instance->getFlag("dot_async_handshake", 0);
+    LOG(DEBUG) << "DnsTlsSocket is initialized with { mConnectTimeoutMs: " << mConnectTimeoutMs
+               << ", mAsyncHandshake: " << mAsyncHandshake << " }";
+
     transitionState(State::UNINITIALIZED, State::INITIALIZED);
 
     return true;
@@ -273,7 +280,7 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
                 // SSL_ERROR_WANT_READ is returned because the application data has been sent during
                 // the TCP connection handshake, the device is waiting for the SSL handshake reply
                 // from the server.
-                if (int err = waitForReading(fd, mServer.connectTimeout.count()); err <= 0) {
+                if (int err = waitForReading(fd, mConnectTimeoutMs); err <= 0) {
                     PLOG(WARNING) << "SSL_connect read error " << err << ", mark 0x" << std::hex
                                   << mMark;
                     return nullptr;
@@ -282,7 +289,7 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
             case SSL_ERROR_WANT_WRITE:
                 // If no application data is sent during the TCP connection handshake, the
                 // device is waiting for the connection established to perform SSL handshake.
-                if (int err = waitForWriting(fd, mServer.connectTimeout.count()); err <= 0) {
+                if (int err = waitForWriting(fd, mConnectTimeoutMs); err <= 0) {
                     PLOG(WARNING) << "SSL_connect write error " << err << ", mark 0x" << std::hex
                                   << mMark;
                     return nullptr;
@@ -332,7 +339,7 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnectV2(int fd) {
                 return nullptr;
         }
 
-        int n = TEMP_FAILURE_RETRY(poll(fds, std::size(fds), mServer.connectTimeout.count()));
+        int n = TEMP_FAILURE_RETRY(poll(fds, std::size(fds), mConnectTimeoutMs));
         if (n <= 0) {
             PLOG(WARNING) << ((n == 0) ? "handshake timeout" : "Poll failed");
             return nullptr;
