@@ -81,6 +81,7 @@ const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_n
 const std::string kDotConnectTimeoutMsFlag(
         "persist.device_config.netd_native.dot_connect_timeout_ms");
 const std::string kDotAsyncHandshakeFlag("persist.device_config.netd_native.dot_async_handshake");
+const std::string kDotMaxretriesFlag("persist.device_config.netd_native.dot_maxtries");
 
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
@@ -4283,17 +4284,22 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
 
     static const struct TestConfig {
         bool asyncHandshake;
+        int maxRetries;
+
+        // if asyncHandshake:
+        //   expectedTimeout = dotConnectTimeoutMs * maxRetries
+        // otherwise:
+        //   expectedTimeout = dotConnectTimeoutMs
         int expectedTimeout;
     } testConfigs[] = {
-            // expectedTimeout = dotConnectTimeoutMs
-            {false, 1000},
+            // Test mis-configured dot_maxtries flag.
+            {false, 0, 1000}, {true, 0, 1000},
 
-            // expectedTimeout = dotConnectTimeoutMs * DnsTlsQueryMap::kMaxTries
-            {true, 3000},
+            {false, 1, 1000}, {false, 3, 1000}, {true, 1, 1000}, {true, 3, 3000},
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(fmt::format("testConfig: [{}]", config.asyncHandshake));
+        SCOPED_TRACE(fmt::format("testConfig: [{}, {}]", config.asyncHandshake, config.maxRetries));
 
         // Because a DnsTlsTransport lasts at least 5 minutes in spite of network
         // destroyed, let the resolver creates an unique DnsTlsTransport every time
@@ -4304,8 +4310,10 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
         test::DnsTlsFrontend tls(addr, "853", addr, "53");
         ASSERT_TRUE(tls.startServer());
 
-        ScopedSystemProperties scopedSystemProperties(kDotAsyncHandshakeFlag,
-                                                      config.asyncHandshake ? "1" : "0");
+        ScopedSystemProperties scopedSystemProperties1(kDotAsyncHandshakeFlag,
+                                                       config.asyncHandshake ? "1" : "0");
+        ScopedSystemProperties scopedSystemProperties2(kDotMaxretriesFlag,
+                                                       std::to_string(config.maxRetries));
         resetNetwork();
 
         // Set up resolver to opportunistic mode.
@@ -4362,14 +4370,22 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
     static const struct TestConfig {
         bool asyncHandshake;
         int dotConnectTimeoutMs;
+        int maxRetries;
         int concurrency;
+
+        // if asyncHandshake:
+        //   expectedTimeout = dotConnectTimeoutMs * maxRetries
+        // otherwise:
+        //   expectedTimeout = dotConnectTimeoutMs * concurrency
         int expectedTimeout;
     } testConfigs[] = {
-            // expectedTimeout = dotConnectTimeoutMs * concurrency
-            {false, 1000, 5, 5000},
-
-            // expectedTimeout = dotConnectTimeoutMs * DnsTlsQueryMap::kMaxTries
-            {true, 1000, 5, 3000},
+            // clang-format off
+            {false, 1000, 1, 5, 5000},
+            {false, 1000, 3, 5, 5000},
+            {true, 1000, 1, 5, 1000},
+            {true, 2500, 1, 10, 2500},
+            {true, 1000, 3, 5, 3000},
+            // clang-format on
     };
 
     // Launch query threads. Expected behaviors are:
@@ -4382,6 +4398,8 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
                                                        std::to_string(config.dotConnectTimeoutMs));
         ScopedSystemProperties scopedSystemProperties2(kDotAsyncHandshakeFlag,
                                                        config.asyncHandshake ? "1" : "0");
+        ScopedSystemProperties scopedSystemProperties3(kDotMaxretriesFlag,
+                                                       std::to_string(config.maxRetries));
         resetNetwork();
 
         for (const auto& dnsMode : {"OPPORTUNISTIC", "STRICT"}) {

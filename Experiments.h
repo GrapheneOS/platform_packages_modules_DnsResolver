@@ -51,6 +51,7 @@ class Experiments {
     static constexpr const char* const kExperimentFlagKeyList[] = {
             "keep_listening_udp", "parallel_lookup",     "parallel_lookup_sleep_time",
             "sort_nameservers",   "dot_async_handshake", "dot_connect_timeout_ms",
+            "dot_maxtries",
     };
     // This value is used in updateInternal as the default value if any flags can't be found.
     static constexpr int kFlagIntDefault = INT_MIN;

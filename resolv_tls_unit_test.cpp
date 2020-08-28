@@ -32,6 +32,7 @@
 #include "DnsTlsSessionCache.h"
 #include "DnsTlsSocket.h"
 #include "DnsTlsTransport.h"
+#include "Experiments.h"
 #include "IDnsTlsSocket.h"
 #include "IDnsTlsSocketFactory.h"
 #include "IDnsTlsSocketObserver.h"
@@ -42,6 +43,8 @@ namespace net {
 
 using netdutils::makeSlice;
 using netdutils::Slice;
+
+static const std::string DOT_MAXTRIES_FLAG = "dot_maxtries";
 
 typedef std::vector<uint8_t> bytevec;
 
@@ -476,8 +479,9 @@ TEST_F(TransportTest, CloseRetryFail) {
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
 
-    // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
+    // Reconnections might be triggered depending on the flag.
+    EXPECT_EQ(transport.getConnectCounter(),
+              Experiments::getInstance()->getFlag(DOT_MAXTRIES_FLAG, DnsTlsQueryMap::kMaxTries));
 }
 
 // Simulate a server that occasionally closes the connection and silently
@@ -572,8 +576,9 @@ TEST_F(TransportTest, SilentDrop) {
         EXPECT_TRUE(r.response.empty());
     }
 
-    // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
+    // Reconnections might be triggered depending on the flag.
+    EXPECT_EQ(transport.getConnectCounter(),
+              Experiments::getInstance()->getFlag(DOT_MAXTRIES_FLAG, DnsTlsQueryMap::kMaxTries));
 }
 
 TEST_F(TransportTest, PartialDrop) {
