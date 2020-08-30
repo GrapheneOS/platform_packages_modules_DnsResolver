@@ -123,9 +123,7 @@ class TestBase : public ::testing::Test {
         dns.clearQueries();
     }
 
-    int SetResolvers() {
-        return resolv_set_nameservers(TEST_NETID, servers, domains, params);
-    }
+    int SetResolvers() { return resolv_set_nameservers(TEST_NETID, servers, domains, params); }
 
     const android_net_context mNetcontext = {
             .app_netid = TEST_NETID,
@@ -1137,6 +1135,44 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
         EXPECT_EQ(GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom), 1U);
         EXPECT_EQ(ToString(result), config.expected_addr);
     }
+}
+
+// Audit if Resolver read out of bounds, which needs HWAddressSanitizer build to trigger SIGABRT.
+TEST_F(ResolvGetAddrInfoTest, OverlengthResp) {
+    std::vector<std::string> nameList;
+    // Construct a long enough record that exceeds 8192 bytes (the maximum buffer size):
+    // Header: (Transaction ID, Flags, ...)                                        = 12   bytes
+    // Query: 19(Name)+2(Type)+2(Class)                                            = 23   bytes
+    // The 1st answer RR: 19(Name)+2(Type)+2(Class)+4(TTL)+2(Len)+77(CNAME)        = 106  bytes
+    // 2nd-50th answer RRs: 49*(77(Name)+2(Type)+2(Class)+4(TTL)+2(Len)+77(CNAME)) = 8036 bytes
+    // The last answer RR: 77(Name)+2(Type)+2(Class)+4(TTL)+2(Len)+4(Address)      = 91   bytes
+    // ----------------------------------------------------------------------------------------
+    // Sum:                                                                          8268 bytes
+    for (int i = 0; i < 10; i++) {
+        std::string domain(kMaxmiumLabelSize / 2, 'a' + i);
+        for (int j = 0; j < 5; j++) {
+            nameList.push_back(domain + std::string(kMaxmiumLabelSize / 2 + 1, '0' + j) +
+                               kExampleComDomain + ".");
+        }
+    }
+    test::DNSResponder dns;
+    dns.addMapping(kHelloExampleCom, ns_type::ns_t_cname, nameList[0]);
+    for (size_t i = 0; i < nameList.size() - 1; i++) {
+        dns.addMapping(nameList[i], ns_type::ns_t_cname, nameList[i + 1]);
+    }
+    dns.addMapping(nameList[nameList.size() - 1], ns_type::ns_t_a, kHelloExampleComAddrV4);
+
+    ASSERT_TRUE(dns.startServer());
+    ASSERT_EQ(0, SetResolvers());
+    addrinfo* result = nullptr;
+    const addrinfo hints = {.ai_family = AF_INET};
+    NetworkDnsEventReported event;
+    int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &result, &event);
+    ScopedAddrinfo result_cleanup(result);
+    EXPECT_EQ(rv, EAI_FAIL);
+    EXPECT_TRUE(result == nullptr);
+    EXPECT_EQ(GetNumQueriesForProtocol(dns, IPPROTO_UDP, kHelloExampleCom), 2U);
+    EXPECT_EQ(GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom), 2U);
 }
 
 TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
