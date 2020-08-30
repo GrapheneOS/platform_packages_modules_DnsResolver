@@ -252,7 +252,7 @@ char* DNSQuestion::write(char* buffer, const char* buffer_end) const {
 }
 
 std::string DNSQuestion::toString() const {
-    char buffer[4096];
+    char buffer[16384];
     int len = snprintf(buffer, sizeof(buffer), "Q<%s,%s,%s>", qname.name.c_str(),
                        dnstype2str(qtype), dnsclass2str(qclass));
     return std::string(buffer, len);
@@ -291,7 +291,7 @@ char* DNSRecord::write(char* buffer, const char* buffer_end) const {
 }
 
 std::string DNSRecord::toString() const {
-    char buffer[4096];
+    char buffer[16384];
     int len = snprintf(buffer, sizeof(buffer), "R<%s,%s,%s>", name.name.c_str(), dnstype2str(rtype),
                        dnsclass2str(rclass));
     return std::string(buffer, len);
@@ -418,7 +418,7 @@ char* DNSHeader::write(char* buffer, const char* buffer_end) const {
 
 // TODO: convert all callers to this interface, then delete the old one.
 bool DNSHeader::write(std::vector<uint8_t>* out) const {
-    char buffer[4096];
+    char buffer[16384];
     char* end = this->write(buffer, buffer + sizeof buffer);
     if (end == nullptr) return false;
     out->insert(out->end(), buffer, end);
@@ -896,7 +896,7 @@ bool DNSResponder::makeTruncatedResponse(DNSHeader* header, char* response,
 
 bool DNSResponder::makeResponse(DNSHeader* header, int protocol, char* response,
                                 size_t* response_len) const {
-    char buffer[4096];
+    char buffer[16384];
     size_t buffer_len = sizeof(buffer);
     bool ret;
 
@@ -1059,7 +1059,7 @@ bool DNSResponder::addFd(int fd, uint32_t events) {
 }
 
 void DNSResponder::handleQuery(int protocol) {
-    char buffer[4096];
+    char buffer[16384];
     sockaddr_storage sa;
     socklen_t sa_len = sizeof(sa);
     ssize_t len = 0;
@@ -1103,7 +1103,7 @@ void DNSResponder::handleQuery(int protocol) {
     }
     LOG(DEBUG) << "read " << len << " bytes on " << dnsproto2str(protocol);
     std::lock_guard lock(cv_mutex_);
-    char response[4096];
+    char response[16384];
     size_t response_len = sizeof(response);
     // TODO: check whether sending malformed packets to DnsResponder
     if (handleDNSRequest(buffer, len, protocol, response, &response_len) && response_len > 0) {
