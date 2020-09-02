@@ -24,6 +24,7 @@
 #include <BinderUtil.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
+#include <android/binder_ibinder_platform.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 #include <netdutils/DumpWriter.h>
@@ -82,8 +83,10 @@ binder_status_t DnsResolverService::start() {
     // NetdNativeService does call disableBackgroundScheduling currently, so it is fine now.
     std::shared_ptr<DnsResolverService> resolverService =
             ::ndk::SharedRefBase::make<DnsResolverService>();
-    binder_status_t status =
-            AServiceManager_addService(resolverService->asBinder().get(), getServiceName());
+    auto binder = resolverService->asBinder();
+
+    if (AIBinder_setRequestingSid) AIBinder_setRequestingSid(binder.get(), true);
+    binder_status_t status = AServiceManager_addService(binder.get(), getServiceName());
     if (status != STATUS_OK) {
         return status;
     }
@@ -173,18 +176,45 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(EX_SECURITY, err.c_str()));
 }
 
+namespace {
+
+constexpr char SELINUX_LABEL_SU[] = "u:r:su:s0";
+
+inline bool isRootSecurityContext(const char* sid) {
+    // Type su is used for su processes, as well as for adbd and adb shell after performing an adb
+    // root command.
+    return !strcmp(sid, SELINUX_LABEL_SU);
+}
+
+::ndk::ScopedAStatus checkCaCertificatePermission() {
+    uid_t uid = AIBinder_getCallingUid();
+    if (uid != AID_ROOT) {
+        auto err = StringPrintf("UID %d is not authorized to set CA certificate", uid);
+        return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(EX_SECURITY, err.c_str()));
+    }
+    // Check security context if it is supported by platform
+    if (!AIBinder_getCallingSid) {
+        return ::ndk::ScopedAStatus(AStatus_newOk());
+    }
+    const char* sid = AIBinder_getCallingSid();
+    if (!sid || !isRootSecurityContext(sid)) {
+        auto err = StringPrintf("sid %s is not authorized to set CA certificate", sid);
+        return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(EX_SECURITY, err.c_str()));
+    }
+    return ::ndk::ScopedAStatus(AStatus_newOk());
+}
+
+}  // namespace
+
 ::ndk::ScopedAStatus DnsResolverService::setResolverConfiguration(
         const ResolverParamsParcel& resolverParams) {
     // Locking happens in PrivateDnsConfiguration and res_* functions.
     ENFORCE_INTERNAL_PERMISSIONS();
 
-    // TODO@: Switch to selinux based permission check if AIBinder_getCallingSid and
-    //        AIBinder_setRequestingSid can be supported by libbinder_dnk (b/159135973).
-    uid_t uid = AIBinder_getCallingUid();
     // CAUTION: caCertificate should NOT be used except for internal testing.
-    if (resolverParams.caCertificate.size() != 0 && uid != AID_ROOT) {
-        auto err = StringPrintf("UID %d is not authorized to set a non-empty CA certificate", uid);
-        return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(EX_SECURITY, err.c_str()));
+    if (resolverParams.caCertificate.size() != 0) {
+        auto status = checkCaCertificatePermission();
+        if (!status.isOk()) return status;
     }
 
     // TODO: Remove this log after AIDL gen_log supporting more types, b/129732660
