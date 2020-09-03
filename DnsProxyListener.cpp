@@ -116,7 +116,7 @@ constexpr bool requestingUseLocalNameservers(unsigned flags) {
 }
 
 bool queryingViaTls(unsigned dns_netid) {
-    const auto privateDnsStatus = gPrivateDnsConfiguration.getStatus(dns_netid);
+    const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(dns_netid);
     switch (privateDnsStatus.mode) {
         case PrivateDnsMode::OPPORTUNISTIC:
             return !privateDnsStatus.validatedServers().empty();
@@ -294,7 +294,7 @@ bool parseQuery(const uint8_t* msg, size_t msgLen, uint16_t* query_id, int* rr_t
 // Note: Even if it returns PDM_OFF, it doesn't mean there's no DoT stats in the message
 // because Private DNS mode can change at any time.
 PrivateDnsModes getPrivateDnsModeForMetrics(uint32_t netId) {
-    switch (gPrivateDnsConfiguration.getStatus(netId).mode) {
+    switch (PrivateDnsConfiguration::getInstance().getStatus(netId).mode) {
         case PrivateDnsMode::OFF:
             // It can also be due to netId not found.
             return PrivateDnsModes::PDM_OFF;
@@ -308,7 +308,7 @@ PrivateDnsModes getPrivateDnsModeForMetrics(uint32_t netId) {
 }
 
 void initDnsEvent(NetworkDnsEventReported* event, const android_net_context& netContext) {
-    // The value 0 has the special meaning of unset/unknown in Westworld atoms. So, we set both
+    // The value 0 has the special meaning of unset/unknown in Statsd atoms. So, we set both
     // flags to -1 as default value.
     //  1. The hints flag is only used in resolv_getaddrinfo. When user set it to -1 in
     //     resolv_getaddrinfo, the flag will cause validation (validateHints) failure in

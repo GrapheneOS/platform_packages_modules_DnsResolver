@@ -49,7 +49,8 @@ class Experiments {
     // TODO: Migrate other experiment flags to here.
     // (retry_count, retransmission_time_interval, dot_connect_timeout_ms)
     static constexpr const char* const kExperimentFlagKeyList[] = {
-            "keep_listening_udp", "parallel_lookup", "parallel_lookup_sleep_time"};
+            "keep_listening_udp", "parallel_lookup", "parallel_lookup_sleep_time",
+            "sort_nameservers"};
     // This value is used in updateInternal as the default value if any flags can't be found.
     static constexpr int kFlagIntDefault = INT_MIN;
     // For testing.
