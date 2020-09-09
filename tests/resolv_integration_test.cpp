@@ -893,6 +893,51 @@ TEST_F(ResolverTest, GetAddrInfo_cnamesIllegalRdata) {
     EXPECT_TRUE(result == nullptr);
 }
 
+TEST_F(ResolverTest, GetAddrInfoForCaseInSensitiveDomains) {
+    test::DNSResponder dns;
+    const char* host_name = "howdy.example.com.";
+    const char* host_name2 = "HOWDY.example.com.";
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+            {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
+            {host_name2, ns_type::ns_t_a, "1.2.3.5"},
+            {host_name2, ns_type::ns_t_aaaa, "::1.2.3.5"},
+    };
+    StartDns(dns, records);
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    ScopedAddrinfo hostname_result = safe_getaddrinfo("howdy", nullptr, nullptr);
+    EXPECT_TRUE(hostname_result != nullptr);
+    const size_t hostname1_count_after_first_query = GetNumQueries(dns, host_name);
+    EXPECT_LE(1U, hostname1_count_after_first_query);
+    // Could be A or AAAA
+    std::string hostname_result_str = ToString(hostname_result);
+    EXPECT_TRUE(hostname_result_str == "1.2.3.4" || hostname_result_str == "::1.2.3.4");
+
+    // Verify that the name is cached.
+    ScopedAddrinfo hostname2_result = safe_getaddrinfo("HOWDY", nullptr, nullptr);
+    EXPECT_TRUE(hostname2_result != nullptr);
+    const size_t hostname1_count_after_second_query = GetNumQueries(dns, host_name);
+    EXPECT_LE(1U, hostname1_count_after_second_query);
+
+    // verify that there is no change in num of queries for howdy.example.com
+    EXPECT_EQ(hostname1_count_after_first_query, hostname1_count_after_second_query);
+
+    // Number of queries for HOWDY.example.com would be >= 1 if domain names
+    // are considered case-sensitive, else number of queries should be 0.
+    const size_t hostname2_count = GetNumQueries(dns, host_name2);
+    EXPECT_EQ(0U,hostname2_count);
+    std::string hostname2_result_str = ToString(hostname2_result);
+    EXPECT_TRUE(hostname2_result_str == "1.2.3.4" || hostname2_result_str == "::1.2.3.4");
+
+    // verify that the result is still the same address even though
+    // mixed-case string is not in the DNS
+    ScopedAddrinfo result = safe_getaddrinfo("HowDY", nullptr, nullptr);
+    EXPECT_TRUE(result != nullptr);
+    std::string result_str = ToString(result);
+    EXPECT_TRUE(result_str == "1.2.3.4" || result_str == "::1.2.3.4");
+}
+
 TEST_F(ResolverTest, MultidomainResolution) {
     constexpr char host_name[] = "nihao.example2.com.";
     std::vector<std::string> searchDomains = {"example1.com", "example2.com", "example3.com"};
