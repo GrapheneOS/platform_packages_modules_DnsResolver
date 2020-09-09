@@ -264,6 +264,22 @@ struct DnsPacket {
     const uint8_t* cursor;
 };
 
+static uint8_t res_tolower(uint8_t c) {
+    return (c >= 'A' && c <= 'Z') ? (c | 0x20) : c;
+}
+
+static int res_memcasecmp(const unsigned char *s1, const unsigned char *s2, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+        int ch1 = *s1++;
+        int ch2 = *s2++;
+        int d = res_tolower(ch1) - res_tolower(ch2);
+        if (d != 0) {
+            return d;
+        }
+    }
+    return 0;
+}
+
 static void _dnsPacket_init(DnsPacket* packet, const uint8_t* buff, int bufflen) {
     packet->base = buff;
     packet->end = buff + bufflen;
@@ -451,14 +467,12 @@ static unsigned _dnsPacket_hashQName(DnsPacket* packet, unsigned hash) {
     const uint8_t* end = packet->end;
 
     for (;;) {
-        int c;
-
         if (p >= end) { /* should not happen */
             LOG(INFO) << __func__ << ": INTERNAL_ERROR: read-overflow";
             break;
         }
 
-        c = *p++;
+        int c = *p++;
 
         if (c == 0) break;
 
@@ -470,9 +484,12 @@ static unsigned _dnsPacket_hashQName(DnsPacket* packet, unsigned hash) {
             LOG(INFO) << __func__ << ": INTERNAL_ERROR: simple label read-overflow";
             break;
         }
+
         while (c > 0) {
-            hash = hash * FNV_MULT ^ *p++;
-            c -= 1;
+            uint8_t ch = *p++;
+            ch = res_tolower(ch);
+            hash = hash * FNV_MULT ^ ch;
+            c--;
         }
     }
     packet->cursor = p;
@@ -548,14 +565,12 @@ static int _dnsPacket_isEqualDomainName(DnsPacket* pack1, DnsPacket* pack2) {
     const uint8_t* end2 = pack2->end;
 
     for (;;) {
-        int c1, c2;
-
         if (p1 >= end1 || p2 >= end2) {
             LOG(INFO) << __func__ << ": INTERNAL_ERROR: read-overflow";
             break;
         }
-        c1 = *p1++;
-        c2 = *p2++;
+        int c1 = *p1++;
+        int c2 = *p2++;
         if (c1 != c2) break;
 
         if (c1 == 0) {
@@ -571,7 +586,7 @@ static int _dnsPacket_isEqualDomainName(DnsPacket* pack1, DnsPacket* pack2) {
             LOG(INFO) << __func__ << ": INTERNAL_ERROR: simple label read-overflow";
             break;
         }
-        if (memcmp(p1, p2, c1) != 0) break;
+        if (res_memcasecmp(p1, p2, c1) != 0) break;
         p1 += c1;
         p2 += c1;
         /* we rely on the bound checks at the start of the loop */
