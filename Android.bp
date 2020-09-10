@@ -32,6 +32,7 @@ aidl_interface {
             apex_available: [
                 "//apex_available:platform",
                 "com.android.bluetooth.updatable",
+                "com.android.wifi",
             ],
         },
         ndk: {
