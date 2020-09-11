@@ -18,7 +18,7 @@ cc_test_library {
         "libnetdutils",
         "libssl",
         "netd_aidl_interface-ndk_platform",
-        "netd_event_listener_interface-ndk_platform",
+        "netd_event_listener_interface-unstable-ndk_platform",
     ],
     srcs: [
         "dns_responder.cpp",
