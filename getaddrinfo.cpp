@@ -1710,7 +1710,7 @@ static int res_queryN_parallel(const char* name, res_target* target, res_state r
 
 static int res_queryN_wrapper(const char* name, res_target* target, res_state res, int* herrno) {
     const bool parallel_lookup =
-            android::net::Experiments::getInstance()->getFlag("parallel_lookup", 0);
+            android::net::Experiments::getInstance()->getFlag("parallel_lookup", 1);
     if (parallel_lookup) return res_queryN_parallel(name, target, res, herrno);
 
     return res_queryN(name, target, res, herrno);
