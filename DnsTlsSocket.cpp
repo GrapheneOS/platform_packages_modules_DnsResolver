@@ -81,7 +81,7 @@ Status DnsTlsSocket::tcpConnect() {
 
     mSslFd.reset(socket(mServer.ss.ss_family, type, mServer.protocol));
     if (mSslFd.get() == -1) {
-        LOG(ERROR) << "Failed to create socket";
+        PLOG(ERROR) << "Failed to create socket";
         return Status(errno);
     }
 
@@ -89,9 +89,10 @@ Status DnsTlsSocket::tcpConnect() {
 
     const socklen_t len = sizeof(mMark);
     if (setsockopt(mSslFd.get(), SOL_SOCKET, SO_MARK, &mMark, len) == -1) {
-        LOG(ERROR) << "Failed to set socket mark";
+        const int err = errno;
+        PLOG(ERROR) << "Failed to set socket mark";
         mSslFd.reset();
-        return Status(errno);
+        return Status(err);
     }
 
     const Status tfo = enableSockopt(mSslFd.get(), SOL_TCP, TCP_FASTOPEN_CONNECT);
@@ -105,9 +106,10 @@ Status DnsTlsSocket::tcpConnect() {
     if (connect(mSslFd.get(), reinterpret_cast<const struct sockaddr *>(&mServer.ss),
                 sizeof(mServer.ss)) != 0 &&
             errno != EINPROGRESS) {
-        LOG(DEBUG) << "Socket failed to connect";
+        const int err = errno;
+        PLOG(ERROR) << "Socket failed to connect";
         mSslFd.reset();
-        return Status(errno);
+        return Status(err);
     }
 
     return netdutils::status::ok;
@@ -351,7 +353,7 @@ void DnsTlsSocket::loop() {
             break;
         }
         if (s < 0) {
-            LOG(DEBUG) << "Poll failed: " << errno;
+            PLOG(DEBUG) << "Poll failed";
             break;
         }
         if (fds[SSLFD].revents & (POLLIN | POLLERR | POLLHUP)) {
