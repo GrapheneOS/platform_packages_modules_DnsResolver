@@ -77,6 +77,8 @@
 constexpr int TEST_VPN_NETID = 65502;
 constexpr int MAXPACKET = (8 * 1024);
 
+const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
+
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
 extern "C" int android_getaddrinfofornet(const char* hostname, const char* servname,
@@ -1126,7 +1128,6 @@ TEST_F(ResolverTest, GetAddrInfoV6_concurrent) {
 }
 
 TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
-    const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
     constexpr char listen_addr1[] = "fe80::1";
     constexpr char listen_addr2[] = "255.255.255.255";
     constexpr char listen_addr3[] = "127.0.0.3";
@@ -1145,6 +1146,9 @@ TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
     for (const auto& sortNameserversFlag : {"" /* unset */, "0" /* off */, "1" /* on */}) {
         SCOPED_TRACE(fmt::format("sortNameversFlag_{}", sortNameserversFlag));
         ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, sortNameserversFlag);
+
+        // Re-setup test network to make experiment flag take effect.
+        resetNetwork();
 
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
 
@@ -1174,7 +1178,6 @@ TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
 }
 
 TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
-    const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
     constexpr char listen_addr1[] = "127.0.0.3";
     constexpr char listen_addr2[] = "127.0.0.4";
     int counter = 0;  // To generate unique hostnames.
@@ -1197,6 +1200,9 @@ TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
     for (const auto& sortNameserversFlag : {"" /* unset */, "0" /* off */, "1" /* on */}) {
         SCOPED_TRACE(fmt::format("sortNameversFlag_{}", sortNameserversFlag));
         ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, sortNameserversFlag);
+
+        // Re-setup test network to make experiment flag take effect.
+        resetNetwork();
 
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
 
@@ -5249,6 +5255,78 @@ TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
     // otherwise expect 20 == 10 * (setupParams.domains.size() + 1) queries.
     EXPECT_EQ(dns1.queries().size(), isAtLeastR ? 0U : 10 * (setupParams.domains.size() + 1));
     EXPECT_EQ(dns2.queries().size(), 0U);
+}
+
+TEST_F(ResolverTest, DnsServerSelection) {
+    test::DNSResponder dns1("127.0.0.3");
+    test::DNSResponder dns2("127.0.0.4");
+    test::DNSResponder dns3("127.0.0.5");
+
+    dns1.setResponseDelayMs(10);
+    dns2.setResponseDelayMs(25);
+    dns3.setResponseDelayMs(50);
+    StartDns(dns1, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+    StartDns(dns2, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+    StartDns(dns3, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
+
+    ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, "1");
+
+    const std::vector<std::vector<std::string>> testConfig = {
+            {dns1.listen_address(), dns2.listen_address(), dns3.listen_address()},
+            {dns1.listen_address(), dns3.listen_address(), dns2.listen_address()},
+            {dns2.listen_address(), dns1.listen_address(), dns3.listen_address()},
+            {dns2.listen_address(), dns3.listen_address(), dns1.listen_address()},
+            {dns3.listen_address(), dns1.listen_address(), dns2.listen_address()},
+            {dns3.listen_address(), dns2.listen_address(), dns1.listen_address()},
+    };
+    for (const auto& serverList : testConfig) {
+        SCOPED_TRACE(fmt::format("testConfig: [{}]", fmt::join(serverList, ", ")));
+        const int queryNum = 50;
+        int64_t accumulatedTime = 0;
+
+        // Restart the testing network to 1) make the flag take effect and 2) reset the statistics.
+        resetNetwork();
+
+        // DnsServerSelection doesn't apply to private DNS.
+        ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+        setupParams.servers = serverList;
+        setupParams.tlsServers.clear();
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+
+        // DNSResponder doesn't handle queries concurrently, so don't allow more than
+        // one in-flight query.
+        for (int i = 0; i < queryNum; i++) {
+            Stopwatch s;
+            int fd = resNetworkQuery(TEST_NETID, kHelloExampleCom, ns_c_in, ns_t_a,
+                                     ANDROID_RESOLV_NO_CACHE_LOOKUP);
+            expectAnswersValid(fd, AF_INET, kHelloExampleComAddrV4);
+            accumulatedTime += s.timeTakenUs();
+        }
+
+        const int dns1Count = dns1.queries().size();
+        const int dns2Count = dns2.queries().size();
+        const int dns3Count = dns3.queries().size();
+
+        // All of the servers have ever been selected. In addition, the less latency server
+        // is selected more frequently.
+        EXPECT_GT(dns1Count, 0);
+        EXPECT_GT(dns2Count, 0);
+        EXPECT_GT(dns3Count, 0);
+        EXPECT_GT(dns1Count, dns2Count);
+        EXPECT_GT(dns2Count, dns3Count);
+
+        const int avergeTime = accumulatedTime / queryNum;
+        LOG(INFO) << "ResolverTest#DnsServerSelection: avergeTime " << avergeTime << "us";
+
+        // Since the avergeTime might differ depending on parameters, set [10ms, 20ms] as
+        // acceptable range.
+        EXPECT_GE(avergeTime, 10000);
+        EXPECT_LE(avergeTime, 20000);
+
+        dns1.clearQueries();
+        dns2.clearQueries();
+        dns3.clearQueries();
+    }
 }
 
 // ResolverMultinetworkTest is used to verify multinetwork functionality. Here's how it works:
