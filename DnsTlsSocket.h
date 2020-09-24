@@ -44,17 +44,52 @@ class DnsTlsSessionCache;
 // or the destructor in a callback.  Doing so will result in deadlocks.
 // This class may call the observer at any time after initialize(), until the destructor
 // returns (but not after).
+//
+// Calls to IDnsTlsSocketObserver in a DnsTlsSocket life cycle:
+//
+//                                UNINITIALIZED
+//                                      |
+//                                      v
+//                                 INITIALIZED
+//                                      |
+//                                      v
+//                            +----CONNECTING------+
+//            Handshake fails |                    | Handshake succeeds
+//                            |                    |
+//                            |                    v
+//                            |        +---> CONNECTED --+
+//                            |        |           |     |
+//                            |        +-----------+     | Idle timeout
+//                            |   Send/Recv queries      | onClose()
+//                            |   onResponse()           |
+//                            |                          |
+//                            |                          |
+//                            +--> WAIT_FOR_DELETE <-----+
+//
+//
+// TODO: Add onHandshakeFinished() for handshake results.
 class DnsTlsSocket : public IDnsTlsSocket {
   public:
+    enum class State {
+        UNINITIALIZED,
+        INITIALIZED,
+        CONNECTING,
+        CONNECTED,
+        WAIT_FOR_DELETE,
+    };
+
     DnsTlsSocket(const DnsTlsServer& server, unsigned mark,
                  IDnsTlsSocketObserver* _Nonnull observer, DnsTlsSessionCache* _Nonnull cache)
         : mMark(mark), mServer(server), mObserver(observer), mCache(cache) {}
     ~DnsTlsSocket();
 
-    // Creates the SSL context for this session and connect.  Returns false on failure.
+    // Creates the SSL context for this session. Returns false on failure.
     // This method should be called after construction and before use of a DnsTlsSocket.
     // Only call this method once per DnsTlsSocket.
     bool initialize() EXCLUDES(mLock);
+
+    // A blocking call to start handshaking until it finishes.
+    bool startHandshake() EXCLUDES(mLock);
 
     // Send a query on the provided SSL socket.  |query| contains
     // the body of a query, not including the ID header. This function will typically return before
@@ -112,6 +147,9 @@ class DnsTlsSocket : public IDnsTlsSocket {
     // the loop thread by incrementing mEventFd.  loop() reads items off the queue.
     LockedQueue<std::vector<uint8_t>> mQueue;
 
+    // Transition the state from expected state |from| to new state |to|.
+    void transitionState(State from, State to) REQUIRES(mLock);
+
     // eventfd socket used for notifying the SSL thread when queries are ready to send.
     // This socket acts similarly to an atomic counter, incremented by query() and cleared
     // by loop().  We have to use a socket because the SSL thread needs to wait in poll()
@@ -131,6 +169,7 @@ class DnsTlsSocket : public IDnsTlsSocket {
     const DnsTlsServer mServer;
     IDnsTlsSocketObserver* _Nonnull const mObserver;
     DnsTlsSessionCache* _Nonnull const mCache;
+    State mState GUARDED_BY(mLock) = State::UNINITIALIZED;
 };
 
 }  // end of namespace net
