@@ -22,6 +22,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/macros.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <netdutils/Slice.h>
 
@@ -39,8 +40,9 @@
 namespace android {
 namespace net {
 
-using netdutils::Slice;
 using netdutils::makeSlice;
+using netdutils::Slice;
+using ::testing::NiceMock;
 
 typedef std::vector<uint8_t> bytevec;
 
@@ -134,6 +136,7 @@ class FakeSocketEcho : public IDnsTlsSocket {
         std::thread(&IDnsTlsSocketObserver::onResponse, mObserver, make_echo(id, query)).detach();
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     IDnsTlsSocketObserver* const mObserver;
@@ -169,6 +172,7 @@ class FakeSocketId : public IDnsTlsSocket {
         std::thread(&IDnsTlsSocketObserver::onResponse, mObserver, response).detach();
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     IDnsTlsSocketObserver* const mObserver;
@@ -216,9 +220,15 @@ TEST_F(TransportTest, RacingQueries_10000) {
 class FakeSocketDelay : public IDnsTlsSocket {
   public:
     explicit FakeSocketDelay(IDnsTlsSocketObserver* observer) : mObserver(observer) {}
-    ~FakeSocketDelay() { std::lock_guard guard(mLock); }
-    static size_t sDelay;
-    static bool sReverse;
+    ~FakeSocketDelay() {
+        std::lock_guard guard(mLock);
+        sDelay = 1;
+        sReverse = false;
+        sConnectable = true;
+    }
+    inline static size_t sDelay = 1;
+    inline static bool sReverse = false;
+    inline static bool sConnectable = true;
 
     bool query(uint16_t id, const Slice query) override {
         LOG(DEBUG) << "FakeSocketDelay got query with ID " << int(id);
@@ -236,6 +246,7 @@ class FakeSocketDelay : public IDnsTlsSocket {
         }
         return true;
     }
+    bool startHandshake() override { return sConnectable; }
 
   private:
     void sendResponses() {
@@ -255,9 +266,6 @@ class FakeSocketDelay : public IDnsTlsSocket {
     std::set<uint16_t> mIds GUARDED_BY(mLock);
     std::vector<bytevec> mResponses GUARDED_BY(mLock);
 };
-
-size_t FakeSocketDelay::sDelay;
-bool FakeSocketDelay::sReverse;
 
 TEST_F(TransportTest, ParallelColliding) {
     FakeSocketDelay::sDelay = 10;
@@ -424,13 +432,24 @@ class NullSocketFactory : public IDnsTlsSocketFactory {
 };
 
 TEST_F(TransportTest, ConnectFail) {
-    NullSocketFactory factory;
-    DnsTlsTransport transport(SERVER1, MARK, &factory);
-    auto r = transport.query(makeSlice(QUERY)).get();
+    // Failure on creating socket.
+    NullSocketFactory factory1;
+    DnsTlsTransport transport1(SERVER1, MARK, &factory1);
+    auto r = transport1.query(makeSlice(QUERY)).get();
 
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
-    EXPECT_EQ(transport.getConnectCounter(), 1);
+    EXPECT_EQ(transport1.getConnectCounter(), 1);
+
+    // Failure on handshaking.
+    FakeSocketDelay::sConnectable = false;
+    FakeSocketFactory<FakeSocketDelay> factory2;
+    DnsTlsTransport transport2(SERVER1, MARK, &factory2);
+    r = transport2.query(makeSlice(QUERY)).get();
+
+    EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
+    EXPECT_TRUE(r.response.empty());
+    EXPECT_EQ(transport2.getConnectCounter(), 1);
 }
 
 // Simulate a socket that connects but then immediately receives a server
@@ -444,6 +463,7 @@ class FakeSocketClose : public IDnsTlsSocket {
                const Slice query ATTRIBUTE_UNUSED) override {
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     std::thread mCloser;
@@ -506,6 +526,7 @@ class FakeSocketLimited : public IDnsTlsSocket {
         }
         return mQueries <= sLimit;
     }
+    bool startHandshake() override { return true; }
 
   private:
     void sendClose() {
@@ -632,6 +653,7 @@ class FakeSocketGarbage : public IDnsTlsSocket {
         mThreads.emplace_back(&IDnsTlsSocketObserver::onResponse, mObserver, make_query(id + 1, query.size() + 2));
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     std::mutex mLock;
@@ -959,12 +981,10 @@ TEST(QueryMapTest, FillHole) {
     EXPECT_FALSE(map.recordQuery(makeSlice(QUERY)));
 }
 
-class StubObserver : public IDnsTlsSocketObserver {
+class MockDnsTlsSocketObserver : public IDnsTlsSocketObserver {
   public:
-    bool closed = false;
-    void onResponse(std::vector<uint8_t>) override {}
-
-    void onClosed() override { closed = true; }
+    MOCK_METHOD(void, onClosed, (), (override));
+    MOCK_METHOD(void, onResponse, (std::vector<uint8_t>), (override));
 };
 
 TEST(DnsTlsSocketTest, SlowDestructor) {
@@ -980,22 +1000,52 @@ TEST(DnsTlsSocketTest, SlowDestructor) {
     DnsTlsServer server;
     parseServer(tls_addr, 8530, &server.ss);
 
-    StubObserver observer;
-    ASSERT_FALSE(observer.closed);
+    MockDnsTlsSocketObserver observer;
     DnsTlsSessionCache cache;
     auto socket = std::make_unique<DnsTlsSocket>(server, MARK, &observer, &cache);
     ASSERT_TRUE(socket->initialize());
+    ASSERT_TRUE(socket->startHandshake());
 
     // Test: Time the socket destructor.  This should be fast.
     auto before = std::chrono::steady_clock::now();
+    EXPECT_CALL(observer, onClosed);
     socket.reset();
     auto after = std::chrono::steady_clock::now();
     auto delay = after - before;
     LOG(DEBUG) << "Shutdown took " << delay / std::chrono::nanoseconds{1} << "ns";
-    EXPECT_TRUE(observer.closed);
     // Shutdown should complete in milliseconds, but if the shutdown signal is lost
     // it will wait for the timeout, which is expected to take 20seconds.
     EXPECT_LT(delay, std::chrono::seconds{5});
+}
+
+TEST(DnsTlsSocketTest, StartHandshake) {
+    constexpr char tls_addr[] = "127.0.0.3";
+    constexpr char tls_port[] = "8530";
+    constexpr char backend_addr[] = "192.0.2.1";
+    constexpr char backend_port[] = "1";
+
+    test::DnsTlsFrontend tls(tls_addr, tls_port, backend_addr, backend_port);
+    ASSERT_TRUE(tls.startServer());
+
+    DnsTlsServer server;
+    parseServer(tls_addr, 8530, &server.ss);
+
+    // Use NiceMock to suppress the "uninteresting calls" warning.
+    // (onClose will be called when running |socket|'s destructor)
+    NiceMock<MockDnsTlsSocketObserver> observer;
+    DnsTlsSessionCache cache;
+    auto socket = std::make_unique<DnsTlsSocket>(server, MARK, &observer, &cache);
+
+    // Call the function before the call to initialize().
+    EXPECT_FALSE(socket->startHandshake());
+
+    // Call the function after the call to initialize().
+    EXPECT_TRUE(socket->initialize());
+    EXPECT_TRUE(socket->startHandshake());
+
+    // Call both of them again.
+    EXPECT_FALSE(socket->initialize());
+    EXPECT_FALSE(socket->startHandshake());
 }
 
 } // end of namespace net

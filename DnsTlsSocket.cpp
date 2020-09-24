@@ -81,7 +81,7 @@ Status DnsTlsSocket::tcpConnect() {
 
     mSslFd.reset(socket(mServer.ss.ss_family, type, mServer.protocol));
     if (mSslFd.get() == -1) {
-        LOG(ERROR) << "Failed to create socket";
+        PLOG(ERROR) << "Failed to create socket";
         return Status(errno);
     }
 
@@ -89,9 +89,10 @@ Status DnsTlsSocket::tcpConnect() {
 
     const socklen_t len = sizeof(mMark);
     if (setsockopt(mSslFd.get(), SOL_SOCKET, SO_MARK, &mMark, len) == -1) {
-        LOG(ERROR) << "Failed to set socket mark";
+        const int err = errno;
+        PLOG(ERROR) << "Failed to set socket mark";
         mSslFd.reset();
-        return Status(errno);
+        return Status(err);
     }
 
     const Status tfo = enableSockopt(mSslFd.get(), SOL_TCP, TCP_FASTOPEN_CONNECT);
@@ -105,9 +106,10 @@ Status DnsTlsSocket::tcpConnect() {
     if (connect(mSslFd.get(), reinterpret_cast<const struct sockaddr *>(&mServer.ss),
                 sizeof(mServer.ss)) != 0 &&
             errno != EINPROGRESS) {
-        LOG(DEBUG) << "Socket failed to connect";
+        const int err = errno;
+        PLOG(ERROR) << "Socket failed to connect";
         mSslFd.reset();
-        return Status(errno);
+        return Status(err);
     }
 
     return netdutils::status::ok;
@@ -169,17 +171,32 @@ bool DnsTlsSocket::initialize() {
     // Enable session cache
     mCache->prepareSslContext(mSslCtx.get());
 
+    mEventFd.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
+
+    transitionState(State::UNINITIALIZED, State::INITIALIZED);
+
+    return true;
+}
+
+bool DnsTlsSocket::startHandshake() {
+    std::lock_guard guard(mLock);
+    if (mState != State::INITIALIZED) {
+        LOG(ERROR) << "Calling startHandshake in unexpected state " << static_cast<int>(mState);
+        return false;
+    }
+    transitionState(State::INITIALIZED, State::CONNECTING);
+
     // Connect
     Status status = tcpConnect();
     if (!status.ok()) {
+        transitionState(State::CONNECTING, State::WAIT_FOR_DELETE);
         return false;
     }
     mSsl = sslConnect(mSslFd.get());
     if (!mSsl) {
+        transitionState(State::CONNECTING, State::WAIT_FOR_DELETE);
         return false;
     }
-
-    mEventFd.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
 
     // Start the I/O loop.
     mLoopThread.reset(new std::thread(&DnsTlsSocket::loop, this));
@@ -309,7 +326,9 @@ void DnsTlsSocket::loop() {
     std::deque<std::vector<uint8_t>> q;
     const int timeout_msecs = DnsTlsSocket::kIdleTimeout.count() * 1000;
 
+    transitionState(State::CONNECTING, State::CONNECTED);
     setThreadName(StringPrintf("TlsListen_%u", mMark & 0xffff).c_str());
+
     while (true) {
         // poll() ignores negative fds
         struct pollfd fds[2] = { { .fd = -1 }, { .fd = -1 } };
@@ -336,7 +355,7 @@ void DnsTlsSocket::loop() {
             break;
         }
         if (s < 0) {
-            LOG(DEBUG) << "Poll failed: " << errno;
+            PLOG(DEBUG) << "Poll failed";
             break;
         }
         if (fds[SSLFD].revents & (POLLIN | POLLERR | POLLHUP)) {
@@ -379,6 +398,7 @@ void DnsTlsSocket::loop() {
     sslDisconnect();
     LOG(DEBUG) << "Calling onClosed";
     mObserver->onClosed();
+    transitionState(State::CONNECTED, State::WAIT_FOR_DELETE);
     LOG(DEBUG) << "Ending loop";
 }
 
@@ -439,6 +459,15 @@ bool DnsTlsSocket::incrementEventFd(const int64_t count) {
         return false;
     }
     return true;
+}
+
+void DnsTlsSocket::transitionState(State from, State to) {
+    if (mState != from) {
+        LOG(WARNING) << "BUG: transitioning from an unexpected state " << static_cast<int>(mState)
+                     << ", expect: from " << static_cast<int>(from) << " to "
+                     << static_cast<int>(to);
+    }
+    mState = to;
 }
 
 // Read exactly len bytes into buffer or fail with an SSL error code

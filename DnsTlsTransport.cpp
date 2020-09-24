@@ -70,9 +70,14 @@ bool DnsTlsTransport::sendQuery(const DnsTlsQueryMap::Query& q) {
 void DnsTlsTransport::doConnect() {
     LOG(DEBUG) << "Constructing new socket";
     mSocket = mFactory->createDnsTlsSocket(mServer, mMark, this, &mCache);
+
+    bool success = true;
+    if (mSocket.get() == nullptr || !mSocket->startHandshake()) {
+        success = false;
+    }
     mConnectCounter++;
 
-    if (mSocket) {
+    if (success) {
         auto queries = mQueries.getAll();
         LOG(DEBUG) << "Initialization succeeded.  Reissuing " << queries.size() << " queries.";
         for(auto& q : queries) {
