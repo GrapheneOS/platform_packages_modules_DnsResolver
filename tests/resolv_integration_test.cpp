@@ -5271,15 +5271,14 @@ TEST_F(ResolverTest, DnsServerSelection) {
 
     ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, "1");
 
-    const std::vector<std::vector<std::string>> testConfig = {
-            {dns1.listen_address(), dns2.listen_address(), dns3.listen_address()},
-            {dns1.listen_address(), dns3.listen_address(), dns2.listen_address()},
-            {dns2.listen_address(), dns1.listen_address(), dns3.listen_address()},
-            {dns2.listen_address(), dns3.listen_address(), dns1.listen_address()},
-            {dns3.listen_address(), dns1.listen_address(), dns2.listen_address()},
-            {dns3.listen_address(), dns2.listen_address(), dns1.listen_address()},
+    // NOTE: the servers must be sorted alphabetically.
+    std::vector<std::string> serverList = {
+            dns1.listen_address(),
+            dns2.listen_address(),
+            dns3.listen_address(),
     };
-    for (const auto& serverList : testConfig) {
+
+    do {
         SCOPED_TRACE(fmt::format("testConfig: [{}]", fmt::join(serverList, ", ")));
         const int queryNum = 50;
         int64_t accumulatedTime = 0;
@@ -5315,18 +5314,18 @@ TEST_F(ResolverTest, DnsServerSelection) {
         EXPECT_GT(dns1Count, dns2Count);
         EXPECT_GT(dns2Count, dns3Count);
 
-        const int avergeTime = accumulatedTime / queryNum;
-        LOG(INFO) << "ResolverTest#DnsServerSelection: avergeTime " << avergeTime << "us";
+        const int averageTime = accumulatedTime / queryNum;
+        LOG(INFO) << "ResolverTest#DnsServerSelection: averageTime " << averageTime << "us";
 
-        // Since the avergeTime might differ depending on parameters, set [10ms, 20ms] as
+        // Since the average Time might differ depending on parameters, set [10ms, 20ms] as
         // acceptable range.
-        EXPECT_GE(avergeTime, 10000);
-        EXPECT_LE(avergeTime, 20000);
+        EXPECT_GE(averageTime, 10000);
+        EXPECT_LE(averageTime, 20000);
 
         dns1.clearQueries();
         dns2.clearQueries();
         dns3.clearQueries();
-    }
+    } while (std::next_permutation(serverList.begin(), serverList.end()));
 }
 
 // ResolverMultinetworkTest is used to verify multinetwork functionality. Here's how it works:
