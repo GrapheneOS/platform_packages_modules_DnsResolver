@@ -55,8 +55,8 @@ class DnsTlsSessionCache;
 //                                      v
 //                            +----CONNECTING------+
 //            Handshake fails |                    | Handshake succeeds
-//                            |                    |
-//                            |                    v
+//   (onClose() when          |                    |
+//    mAsyncHandshake is set) |                    v
 //                            |        +---> CONNECTED --+
 //                            |        |           |     |
 //                            |        +-----------+     | Idle timeout
@@ -88,7 +88,9 @@ class DnsTlsSocket : public IDnsTlsSocket {
     // Only call this method once per DnsTlsSocket.
     bool initialize() EXCLUDES(mLock);
 
-    // A blocking call to start handshaking until it finishes.
+    // If async handshake is enabled, this function simply signals a handshake request, and the
+    // handshake will be performed in the loop thread; otherwise, if async handshake is disabled,
+    // this function performs the handshake and returns after the handshake finishes.
     bool startHandshake() EXCLUDES(mLock);
 
     // Send a query on the provided SSL socket.  |query| contains
@@ -112,9 +114,15 @@ class DnsTlsSocket : public IDnsTlsSocket {
     // On error, returns the errno.
     netdutils::Status tcpConnect() REQUIRES(mLock);
 
+    bssl::UniquePtr<SSL> prepareForSslConnect(int fd) REQUIRES(mLock);
+
     // Connect an SSL session on the provided socket.  If connection fails, closing the
     // socket remains the caller's responsibility.
     bssl::UniquePtr<SSL> sslConnect(int fd) REQUIRES(mLock);
+
+    // Connect an SSL session on the provided socket. This is an interruptible version
+    // which allows to terminate connection handshake any time.
+    bssl::UniquePtr<SSL> sslConnectV2(int fd) REQUIRES(mLock);
 
     // Disconnect the SSL session and close the socket.
     void sslDisconnect() REQUIRES(mLock);
@@ -143,12 +151,12 @@ class DnsTlsSocket : public IDnsTlsSocket {
     // This function sends a message to the loop thread by incrementing mEventFd.
     bool incrementEventFd(int64_t count) EXCLUDES(mLock);
 
+    // Transition the state from expected state |from| to new state |to|.
+    void transitionState(State from, State to) REQUIRES(mLock);
+
     // Queue of pending queries.  query() pushes items onto the queue and notifies
     // the loop thread by incrementing mEventFd.  loop() reads items off the queue.
     LockedQueue<std::vector<uint8_t>> mQueue;
-
-    // Transition the state from expected state |from| to new state |to|.
-    void transitionState(State from, State to) REQUIRES(mLock);
 
     // eventfd socket used for notifying the SSL thread when queries are ready to send.
     // This socket acts similarly to an atomic counter, incremented by query() and cleared
@@ -157,7 +165,13 @@ class DnsTlsSocket : public IDnsTlsSocket {
     // EOF, we indicate a close request by setting the counter to a negative number.
     // This file descriptor is opened by initialize(), and closed implicitly after
     // destruction.
+    // Note that: data starts being read from the eventfd when the state is CONNECTED.
     base::unique_fd mEventFd;
+
+    // An eventfd used to listen to shutdown requests when the state is CONNECTING.
+    // TODO: let |mEventFd| exclusively handle query requests, and let |mShutdownEvent| exclusively
+    // handle shutdown requests.
+    base::unique_fd mShutdownEvent;
 
     // SSL Socket fields.
     bssl::UniquePtr<SSL_CTX> mSslCtx GUARDED_BY(mLock);
@@ -170,6 +184,19 @@ class DnsTlsSocket : public IDnsTlsSocket {
     IDnsTlsSocketObserver* _Nonnull const mObserver;
     DnsTlsSessionCache* _Nonnull const mCache;
     State mState GUARDED_BY(mLock) = State::UNINITIALIZED;
+
+    // If true, defer the handshake to the loop thread; otherwise, run the handshake on caller's
+    // thread (the call to startHandshake()).
+    bool mAsyncHandshake GUARDED_BY(mLock) = false;
+
+    // The time to wait for the attempt on connecting to the server.
+    // Set the default value 127 seconds to be consistent with TCP connect timeout.
+    // (presume net.ipv4.tcp_syn_retries = 6)
+    static constexpr int kDotConnectTimeoutMs = 127 * 1000;
+    int mConnectTimeoutMs;
+
+    // For testing.
+    friend class DnsTlsSocketTest;
 };
 
 }  // end of namespace net
