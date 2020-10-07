@@ -32,6 +32,7 @@
 #include "DnsTlsSessionCache.h"
 #include "DnsTlsSocket.h"
 #include "DnsTlsTransport.h"
+#include "Experiments.h"
 #include "IDnsTlsSocket.h"
 #include "IDnsTlsSocketFactory.h"
 #include "IDnsTlsSocketObserver.h"
@@ -42,7 +43,8 @@ namespace net {
 
 using netdutils::makeSlice;
 using netdutils::Slice;
-using ::testing::NiceMock;
+
+static const std::string DOT_MAXTRIES_FLAG = "dot_maxtries";
 
 typedef std::vector<uint8_t> bytevec;
 
@@ -477,8 +479,9 @@ TEST_F(TransportTest, CloseRetryFail) {
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
 
-    // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
+    // Reconnections might be triggered depending on the flag.
+    EXPECT_EQ(transport.getConnectCounter(),
+              Experiments::getInstance()->getFlag(DOT_MAXTRIES_FLAG, DnsTlsQueryMap::kMaxTries));
 }
 
 // Simulate a server that occasionally closes the connection and silently
@@ -573,8 +576,9 @@ TEST_F(TransportTest, SilentDrop) {
         EXPECT_TRUE(r.response.empty());
     }
 
-    // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
+    // Reconnections might be triggered depending on the flag.
+    EXPECT_EQ(transport.getConnectCounter(),
+              Experiments::getInstance()->getFlag(DOT_MAXTRIES_FLAG, DnsTlsQueryMap::kMaxTries));
 }
 
 TEST_F(TransportTest, PartialDrop) {
@@ -869,18 +873,6 @@ TEST_F(ServerTest, Name) {
     EXPECT_TRUE(s2.wasExplicitlyConfigured());
 }
 
-TEST_F(ServerTest, Timeout) {
-    DnsTlsServer s1(V4ADDR1), s2(V4ADDR1);
-    s1.connectTimeout = std::chrono::milliseconds(4000);
-    checkUnequal(s1, s2);
-    s2.connectTimeout = std::chrono::milliseconds(4000);
-    EXPECT_EQ(s1, s2);
-    EXPECT_TRUE(isAddressEqual(s1, s2));
-
-    EXPECT_FALSE(s1.wasExplicitlyConfigured());
-    EXPECT_FALSE(s2.wasExplicitlyConfigured());
-}
-
 TEST(QueryMapTest, Basic) {
     DnsTlsQueryMap map;
 
@@ -981,28 +973,44 @@ TEST(QueryMapTest, FillHole) {
     EXPECT_FALSE(map.recordQuery(makeSlice(QUERY)));
 }
 
-class MockDnsTlsSocketObserver : public IDnsTlsSocketObserver {
-  public:
-    MOCK_METHOD(void, onClosed, (), (override));
-    MOCK_METHOD(void, onResponse, (std::vector<uint8_t>), (override));
-};
+class DnsTlsSocketTest : public ::testing::Test {
+  protected:
+    class MockDnsTlsSocketObserver : public IDnsTlsSocketObserver {
+      public:
+        MOCK_METHOD(void, onClosed, (), (override));
+        MOCK_METHOD(void, onResponse, (std::vector<uint8_t>), (override));
+    };
 
-TEST(DnsTlsSocketTest, SlowDestructor) {
-    constexpr char tls_addr[] = "127.0.0.3";
-    constexpr char tls_port[] = "8530";  // High-numbered port so root isn't required.
-    // This test doesn't perform any queries, so the backend address can be invalid.
-    constexpr char backend_addr[] = "192.0.2.1";
-    constexpr char backend_port[] = "1";
+    DnsTlsSocketTest() { parseServer(kTlsAddr, std::stoi(kTlsPort), &server.ss); }
 
-    test::DnsTlsFrontend tls(tls_addr, tls_port, backend_addr, backend_port);
-    ASSERT_TRUE(tls.startServer());
+    std::unique_ptr<DnsTlsSocket> makeDnsTlsSocket(IDnsTlsSocketObserver* observer) {
+        return std::make_unique<DnsTlsSocket>(this->server, MARK, observer, &this->cache);
+    }
+
+    void enableAsyncHandshake(const std::unique_ptr<DnsTlsSocket>& socket) {
+        ASSERT_TRUE(socket);
+        DnsTlsSocket* delegate = socket.get();
+        std::lock_guard guard(delegate->mLock);
+        delegate->mAsyncHandshake = true;
+    }
+
+    static constexpr char kTlsAddr[] = "127.0.0.3";
+    static constexpr char kTlsPort[] = "8530";  // High-numbered port so root isn't required.
+    static constexpr char kBackendAddr[] = "192.0.2.1";
+    static constexpr char kBackendPort[] = "8531";  // High-numbered port so root isn't required.
+
+    test::DnsTlsFrontend tls{kTlsAddr, kTlsPort, kBackendAddr, kBackendPort};
 
     DnsTlsServer server;
-    parseServer(tls_addr, 8530, &server.ss);
+    DnsTlsSessionCache cache;
+};
+
+TEST_F(DnsTlsSocketTest, SlowDestructor) {
+    ASSERT_TRUE(tls.startServer());
 
     MockDnsTlsSocketObserver observer;
-    DnsTlsSessionCache cache;
-    auto socket = std::make_unique<DnsTlsSocket>(server, MARK, &observer, &cache);
+    auto socket = makeDnsTlsSocket(&observer);
+
     ASSERT_TRUE(socket->initialize());
     ASSERT_TRUE(socket->startHandshake());
 
@@ -1018,23 +1026,11 @@ TEST(DnsTlsSocketTest, SlowDestructor) {
     EXPECT_LT(delay, std::chrono::seconds{5});
 }
 
-TEST(DnsTlsSocketTest, StartHandshake) {
-    constexpr char tls_addr[] = "127.0.0.3";
-    constexpr char tls_port[] = "8530";
-    constexpr char backend_addr[] = "192.0.2.1";
-    constexpr char backend_port[] = "1";
-
-    test::DnsTlsFrontend tls(tls_addr, tls_port, backend_addr, backend_port);
+TEST_F(DnsTlsSocketTest, StartHandshake) {
     ASSERT_TRUE(tls.startServer());
 
-    DnsTlsServer server;
-    parseServer(tls_addr, 8530, &server.ss);
-
-    // Use NiceMock to suppress the "uninteresting calls" warning.
-    // (onClose will be called when running |socket|'s destructor)
-    NiceMock<MockDnsTlsSocketObserver> observer;
-    DnsTlsSessionCache cache;
-    auto socket = std::make_unique<DnsTlsSocket>(server, MARK, &observer, &cache);
+    MockDnsTlsSocketObserver observer;
+    auto socket = makeDnsTlsSocket(&observer);
 
     // Call the function before the call to initialize().
     EXPECT_FALSE(socket->startHandshake());
@@ -1046,6 +1042,49 @@ TEST(DnsTlsSocketTest, StartHandshake) {
     // Call both of them again.
     EXPECT_FALSE(socket->initialize());
     EXPECT_FALSE(socket->startHandshake());
+
+    // Should happen when joining the loop thread in |socket| destruction.
+    EXPECT_CALL(observer, onClosed);
+}
+
+TEST_F(DnsTlsSocketTest, ShutdownSignal) {
+    ASSERT_TRUE(tls.startServer());
+
+    MockDnsTlsSocketObserver observer;
+    std::unique_ptr<DnsTlsSocket> socket;
+
+    const auto setupAndStartHandshake = [&]() {
+        socket = makeDnsTlsSocket(&observer);
+        EXPECT_TRUE(socket->initialize());
+        enableAsyncHandshake(socket);
+        EXPECT_TRUE(socket->startHandshake());
+    };
+    const auto triggerShutdown = [&](const std::string& traceLog) {
+        SCOPED_TRACE(traceLog);
+        auto before = std::chrono::steady_clock::now();
+        EXPECT_CALL(observer, onClosed);
+        socket.reset();
+        auto after = std::chrono::steady_clock::now();
+        auto delay = after - before;
+        LOG(INFO) << "Shutdown took " << delay / std::chrono::nanoseconds{1} << "ns";
+        EXPECT_LT(delay, std::chrono::seconds{1});
+    };
+
+    tls.setHangOnHandshakeForTesting(true);
+
+    // Test 1: Reset the DnsTlsSocket which is doing the handshake.
+    setupAndStartHandshake();
+    triggerShutdown("Shutdown handshake w/o query requests");
+
+    // Test 2: Reset the DnsTlsSocket which is doing the handshake with some query requests.
+    setupAndStartHandshake();
+
+    // DnsTlsSocket doesn't report the status of pending queries. The decision whether to mark
+    // a query request as failed or not is made in DnsTlsTransport.
+    EXPECT_CALL(observer, onResponse).Times(0);
+    EXPECT_TRUE(socket->query(1, makeSlice(QUERY)));
+    EXPECT_TRUE(socket->query(2, makeSlice(QUERY)));
+    triggerShutdown("Shutdown handshake w/ query requests");
 }
 
 } // end of namespace net
