@@ -78,6 +78,10 @@ constexpr int TEST_VPN_NETID = 65502;
 constexpr int MAXPACKET = (8 * 1024);
 
 const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
+const std::string kDotConnectTimeoutMsFlag(
+        "persist.device_config.netd_native.dot_connect_timeout_ms");
+const std::string kDotAsyncHandshakeFlag("persist.device_config.netd_native.dot_async_handshake");
+const std::string kDotMaxretriesFlag("persist.device_config.netd_native.dot_maxtries");
 
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
@@ -4268,9 +4272,6 @@ TEST_F(ResolverTest, EnforceDnsUid) {
 }
 
 TEST_F(ResolverTest, ConnectTlsServerTimeout) {
-    const std::string kDotConnectTimeoutMsFlag(
-            "persist.device_config.netd_native.dot_connect_timeout_ms");
-    constexpr int expectedTimeout = 1000;
     constexpr char hostname1[] = "query1.example.com.";
     constexpr char hostname2[] = "query2.example.com.";
     const std::vector<DnsRecord> records = {
@@ -4278,53 +4279,177 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
             {hostname2, ns_type::ns_t_a, "1.2.3.5"},
     };
 
-    test::DNSResponder dns;
-    StartDns(dns, records);
-    test::DnsTlsFrontend tls;
-    ASSERT_TRUE(tls.startServer());
-
     // The resolver will adjust the timeout value to 1000ms since the value is too small.
     ScopedSystemProperties scopedSystemProperties(kDotConnectTimeoutMsFlag, "100");
 
-    // Set up resolver to opportunistic mode with the default configuration.
-    const ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
-    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
-    EXPECT_TRUE(tls.waitForQueries(1));
-    tls.clearQueries();
-    dns.clearQueries();
+    static const struct TestConfig {
+        bool asyncHandshake;
+        int maxRetries;
 
-    // The server becomes unresponsive to the handshake request.
-    tls.setHangOnHandshakeForTesting(true);
+        // if asyncHandshake:
+        //   expectedTimeout = dotConnectTimeoutMs * maxRetries
+        // otherwise:
+        //   expectedTimeout = dotConnectTimeoutMs
+        int expectedTimeout;
+    } testConfigs[] = {
+            // Test mis-configured dot_maxtries flag.
+            {false, 0, 1000}, {true, 0, 1000},
 
-    // Expect the things happening in getaddrinfo():
-    //   1. Connect to the private DNS server.
-    //   2. SSL handshake times out.
-    //   3. Fallback to UDP transport, and then get the answer.
-    const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
-    auto [result, timeTakenMs] = safe_getaddrinfo_time_taken(hostname1, nullptr, hints);
+            {false, 1, 1000}, {false, 3, 1000}, {true, 1, 1000}, {true, 3, 3000},
+    };
 
-    EXPECT_NE(nullptr, result);
-    EXPECT_EQ(0, tls.queries());
-    EXPECT_EQ(1U, GetNumQueries(dns, hostname1));
-    EXPECT_EQ(records.at(0).addr, ToString(result));
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(fmt::format("testConfig: [{}, {}]", config.asyncHandshake, config.maxRetries));
 
-    // A loose upper bound is set by adding 2000ms buffer time. Theoretically, getaddrinfo()
-    // should just take a bit more than expetTimeout milliseconds.
-    EXPECT_GE(timeTakenMs, expectedTimeout);
-    EXPECT_LE(timeTakenMs, expectedTimeout + 2000);
+        // Because a DnsTlsTransport lasts at least 5 minutes in spite of network
+        // destroyed, let the resolver creates an unique DnsTlsTransport every time
+        // so that the DnsTlsTransport won't interfere the other tests.
+        const std::string addr = getUniqueIPv4Address();
+        test::DNSResponder dns(addr);
+        StartDns(dns, records);
+        test::DnsTlsFrontend tls(addr, "853", addr, "53");
+        ASSERT_TRUE(tls.startServer());
 
-    // Set the server to be responsive. Verify that the resolver will attempt to reconnect
-    // to the server and then get the result within the timeout.
-    tls.setHangOnHandshakeForTesting(false);
-    std::tie(result, timeTakenMs) = safe_getaddrinfo_time_taken(hostname2, nullptr, hints);
+        ScopedSystemProperties scopedSystemProperties1(kDotAsyncHandshakeFlag,
+                                                       config.asyncHandshake ? "1" : "0");
+        ScopedSystemProperties scopedSystemProperties2(kDotMaxretriesFlag,
+                                                       std::to_string(config.maxRetries));
+        resetNetwork();
 
-    EXPECT_NE(nullptr, result);
-    EXPECT_TRUE(tls.waitForQueries(1));
-    EXPECT_EQ(1U, GetNumQueries(dns, hostname2));
-    EXPECT_EQ(records.at(1).addr, ToString(result));
+        // Set up resolver to opportunistic mode.
+        auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+        parcel.servers = {addr};
+        parcel.tlsServers = {addr};
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+        EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+        EXPECT_TRUE(tls.waitForQueries(1));
+        tls.clearQueries();
+        dns.clearQueries();
 
-    EXPECT_LE(timeTakenMs, expectedTimeout);
+        // The server becomes unresponsive to the handshake request.
+        tls.setHangOnHandshakeForTesting(true);
+
+        // Expect the things happening in getaddrinfo():
+        //   1. Connect to the private DNS server.
+        //   2. SSL handshake times out.
+        //   3. Fallback to UDP transport, and then get the answer.
+        const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+        auto [result, timeTakenMs] = safe_getaddrinfo_time_taken(hostname1, nullptr, hints);
+
+        EXPECT_NE(nullptr, result);
+        EXPECT_EQ(0, tls.queries());
+        EXPECT_EQ(1U, GetNumQueries(dns, hostname1));
+        EXPECT_EQ(records.at(0).addr, ToString(result));
+
+        // A loose upper bound is set by adding 1000ms buffer time. Theoretically, getaddrinfo()
+        // should just take a bit more than expetTimeout milliseconds.
+        EXPECT_GE(timeTakenMs, config.expectedTimeout);
+        EXPECT_LE(timeTakenMs, config.expectedTimeout + 1000);
+
+        // Set the server to be responsive. Verify that the resolver will attempt to reconnect
+        // to the server and then get the result within the timeout.
+        tls.setHangOnHandshakeForTesting(false);
+        std::tie(result, timeTakenMs) = safe_getaddrinfo_time_taken(hostname2, nullptr, hints);
+
+        EXPECT_NE(nullptr, result);
+        EXPECT_TRUE(tls.waitForQueries(1));
+        EXPECT_EQ(1U, GetNumQueries(dns, hostname2));
+        EXPECT_EQ(records.at(1).addr, ToString(result));
+
+        EXPECT_LE(timeTakenMs, 200);
+    }
+}
+
+TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
+    constexpr uint32_t cacheFlag = ANDROID_RESOLV_NO_CACHE_LOOKUP;
+    constexpr char hostname[] = "hello.example.com.";
+    const std::vector<DnsRecord> records = {
+            {hostname, ns_type::ns_t_a, "1.2.3.4"},
+    };
+
+    static const struct TestConfig {
+        bool asyncHandshake;
+        int dotConnectTimeoutMs;
+        int maxRetries;
+        int concurrency;
+
+        // if asyncHandshake:
+        //   expectedTimeout = dotConnectTimeoutMs * maxRetries
+        // otherwise:
+        //   expectedTimeout = dotConnectTimeoutMs * concurrency
+        int expectedTimeout;
+    } testConfigs[] = {
+            // clang-format off
+            {false, 1000, 1, 5, 5000},
+            {false, 1000, 3, 5, 5000},
+            {true, 1000, 1, 5, 1000},
+            {true, 2500, 1, 10, 2500},
+            {true, 1000, 3, 5, 3000},
+            // clang-format on
+    };
+
+    // Launch query threads. Expected behaviors are:
+    // - when dot_async_handshake is disabled, one of the query threads triggers a
+    //   handshake and then times out. Then same as another query thread, and so forth.
+    // - when dot_async_handshake is enabled, only one handshake is triggered, and then
+    //   all of the query threads time out at the same time.
+    for (const auto& config : testConfigs) {
+        ScopedSystemProperties scopedSystemProperties1(kDotConnectTimeoutMsFlag,
+                                                       std::to_string(config.dotConnectTimeoutMs));
+        ScopedSystemProperties scopedSystemProperties2(kDotAsyncHandshakeFlag,
+                                                       config.asyncHandshake ? "1" : "0");
+        ScopedSystemProperties scopedSystemProperties3(kDotMaxretriesFlag,
+                                                       std::to_string(config.maxRetries));
+        resetNetwork();
+
+        for (const auto& dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
+            SCOPED_TRACE(fmt::format("testConfig: [{}, {}]", config.asyncHandshake, dnsMode));
+
+            // Because a DnsTlsTransport lasts at least 5 minutes in spite of network
+            // destroyed, let the resolver creates an unique DnsTlsTransport every time
+            // so that the DnsTlsTransport won't interfere the other tests.
+            const std::string addr = getUniqueIPv4Address();
+            test::DNSResponder dns(addr);
+            StartDns(dns, records);
+            test::DnsTlsFrontend tls(addr, "853", addr, "53");
+            ASSERT_TRUE(tls.startServer());
+
+            auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+            parcel.servers = {addr};
+            parcel.tlsServers = {addr};
+            if (dnsMode == "STRICT") parcel.tlsName = kDefaultPrivateDnsHostName;
+            ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+            EXPECT_TRUE(tls.waitForQueries(1));
+
+            // The server becomes unresponsive to the handshake request.
+            tls.setHangOnHandshakeForTesting(true);
+
+            Stopwatch s;
+            std::vector<std::thread> threads(config.concurrency);
+            for (std::thread& thread : threads) {
+                thread = std::thread([&]() {
+                    int fd = resNetworkQuery(TEST_NETID, hostname, ns_c_in, ns_t_a, cacheFlag);
+                    dnsMode == "STRICT" ? expectAnswersNotValid(fd, -ETIMEDOUT)
+                                        : expectAnswersValid(fd, AF_INET, "1.2.3.4");
+                });
+            }
+            for (std::thread& thread : threads) {
+                thread.join();
+            }
+
+            const int timeTakenMs = s.timeTakenUs() / 1000;
+            // A loose upper bound is set by adding 1000ms buffer time. Theoretically, it should
+            // just take a bit more than expetTimeout milliseconds for the result.
+            EXPECT_GE(timeTakenMs, config.expectedTimeout);
+            EXPECT_LE(timeTakenMs, config.expectedTimeout + 1000);
+
+            // Recover the server from being unresponsive and try again.
+            tls.setHangOnHandshakeForTesting(false);
+            int fd = resNetworkQuery(TEST_NETID, hostname, ns_c_in, ns_t_a, cacheFlag);
+            expectAnswersValid(fd, AF_INET, "1.2.3.4");
+        }
+    }
 }
 
 TEST_F(ResolverTest, FlushNetworkCache) {
