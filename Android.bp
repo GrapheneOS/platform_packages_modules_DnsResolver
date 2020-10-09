@@ -135,7 +135,7 @@ cc_library {
         "libstatslog_resolv",
         "libstatspush_compat",
         "libsysutils",
-        "netd_event_listener_interface-unstable-ndk_platform",
+        "netd_event_listener_interface-ndk_platform",
         "server_configurable_flags",
         "stats_proto",
     ],
