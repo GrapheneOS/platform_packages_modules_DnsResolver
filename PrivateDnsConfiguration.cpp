@@ -38,15 +38,6 @@ using std::chrono::milliseconds;
 namespace android {
 namespace net {
 
-namespace {
-
-milliseconds getExperimentTimeout(const std::string& flagName, const milliseconds defaultValue) {
-    int val = getExperimentFlagInt(flagName, defaultValue.count());
-    return milliseconds((val < 1000) ? 1000 : val);
-}
-
-}  // namespace
-
 std::string addrToString(const sockaddr_storage* addr) {
     char out[INET6_ADDRSTRLEN] = {0};
     getnameinfo((const sockaddr*) addr, sizeof(sockaddr_storage), out, INET6_ADDRSTRLEN, nullptr, 0,
@@ -88,10 +79,7 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         DnsTlsServer server(parsed);
         server.name = name;
         server.certificate = caCert;
-        server.connectTimeout =
-                getExperimentTimeout("dot_connect_timeout_ms", DnsTlsServer::kDotConnectTimeoutMs);
         tlsServers.insert(server);
-        LOG(DEBUG) << "Set DoT connect timeout " << server.connectTimeout.count() << "ms for " << s;
     }
 
     std::lock_guard guard(mPrivateDnsLock);

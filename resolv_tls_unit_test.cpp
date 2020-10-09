@@ -22,6 +22,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/macros.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <netdutils/Slice.h>
 
@@ -31,6 +32,7 @@
 #include "DnsTlsSessionCache.h"
 #include "DnsTlsSocket.h"
 #include "DnsTlsTransport.h"
+#include "Experiments.h"
 #include "IDnsTlsSocket.h"
 #include "IDnsTlsSocketFactory.h"
 #include "IDnsTlsSocketObserver.h"
@@ -39,8 +41,10 @@
 namespace android {
 namespace net {
 
-using netdutils::Slice;
 using netdutils::makeSlice;
+using netdutils::Slice;
+
+static const std::string DOT_MAXTRIES_FLAG = "dot_maxtries";
 
 typedef std::vector<uint8_t> bytevec;
 
@@ -134,6 +138,7 @@ class FakeSocketEcho : public IDnsTlsSocket {
         std::thread(&IDnsTlsSocketObserver::onResponse, mObserver, make_echo(id, query)).detach();
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     IDnsTlsSocketObserver* const mObserver;
@@ -169,6 +174,7 @@ class FakeSocketId : public IDnsTlsSocket {
         std::thread(&IDnsTlsSocketObserver::onResponse, mObserver, response).detach();
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     IDnsTlsSocketObserver* const mObserver;
@@ -216,9 +222,15 @@ TEST_F(TransportTest, RacingQueries_10000) {
 class FakeSocketDelay : public IDnsTlsSocket {
   public:
     explicit FakeSocketDelay(IDnsTlsSocketObserver* observer) : mObserver(observer) {}
-    ~FakeSocketDelay() { std::lock_guard guard(mLock); }
-    static size_t sDelay;
-    static bool sReverse;
+    ~FakeSocketDelay() {
+        std::lock_guard guard(mLock);
+        sDelay = 1;
+        sReverse = false;
+        sConnectable = true;
+    }
+    inline static size_t sDelay = 1;
+    inline static bool sReverse = false;
+    inline static bool sConnectable = true;
 
     bool query(uint16_t id, const Slice query) override {
         LOG(DEBUG) << "FakeSocketDelay got query with ID " << int(id);
@@ -236,6 +248,7 @@ class FakeSocketDelay : public IDnsTlsSocket {
         }
         return true;
     }
+    bool startHandshake() override { return sConnectable; }
 
   private:
     void sendResponses() {
@@ -255,9 +268,6 @@ class FakeSocketDelay : public IDnsTlsSocket {
     std::set<uint16_t> mIds GUARDED_BY(mLock);
     std::vector<bytevec> mResponses GUARDED_BY(mLock);
 };
-
-size_t FakeSocketDelay::sDelay;
-bool FakeSocketDelay::sReverse;
 
 TEST_F(TransportTest, ParallelColliding) {
     FakeSocketDelay::sDelay = 10;
@@ -424,13 +434,24 @@ class NullSocketFactory : public IDnsTlsSocketFactory {
 };
 
 TEST_F(TransportTest, ConnectFail) {
-    NullSocketFactory factory;
-    DnsTlsTransport transport(SERVER1, MARK, &factory);
-    auto r = transport.query(makeSlice(QUERY)).get();
+    // Failure on creating socket.
+    NullSocketFactory factory1;
+    DnsTlsTransport transport1(SERVER1, MARK, &factory1);
+    auto r = transport1.query(makeSlice(QUERY)).get();
 
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
-    EXPECT_EQ(transport.getConnectCounter(), 1);
+    EXPECT_EQ(transport1.getConnectCounter(), 1);
+
+    // Failure on handshaking.
+    FakeSocketDelay::sConnectable = false;
+    FakeSocketFactory<FakeSocketDelay> factory2;
+    DnsTlsTransport transport2(SERVER1, MARK, &factory2);
+    r = transport2.query(makeSlice(QUERY)).get();
+
+    EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
+    EXPECT_TRUE(r.response.empty());
+    EXPECT_EQ(transport2.getConnectCounter(), 1);
 }
 
 // Simulate a socket that connects but then immediately receives a server
@@ -444,6 +465,7 @@ class FakeSocketClose : public IDnsTlsSocket {
                const Slice query ATTRIBUTE_UNUSED) override {
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     std::thread mCloser;
@@ -457,8 +479,9 @@ TEST_F(TransportTest, CloseRetryFail) {
     EXPECT_EQ(DnsTlsTransport::Response::network_error, r.code);
     EXPECT_TRUE(r.response.empty());
 
-    // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
+    // Reconnections might be triggered depending on the flag.
+    EXPECT_EQ(transport.getConnectCounter(),
+              Experiments::getInstance()->getFlag(DOT_MAXTRIES_FLAG, DnsTlsQueryMap::kMaxTries));
 }
 
 // Simulate a server that occasionally closes the connection and silently
@@ -506,6 +529,7 @@ class FakeSocketLimited : public IDnsTlsSocket {
         }
         return mQueries <= sLimit;
     }
+    bool startHandshake() override { return true; }
 
   private:
     void sendClose() {
@@ -552,8 +576,9 @@ TEST_F(TransportTest, SilentDrop) {
         EXPECT_TRUE(r.response.empty());
     }
 
-    // Reconnections are triggered since DnsTlsQueryMap is not empty.
-    EXPECT_EQ(transport.getConnectCounter(), DnsTlsQueryMap::kMaxTries);
+    // Reconnections might be triggered depending on the flag.
+    EXPECT_EQ(transport.getConnectCounter(),
+              Experiments::getInstance()->getFlag(DOT_MAXTRIES_FLAG, DnsTlsQueryMap::kMaxTries));
 }
 
 TEST_F(TransportTest, PartialDrop) {
@@ -632,6 +657,7 @@ class FakeSocketGarbage : public IDnsTlsSocket {
         mThreads.emplace_back(&IDnsTlsSocketObserver::onResponse, mObserver, make_query(id + 1, query.size() + 2));
         return true;
     }
+    bool startHandshake() override { return true; }
 
   private:
     std::mutex mLock;
@@ -847,18 +873,6 @@ TEST_F(ServerTest, Name) {
     EXPECT_TRUE(s2.wasExplicitlyConfigured());
 }
 
-TEST_F(ServerTest, Timeout) {
-    DnsTlsServer s1(V4ADDR1), s2(V4ADDR1);
-    s1.connectTimeout = std::chrono::milliseconds(4000);
-    checkUnequal(s1, s2);
-    s2.connectTimeout = std::chrono::milliseconds(4000);
-    EXPECT_EQ(s1, s2);
-    EXPECT_TRUE(isAddressEqual(s1, s2));
-
-    EXPECT_FALSE(s1.wasExplicitlyConfigured());
-    EXPECT_FALSE(s2.wasExplicitlyConfigured());
-}
-
 TEST(QueryMapTest, Basic) {
     DnsTlsQueryMap map;
 
@@ -959,43 +973,118 @@ TEST(QueryMapTest, FillHole) {
     EXPECT_FALSE(map.recordQuery(makeSlice(QUERY)));
 }
 
-class StubObserver : public IDnsTlsSocketObserver {
-  public:
-    bool closed = false;
-    void onResponse(std::vector<uint8_t>) override {}
+class DnsTlsSocketTest : public ::testing::Test {
+  protected:
+    class MockDnsTlsSocketObserver : public IDnsTlsSocketObserver {
+      public:
+        MOCK_METHOD(void, onClosed, (), (override));
+        MOCK_METHOD(void, onResponse, (std::vector<uint8_t>), (override));
+    };
 
-    void onClosed() override { closed = true; }
-};
+    DnsTlsSocketTest() { parseServer(kTlsAddr, std::stoi(kTlsPort), &server.ss); }
 
-TEST(DnsTlsSocketTest, SlowDestructor) {
-    constexpr char tls_addr[] = "127.0.0.3";
-    constexpr char tls_port[] = "8530";  // High-numbered port so root isn't required.
-    // This test doesn't perform any queries, so the backend address can be invalid.
-    constexpr char backend_addr[] = "192.0.2.1";
-    constexpr char backend_port[] = "1";
+    std::unique_ptr<DnsTlsSocket> makeDnsTlsSocket(IDnsTlsSocketObserver* observer) {
+        return std::make_unique<DnsTlsSocket>(this->server, MARK, observer, &this->cache);
+    }
 
-    test::DnsTlsFrontend tls(tls_addr, tls_port, backend_addr, backend_port);
-    ASSERT_TRUE(tls.startServer());
+    void enableAsyncHandshake(const std::unique_ptr<DnsTlsSocket>& socket) {
+        ASSERT_TRUE(socket);
+        DnsTlsSocket* delegate = socket.get();
+        std::lock_guard guard(delegate->mLock);
+        delegate->mAsyncHandshake = true;
+    }
+
+    static constexpr char kTlsAddr[] = "127.0.0.3";
+    static constexpr char kTlsPort[] = "8530";  // High-numbered port so root isn't required.
+    static constexpr char kBackendAddr[] = "192.0.2.1";
+    static constexpr char kBackendPort[] = "8531";  // High-numbered port so root isn't required.
+
+    test::DnsTlsFrontend tls{kTlsAddr, kTlsPort, kBackendAddr, kBackendPort};
 
     DnsTlsServer server;
-    parseServer(tls_addr, 8530, &server.ss);
-
-    StubObserver observer;
-    ASSERT_FALSE(observer.closed);
     DnsTlsSessionCache cache;
-    auto socket = std::make_unique<DnsTlsSocket>(server, MARK, &observer, &cache);
+};
+
+TEST_F(DnsTlsSocketTest, SlowDestructor) {
+    ASSERT_TRUE(tls.startServer());
+
+    MockDnsTlsSocketObserver observer;
+    auto socket = makeDnsTlsSocket(&observer);
+
     ASSERT_TRUE(socket->initialize());
+    ASSERT_TRUE(socket->startHandshake());
 
     // Test: Time the socket destructor.  This should be fast.
     auto before = std::chrono::steady_clock::now();
+    EXPECT_CALL(observer, onClosed);
     socket.reset();
     auto after = std::chrono::steady_clock::now();
     auto delay = after - before;
     LOG(DEBUG) << "Shutdown took " << delay / std::chrono::nanoseconds{1} << "ns";
-    EXPECT_TRUE(observer.closed);
     // Shutdown should complete in milliseconds, but if the shutdown signal is lost
     // it will wait for the timeout, which is expected to take 20seconds.
     EXPECT_LT(delay, std::chrono::seconds{5});
+}
+
+TEST_F(DnsTlsSocketTest, StartHandshake) {
+    ASSERT_TRUE(tls.startServer());
+
+    MockDnsTlsSocketObserver observer;
+    auto socket = makeDnsTlsSocket(&observer);
+
+    // Call the function before the call to initialize().
+    EXPECT_FALSE(socket->startHandshake());
+
+    // Call the function after the call to initialize().
+    EXPECT_TRUE(socket->initialize());
+    EXPECT_TRUE(socket->startHandshake());
+
+    // Call both of them again.
+    EXPECT_FALSE(socket->initialize());
+    EXPECT_FALSE(socket->startHandshake());
+
+    // Should happen when joining the loop thread in |socket| destruction.
+    EXPECT_CALL(observer, onClosed);
+}
+
+TEST_F(DnsTlsSocketTest, ShutdownSignal) {
+    ASSERT_TRUE(tls.startServer());
+
+    MockDnsTlsSocketObserver observer;
+    std::unique_ptr<DnsTlsSocket> socket;
+
+    const auto setupAndStartHandshake = [&]() {
+        socket = makeDnsTlsSocket(&observer);
+        EXPECT_TRUE(socket->initialize());
+        enableAsyncHandshake(socket);
+        EXPECT_TRUE(socket->startHandshake());
+    };
+    const auto triggerShutdown = [&](const std::string& traceLog) {
+        SCOPED_TRACE(traceLog);
+        auto before = std::chrono::steady_clock::now();
+        EXPECT_CALL(observer, onClosed);
+        socket.reset();
+        auto after = std::chrono::steady_clock::now();
+        auto delay = after - before;
+        LOG(INFO) << "Shutdown took " << delay / std::chrono::nanoseconds{1} << "ns";
+        EXPECT_LT(delay, std::chrono::seconds{1});
+    };
+
+    tls.setHangOnHandshakeForTesting(true);
+
+    // Test 1: Reset the DnsTlsSocket which is doing the handshake.
+    setupAndStartHandshake();
+    triggerShutdown("Shutdown handshake w/o query requests");
+
+    // Test 2: Reset the DnsTlsSocket which is doing the handshake with some query requests.
+    setupAndStartHandshake();
+
+    // DnsTlsSocket doesn't report the status of pending queries. The decision whether to mark
+    // a query request as failed or not is made in DnsTlsTransport.
+    EXPECT_CALL(observer, onResponse).Times(0);
+    EXPECT_TRUE(socket->query(1, makeSlice(QUERY)));
+    EXPECT_TRUE(socket->query(2, makeSlice(QUERY)));
+    triggerShutdown("Shutdown handshake w/ query requests");
 }
 
 } // end of namespace net
