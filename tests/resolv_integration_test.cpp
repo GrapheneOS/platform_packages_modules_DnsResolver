@@ -2105,12 +2105,7 @@ int getAsyncResponse(int fd, int* rcode, uint8_t* buf, int bufLen) {
     ret = poll(wait_fd, 1, -1);
     revents = wait_fd[0].revents;
     if (revents & POLLIN) {
-        int n = resNetworkResult(fd, rcode, buf, bufLen);
-        // Verify that resNetworkResult() closed the fd
-        char unused;
-        EXPECT_EQ(-1, read(fd, &unused, sizeof unused));
-        EXPECT_EQ(EBADF, errno);
-        return n;
+        return resNetworkResult(fd, rcode, buf, bufLen);
     }
     return -1;
 }
