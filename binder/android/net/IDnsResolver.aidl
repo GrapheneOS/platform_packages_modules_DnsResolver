@@ -145,7 +145,7 @@ interface IDnsResolver {
      */
     void destroyNetworkCache(int netId);
 
-    // Refer to enum LogSeverity from system/core/base/include/android-base/logging.h
+    // Refer to enum LogSeverity from system/libbase/include/android-base/logging.h
     const int DNS_RESOLVER_LOG_VERBOSE = 0;
     const int DNS_RESOLVER_LOG_DEBUG = 1;
     const int DNS_RESOLVER_LOG_INFO = 2;
