@@ -144,8 +144,6 @@ using android::netdutils::IPSockAddr;
 using android::netdutils::Slice;
 using android::netdutils::Stopwatch;
 
-static DnsTlsDispatcher sDnsTlsDispatcher;
-
 static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
                    int* delay);
@@ -1255,8 +1253,8 @@ static int res_tls_send(res_state statp, const Slice query, const Slice answer, 
 
     LOG(INFO) << __func__ << ": performing query over TLS";
 
-    const auto response = sDnsTlsDispatcher.query(privateDnsStatus.validatedServers(), statp, query,
-                                                  answer, &resplen);
+    const auto response = DnsTlsDispatcher::getInstance().query(privateDnsStatus.validatedServers(),
+                                                                statp, query, answer, &resplen);
 
     LOG(INFO) << __func__ << ": TLS query result: " << static_cast<int>(response);
 
