@@ -72,9 +72,9 @@ inline ::ndk::ScopedAStatus statusFromErrcode(int ret) {
 
 DnsResolverService::DnsResolverService() {
     // register log callback to BnDnsResolver::logFunc
-    BnDnsResolver::logFunc =
-            std::bind(binderCallLogFn, std::placeholders::_1,
-                      [](const std::string& msg) { gResNetdCallbacks.log(msg.c_str()); });
+    BnDnsResolver::logFunc = [](const auto& log) {
+        binderCallLogFn(log, [](const std::string& msg) { gResNetdCallbacks.log(msg.c_str()); });
+    };
 }
 
 binder_status_t DnsResolverService::start() {

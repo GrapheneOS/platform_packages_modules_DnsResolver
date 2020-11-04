@@ -222,7 +222,7 @@ class DnsResolverBinderTest : public ::testing::Test {
 
     PossibleLogData toSetResolverConfigurationLogData(const ResolverParamsParcel& parms,
                                                       int returnCode = 0) {
-        std::string outputWithParcel = "setResolverConfiguration(\"" + toString(parms) + "\")";
+        std::string outputWithParcel = "setResolverConfiguration(" + toString(parms) + ")";
         std::string hintRegexWithParcel = fmt::format("setResolverConfiguration.*{}", parms.netId);
 
         std::string outputWithoutParcel = "setResolverConfiguration()";
