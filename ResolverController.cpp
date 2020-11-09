@@ -201,6 +201,10 @@ int ResolverController::flushNetworkCache(unsigned netId) {
 int ResolverController::setResolverConfiguration(const ResolverParamsParcel& resolverParams) {
     using aidl::android::net::IDnsResolver;
 
+    if (!has_named_cache(resolverParams.netId)) {
+        return -ENOENT;
+    }
+
     // Expect to get the mark with system permission.
     android_net_context netcontext;
     gResNetdCallbacks.get_network_context(resolverParams.netId, 0 /* uid */, &netcontext);
@@ -220,6 +224,10 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
             resolverParams.caCertificate);
 
     if (err != 0) {
+        return err;
+    }
+
+    if (int err = resolv_stats_set_servers_for_dot(resolverParams.netId, tlsServers); err != 0) {
         return err;
     }
 
