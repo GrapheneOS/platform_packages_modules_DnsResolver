@@ -259,6 +259,7 @@ cc_test {
         "DnsQueryLogTest.cpp",
         "DnsStatsTest.cpp",
         "ExperimentsTest.cpp",
+        "PrivateDnsConfigurationTest.cpp",
     ],
     shared_libs: [
         "libcrypto",
