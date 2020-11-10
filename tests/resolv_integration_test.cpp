@@ -184,8 +184,8 @@ class ResolverTest : public ::testing::Test {
         // service.
 
         AIBinder* binder = AServiceManager_getService("dnsresolver");
-        ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(binder);
-        auto resolvService = aidl::android::net::IDnsResolver::fromBinder(resolvBinder);
+        sResolvBinder = ndk::SpAIBinder(binder);
+        auto resolvService = aidl::android::net::IDnsResolver::fromBinder(sResolvBinder);
         ASSERT_NE(nullptr, resolvService.get());
 
         // Subscribe the death recipient to the service IDnsResolver for detecting Netd death.
@@ -371,11 +371,16 @@ class ResolverTest : public ::testing::Test {
     // Use a shared static death recipient to monitor the service death. The static death
     // recipient could monitor the death not only during the test but also between tests.
     static AIBinder_DeathRecipient* sResolvDeathRecipient;  // Initialized in SetUpTestSuite.
+
+    // The linked AIBinder_DeathRecipient will be automatically unlinked if the binder is deleted.
+    // The binder needs to be retained throughout tests.
+    static ndk::SpAIBinder sResolvBinder;
 };
 
 // Initialize static member of class.
 std::shared_ptr<DnsMetricsListener> ResolverTest::sDnsMetricsListener;
 AIBinder_DeathRecipient* ResolverTest::sResolvDeathRecipient;
+ndk::SpAIBinder ResolverTest::sResolvBinder;
 
 TEST_F(ResolverTest, GetHostByName) {
     constexpr char nonexistent_host_name[] = "nonexistent.example.com.";
