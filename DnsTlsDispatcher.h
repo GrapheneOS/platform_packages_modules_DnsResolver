@@ -37,12 +37,11 @@ namespace net {
 // Queries made here are dispatched to an existing or newly constructed DnsTlsTransport.
 class DnsTlsDispatcher {
   public:
-    // Default constructor.
-    DnsTlsDispatcher();
-
     // Constructor with dependency injection for testing.
     explicit DnsTlsDispatcher(std::unique_ptr<IDnsTlsSocketFactory> factory)
         : mFactory(std::move(factory)) {}
+
+    static DnsTlsDispatcher& getInstance();
 
     // Enqueues |query| for resolution via the given |tlsServers| on the
     // network indicated by |mark|; writes the response into |ans|, and stores
@@ -62,6 +61,8 @@ class DnsTlsDispatcher {
                                     int* _Nonnull resplen, bool* _Nonnull connectTriggered);
 
   private:
+    DnsTlsDispatcher();
+
     // This lock is static so that it can be used to annotate the Transport struct.
     // DnsTlsDispatcher is a singleton in practice, so making this static does not change
     // the locking behavior.
