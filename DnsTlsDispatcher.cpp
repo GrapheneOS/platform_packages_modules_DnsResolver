@@ -41,6 +41,11 @@ DnsTlsDispatcher::DnsTlsDispatcher() {
     mFactory.reset(new DnsTlsSocketFactory());
 }
 
+DnsTlsDispatcher& DnsTlsDispatcher::getInstance() {
+    static DnsTlsDispatcher instance;
+    return instance;
+}
+
 std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedServerList(
         const std::list<DnsTlsServer> &tlsServers, unsigned mark) const {
     // Our preferred DnsTlsServer order is:
