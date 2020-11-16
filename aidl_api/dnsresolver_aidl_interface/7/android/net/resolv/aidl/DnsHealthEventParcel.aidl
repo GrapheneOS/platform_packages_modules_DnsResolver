@@ -16,23 +16,11 @@
 // with such a backward incompatible change, it has a high risk of breaking
 // later when a module using the interface is updated, e.g., Mainline modules.
 
-package android.net;
+package android.net.resolv.aidl;
 /* @hide */
-parcelable ResolverParamsParcel {
+@JavaDerive(toString=true)
+parcelable DnsHealthEventParcel {
   int netId;
-  int sampleValiditySeconds;
-  int successThreshold;
-  int minSamples;
-  int maxSamples;
-  int baseTimeoutMsec;
-  int retryCount;
-  @utf8InCpp String[] servers;
-  @utf8InCpp String[] domains;
-  @utf8InCpp String tlsName;
-  @utf8InCpp String[] tlsServers;
-  @utf8InCpp String[] tlsFingerprints = {};
-  @utf8InCpp String caCertificate = "";
-  int tlsConnectTimeoutMs = 0;
-  android.net.ResolverOptionsParcel resolverOptions;
-  int[] transportTypes = {};
+  int healthResult;
+  int[] successRttMicros;
 }
