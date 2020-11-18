@@ -223,6 +223,11 @@ void DnsTlsFrontend::requestHandler() {
                 // client, including cleanup actions.
                 queries_ += handleRequests(ssl.get(), client.get());
             }
+
+            if (passiveClose_) {
+                LOG(DEBUG) << "hold the current connection until next connection request";
+                clientFd = std::move(client);
+            }
         }
     }
     LOG(DEBUG) << "Ending loop";
@@ -230,6 +235,7 @@ void DnsTlsFrontend::requestHandler() {
 
 int DnsTlsFrontend::handleRequests(SSL* ssl, int clientFd) {
     int queryCounts = 0;
+    std::vector<uint8_t> reply;
     pollfd fds = {.fd = clientFd, .events = POLLIN};
     do {
         uint8_t queryHeader[2];
@@ -263,16 +269,25 @@ int DnsTlsFrontend::handleRequests(SSL* ssl, int clientFd) {
         uint8_t responseHeader[2];
         responseHeader[0] = rlen >> 8;
         responseHeader[1] = rlen;
-        if (SSL_write(ssl, responseHeader, 2) != 2) {
-            LOG(INFO) << "Failed to write response header";
-            return queryCounts;
-        }
-        if (SSL_write(ssl, recv_buffer, rlen) != rlen) {
-            LOG(INFO) << "Failed to write response body";
-            return queryCounts;
-        }
+        reply.insert(reply.end(), responseHeader, responseHeader + 2);
+        reply.insert(reply.end(), recv_buffer, recv_buffer + rlen);
+
         ++queryCounts;
-    } while (poll(&fds, 1, 1) > 0);
+        if (queryCounts >= delayQueries_) {
+            break;
+        }
+    } while (poll(&fds, 1, delayQueriesTimeout_) > 0);
+
+    if (queryCounts < delayQueries_) {
+        LOG(WARNING) << "Expect " << delayQueries_ << " queries, but actually received "
+                     << queryCounts << " queries";
+    }
+
+    const int replyLen = reply.size();
+    LOG(DEBUG) << "Sending " << queryCounts << "queries at once, byte = " << replyLen;
+    if (SSL_write(ssl, reply.data(), replyLen) != replyLen) {
+        LOG(WARNING) << "Failed to write response body";
+    }
 
     LOG(DEBUG) << __func__ << " return: " << queryCounts;
     return queryCounts;
