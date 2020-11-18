@@ -137,6 +137,9 @@ class DnsTlsSocket : public IDnsTlsSocket {
     int sslRead(const netdutils::Slice buffer, bool wait) REQUIRES(mLock);
 
     bool sendQuery(const std::vector<uint8_t>& buf) REQUIRES(mLock);
+
+    // Read one DNS response. It can potentially block until reading the exact bytes of
+    // the response.
     bool readResponse() REQUIRES(mLock);
 
     // It is only used for DNS-OVER-TLS internal test.
