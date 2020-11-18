@@ -5501,6 +5501,67 @@ TEST_F(ResolverTest, DnsServerSelection) {
     } while (std::next_permutation(serverList.begin(), serverList.end()));
 }
 
+TEST_F(ResolverTest, MultipleDotQueriesInOnePacket) {
+    constexpr char hostname1[] = "query1.example.com.";
+    constexpr char hostname2[] = "query2.example.com.";
+    const std::vector<DnsRecord> records = {
+            {hostname1, ns_type::ns_t_a, "1.2.3.4"},
+            {hostname2, ns_type::ns_t_a, "1.2.3.5"},
+    };
+
+    const std::string addr = getUniqueIPv4Address();
+    test::DNSResponder dns(addr);
+    StartDns(dns, records);
+    test::DnsTlsFrontend tls(addr, "853", addr, "53");
+    ASSERT_TRUE(tls.startServer());
+
+    // Set up resolver to strict mode.
+    auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    parcel.servers = {addr};
+    parcel.tlsServers = {addr};
+    parcel.tlsName = kDefaultPrivateDnsHostName;
+    parcel.caCertificate = kCaCert;
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+    EXPECT_TRUE(tls.waitForQueries(1));
+    tls.clearQueries();
+    dns.clearQueries();
+
+    const auto queryAndCheck = [&](const std::string& hostname,
+                                   const std::vector<DnsRecord>& records) {
+        SCOPED_TRACE(hostname);
+
+        const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
+        auto [result, timeTakenMs] = safe_getaddrinfo_time_taken(hostname.c_str(), nullptr, hints);
+
+        std::vector<std::string> expectedAnswers;
+        for (const auto& r : records) {
+            if (r.host_name == hostname) expectedAnswers.push_back(r.addr);
+        }
+
+        EXPECT_LE(timeTakenMs, 200);
+        ASSERT_NE(result, nullptr);
+        EXPECT_THAT(ToStrings(result), testing::UnorderedElementsAreArray(expectedAnswers));
+    };
+
+    // Set tls to reply DNS responses in one TCP packet and not to close the connection from its
+    // side.
+    tls.setDelayQueries(2);
+    tls.setDelayQueriesTimeout(500);
+    tls.setPassiveClose(true);
+
+    // Start sending DNS requests at the same time.
+    std::array<std::thread, 2> threads;
+    threads[0] = std::thread(queryAndCheck, hostname1, records);
+    threads[1] = std::thread(queryAndCheck, hostname2, records);
+
+    threads[0].join();
+    threads[1].join();
+
+    // Also check no additional queries due to DoT reconnection.
+    EXPECT_EQ(tls.queries(), 2);
+}
+
 // ResolverMultinetworkTest is used to verify multinetwork functionality. Here's how it works:
 // The resolver sends queries to address A, and then there will be a TunForwarder helping forward
 // the packets to address B, which is the address on which the testing server is listening. The
