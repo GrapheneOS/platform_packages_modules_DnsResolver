@@ -450,8 +450,20 @@ void DnsTlsSocket::loop() {
             break;
         }
         if (fds[SSLFD].revents & (POLLIN | POLLERR | POLLHUP)) {
-            if (!readResponse()) {
-                LOG(DEBUG) << "SSL remote close or read error.";
+            bool readFailed = false;
+
+            // readResponse() only reads one DNS (and consumes exact bytes) from ssl.
+            // Keep doing so until ssl has no pending data.
+            // TODO: readResponse() can block until it reads a complete DNS response. Consider
+            // refactoring it to not get blocked in any case.
+            do {
+                if (!readResponse()) {
+                    LOG(DEBUG) << "SSL remote close or read error.";
+                    readFailed = true;
+                }
+            } while (SSL_pending(mSsl.get()) > 0 && !readFailed);
+
+            if (readFailed) {
                 break;
             }
         }
