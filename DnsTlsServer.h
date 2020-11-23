@@ -27,6 +27,9 @@
 namespace android {
 namespace net {
 
+// Validation status of a DNS over TLS server (on a specific netId).
+enum class Validation : uint8_t { in_process, success, fail, unknown_server, unknown_netid };
+
 // DnsTlsServer represents a recursive resolver that supports, or may support, a
 // secure protocol.
 struct DnsTlsServer {
@@ -37,17 +40,21 @@ struct DnsTlsServer {
     DnsTlsServer(const sockaddr_storage& ss) : ss(ss) {}
 
     // The server location, including IP and port.
+    // TODO: make it const.
     sockaddr_storage ss = {};
 
     // The server's hostname.  If this string is nonempty, the server must present a
     // certificate that indicates this name and has a valid chain to a trusted root CA.
+    // TODO: make it const.
     std::string name;
 
     // The certificate of the CA that signed the server's certificate.
     // It is used to store temporary test CA certificate for internal tests.
+    // TODO: make it const.
     std::string certificate;
 
     // Placeholder.  More protocols might be defined in the future.
+    // TODO: make it const.
     int protocol = IPPROTO_TCP;
 
     // Exact comparison of DnsTlsServer objects
@@ -55,6 +62,13 @@ struct DnsTlsServer {
     bool operator==(const DnsTlsServer& other) const;
 
     bool wasExplicitlyConfigured() const;
+
+    Validation validationState() const { return mValidation; }
+    void setValidationState(Validation val) { mValidation = val; }
+
+  private:
+    // State, unrelated to the comparison of DnsTlsServer objects.
+    Validation mValidation = Validation::unknown_server;
 };
 
 // This comparison only checks the IP address.  It ignores ports, names, and fingerprints.
