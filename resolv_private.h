@@ -183,10 +183,3 @@ inline void resolv_tag_socket(int sock, uid_t uid, pid_t pid) {
         PLOG(WARNING) << "Failed to chown socket";
     }
 }
-
-inline std::string addrToString(const sockaddr_storage* addr) {
-    char out[INET6_ADDRSTRLEN] = {0};
-    getnameinfo((const sockaddr*)addr, sizeof(sockaddr_storage), out, INET6_ADDRSTRLEN, nullptr, 0,
-                NI_NUMERICHOST);
-    return std::string(out);
-}
