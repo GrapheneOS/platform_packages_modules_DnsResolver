@@ -91,6 +91,23 @@ class PrivateDnsConfiguration {
     // Using the AddressComparator ensures at most one entry per IP address.
     std::map<unsigned, PrivateDnsTracker> mPrivateDnsTransports GUARDED_BY(mPrivateDnsLock);
     std::map<unsigned, ThreadTracker> mPrivateDnsValidateThreads GUARDED_BY(mPrivateDnsLock);
+
+    // For testing. The observer is notified of onValidationStateUpdate 1) when a validation is
+    // about to begin or 2) when a validation finishes.
+    class Observer {
+      public:
+        virtual ~Observer(){};
+        virtual void onValidationStateUpdate(const std::string& server, Validation validation,
+                                             uint32_t netId) = 0;
+    };
+
+    void setObserver(Observer* observer);
+    void maybeNotifyObserver(const DnsTlsServer& server, Validation validation,
+                             uint32_t netId) const REQUIRES(mPrivateDnsLock);
+
+    Observer* mObserver GUARDED_BY(mPrivateDnsLock);
+
+    friend class PrivateDnsConfigurationTest;
 };
 
 }  // namespace net
