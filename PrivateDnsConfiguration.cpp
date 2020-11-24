@@ -28,7 +28,6 @@
 #include "ResolverEventReporter.h"
 #include "netd_resolv/resolv.h"
 #include "netdutils/BackoffSequence.h"
-#include "resolv_cache.h"
 #include "util.h"
 
 using android::base::StringPrintf;
@@ -90,7 +89,6 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
     } else {
         mPrivateDnsModes[netId] = PrivateDnsMode::OFF;
         mPrivateDnsTransports.erase(netId);
-        resolv_stats_set_servers_for_dot(netId, {});
         mPrivateDnsValidateThreads.erase(netId);
         // TODO: As mPrivateDnsValidateThreads is reset, validation threads which haven't yet
         // finished are considered outdated. Consider signaling the outdated validation threads to
@@ -128,7 +126,7 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         }
     }
 
-    return resolv_stats_set_servers_for_dot(netId, servers);
+    return 0;
 }
 
 PrivateDnsStatus PrivateDnsConfiguration::getStatus(unsigned netId) {
