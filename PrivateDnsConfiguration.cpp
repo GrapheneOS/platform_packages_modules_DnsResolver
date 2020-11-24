@@ -166,6 +166,8 @@ void PrivateDnsConfiguration::validatePrivateDnsProvider(const DnsTlsServer& ser
         return;
     }
 
+    maybeNotifyObserver(server, Validation::in_process, netId);
+
     // Note that capturing |server| and |netId| in this lambda create copies.
     std::thread validate_thread([this, server, netId, mark] {
         setThreadName(StringPrintf("TlsVerify_%u", netId).c_str());
@@ -222,12 +224,14 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
     auto netPair = mPrivateDnsTransports.find(netId);
     if (netPair == mPrivateDnsTransports.end()) {
         LOG(WARNING) << "netId " << netId << " was erased during private DNS validation";
+        maybeNotifyObserver(server, Validation::fail, netId);
         return DONT_REEVALUATE;
     }
 
     const auto mode = mPrivateDnsModes.find(netId);
     if (mode == mPrivateDnsModes.end()) {
         LOG(WARNING) << "netId " << netId << " has no private DNS validation mode";
+        maybeNotifyObserver(server, Validation::fail, netId);
         return DONT_REEVALUATE;
     }
     const bool modeDoesReevaluation = (mode->second == PrivateDnsMode::STRICT);
@@ -270,12 +274,17 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
 
     if (success) {
         tracker[server] = Validation::success;
+        maybeNotifyObserver(server, Validation::success, netId);
     } else {
         // Validation failure is expected if a user is on a captive portal.
         // TODO: Trigger a second validation attempt after captive portal login
         // succeeds.
         tracker[server] = (reevaluationStatus == NEEDS_REEVALUATION) ? Validation::in_process
                                                                      : Validation::fail;
+        maybeNotifyObserver(server,
+                            (reevaluationStatus == NEEDS_REEVALUATION) ? Validation::in_process
+                                                                       : Validation::fail,
+                            netId);
     }
     LOG(WARNING) << "Validation " << (success ? "success" : "failed");
 
@@ -334,6 +343,18 @@ bool PrivateDnsConfiguration::needsValidation(const PrivateDnsTracker& tracker,
                                               const DnsTlsServer& server) {
     const auto& iter = tracker.find(server);
     return (iter == tracker.end()) || (iter->second == Validation::fail);
+}
+
+void PrivateDnsConfiguration::setObserver(Observer* observer) {
+    std::lock_guard guard(mPrivateDnsLock);
+    mObserver = observer;
+}
+
+void PrivateDnsConfiguration::maybeNotifyObserver(const DnsTlsServer& server, Validation validation,
+                                                  uint32_t netId) const {
+    if (mObserver) {
+        mObserver->onValidationStateUpdate(addrToString(&server.ss), validation, netId);
+    }
 }
 
 }  // namespace net
