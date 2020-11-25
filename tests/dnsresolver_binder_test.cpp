@@ -21,12 +21,17 @@
 #include <netdb.h>
 
 #include <iostream>
+#include <regex>
+#include <string>
+#include <thread>
 #include <vector>
 
 #include <aidl/android/net/IDnsResolver.h>
 #include <android-base/file.h>
+#include <android-base/format.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
+#include <android-base/unique_fd.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 #include <gmock/gmock-matchers.h>
@@ -41,9 +46,13 @@
 #include "dns_responder_client_ndk.h"
 
 using aidl::android::net::IDnsResolver;
+using aidl::android::net::ResolverHostsParcel;
+using aidl::android::net::ResolverOptionsParcel;
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::metrics::INetdEventListener;
+using android::base::ReadFdToString;
 using android::base::StringPrintf;
+using android::base::unique_fd;
 using android::net::ResolverStats;
 using android::net::metrics::TestOnDnsEvent;
 using android::netdutils::Stopwatch;
@@ -51,6 +60,37 @@ using android::netdutils::Stopwatch;
 // TODO: make this dynamic and stop depending on implementation details.
 // Sync from TEST_NETID in dns_responder_client.cpp as resolv_integration_test.cpp does.
 constexpr int TEST_NETID = 30;
+
+namespace {
+
+std::vector<std::string> dumpService(ndk::SpAIBinder binder) {
+    unique_fd localFd, remoteFd;
+    bool success = Pipe(&localFd, &remoteFd);
+    EXPECT_TRUE(success) << "Failed to open pipe for dumping: " << strerror(errno);
+    if (!success) return {};
+
+    // dump() blocks until another thread has consumed all its output.
+    std::thread dumpThread = std::thread([binder, remoteFd{std::move(remoteFd)}]() {
+        EXPECT_EQ(STATUS_OK, AIBinder_dump(binder.get(), remoteFd, nullptr, 0));
+    });
+
+    std::string dumpContent;
+
+    EXPECT_TRUE(ReadFdToString(localFd.get(), &dumpContent))
+            << "Error during dump: " << strerror(errno);
+    dumpThread.join();
+
+    std::stringstream dumpStream(std::move(dumpContent));
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(dumpStream, line)) {
+        lines.push_back(std::move(line));
+    }
+
+    return lines;
+}
+
+}  // namespace
 
 class DnsResolverBinderTest : public ::testing::Test {
   public:
@@ -65,12 +105,143 @@ class DnsResolverBinderTest : public ::testing::Test {
     }
 
     ~DnsResolverBinderTest() {
+        expectLog();
         // Destroy cache for test
         mDnsResolver->destroyNetworkCache(TEST_NETID);
     }
 
   protected:
+    void expectLog() {
+        ndk::SpAIBinder netdBinder = ndk::SpAIBinder(AServiceManager_getService("netd"));
+        // This could happen when the test isn't running as root, or if netd isn't running.
+        assert(nullptr != netdBinder.get());
+        // Send the service dump request to netd.
+        std::vector<std::string> lines = dumpService(netdBinder);
+
+        // Basic regexp to match dump output lines. Matches the beginning and end of the line, and
+        // puts the output of the command itself into the first match group.
+        // Example: "      11-05 00:23:39.481 myCommand(args) <2.02ms>".
+        const std::basic_regex lineRegex(
+                "^      [0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3} "
+                "(.*)"
+                " <[0-9]+[.][0-9]{2}ms>$");
+
+        // For each element of testdata, check that the expected output appears in the dump output.
+        // If not, fail the test and use hintRegex to print similar lines to assist in debugging.
+        for (const auto& td : mExpectedLogData) {
+            const bool found =
+                    std::any_of(lines.begin(), lines.end(), [&](const std::string& line) {
+                        std::smatch match;
+                        if (!std::regex_match(line, match, lineRegex)) return false;
+                        return (match.size() == 2) && (match[1].str() == td.output);
+                    });
+            EXPECT_TRUE(found) << "Didn't find line '" << td.output << "' in dumpsys output.";
+            if (found) continue;
+            std::cerr << "Similar lines" << std::endl;
+            for (const auto& line : lines) {
+                if (std::regex_search(line, std::basic_regex(td.hintRegex))) {
+                    std::cerr << line << std::endl;
+                }
+            }
+        }
+
+        // The log output is different between R and S, either one is fine for the
+        // test to avoid test compatible issue.
+        // TODO: Remove after S.
+        for (const auto& td : mExpectedLogDataWithPacel) {
+            const bool found =
+                    std::any_of(lines.begin(), lines.end(), [&](const std::string& line) {
+                        std::smatch match;
+                        if (!std::regex_match(line, match, lineRegex)) return false;
+                        return (match.size() == 2) && ((match[1].str() == td.withPacel.output) ||
+                                                       (match[1].str() == td.withoutPacel.output));
+                    });
+            EXPECT_TRUE(found) << fmt::format("Didn't find line '{}' or '{}' in dumpsys output.",
+                                              td.withPacel.output, td.withoutPacel.output);
+            if (found) continue;
+            std::cerr << "Similar lines" << std::endl;
+            for (const auto& line : lines) {
+                if (std::regex_search(line, std::basic_regex(td.withPacel.hintRegex))) {
+                    std::cerr << line << std::endl;
+                }
+                if (std::regex_search(line, std::basic_regex(td.withoutPacel.hintRegex))) {
+                    std::cerr << line << std::endl;
+                }
+            }
+        }
+    }
+
+    struct LogData {
+        // Expected contents of the dump command.
+        const std::string output;
+        // A regex that might be helpful in matching relevant lines in the output.
+        // Used to make it easier to add test cases for this code.
+        const std::string hintRegex;
+    };
+
+    // TODO: Remove this struct and below toString methods after S.
+    struct PossibleLogData {
+        LogData withPacel;
+        LogData withoutPacel;
+    };
+
+    std::string toString(const std::vector<ResolverHostsParcel>& parms) {
+        std::string o;
+        const size_t size = parms.size();
+        for (size_t i = 0; i < size; ++i) {
+            o.append(fmt::format("ResolverHostsParcel{{ipAddr: {}, hostName: {}}}", parms[i].ipAddr,
+                                 parms[i].hostName));
+            if (i + 1 < size) o.append(", ");
+        }
+        return o;
+    }
+
+    std::string toString(const ResolverOptionsParcel& parms) {
+        return fmt::format("ResolverOptionsParcel{{hosts: [{}], tcMode: {}, enforceDnsUid: {}}}",
+                           toString(parms.hosts), parms.tcMode, parms.enforceDnsUid);
+    }
+
+    std::string toString(const ResolverParamsParcel& parms) {
+        return fmt::format(
+                "ResolverParamsParcel{{netId: {}, sampleValiditySeconds: {}, successThreshold: {}, "
+                "minSamples: {}, "
+                "maxSamples: {}, baseTimeoutMsec: {}, retryCount: {}, "
+                "servers: [{}], domains: [{}], "
+                "tlsName: {}, tlsServers: [{}], "
+                "tlsFingerprints: [{}], "
+                "caCertificate: {}, tlsConnectTimeoutMs: {}, "
+                "resolverOptions: {}, transportTypes: [{}]}}",
+                parms.netId, parms.sampleValiditySeconds, parms.successThreshold, parms.minSamples,
+                parms.maxSamples, parms.baseTimeoutMsec, parms.retryCount,
+                fmt::join(parms.servers, ", "), fmt::join(parms.domains, ", "), parms.tlsName,
+                fmt::join(parms.tlsServers, ", "), fmt::join(parms.tlsFingerprints, ", "),
+                android::base::StringReplace(parms.caCertificate, "\n", "\\n", true),
+                parms.tlsConnectTimeoutMs, toString(parms.resolverOptions),
+                fmt::join(parms.transportTypes, ", "));
+    }
+
+    PossibleLogData toSetResolverConfigurationLogData(const ResolverParamsParcel& parms,
+                                                      int returnCode = 0) {
+        std::string outputWithParcel = "setResolverConfiguration(\"" + toString(parms) + "\")";
+        std::string hintRegexWithParcel = fmt::format("setResolverConfiguration.*{}", parms.netId);
+
+        std::string outputWithoutParcel = "setResolverConfiguration()";
+        std::string hintRegexWithoutParcel = "setResolverConfiguration";
+        if (returnCode != 0) {
+            outputWithParcel.append(fmt::format(" -> ServiceSpecificException({}, \"{}\")",
+                                                returnCode, strerror(returnCode)));
+            hintRegexWithParcel.append(fmt::format(".*{}", returnCode));
+            outputWithoutParcel.append(fmt::format(" -> ServiceSpecificException({}, \"{}\")",
+                                                   returnCode, strerror(returnCode)));
+            hintRegexWithoutParcel.append(fmt::format(".*{}", returnCode));
+        }
+        return {{std::move(outputWithParcel), std::move(hintRegexWithParcel)},
+                {std::move(outputWithoutParcel), std::move(hintRegexWithoutParcel)}};
+    }
+
     std::shared_ptr<aidl::android::net::IDnsResolver> mDnsResolver;
+    std::vector<LogData> mExpectedLogData;
+    std::vector<PossibleLogData> mExpectedLogDataWithPacel;
 };
 
 class TimedOperation : public Stopwatch {
@@ -95,6 +266,9 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_NullListener) {
     ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(nullptr);
     ASSERT_FALSE(status.isOk());
     ASSERT_EQ(EINVAL, status.getServiceSpecificError());
+    mExpectedLogData.push_back(
+            {"registerEventListener() -> ServiceSpecificException(22, \"Invalid argument\")",
+             "registerEventListener.*22"});
 }
 
 TEST_F(DnsResolverBinderTest, RegisterEventListener_DuplicateSubscription) {
@@ -104,11 +278,15 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_DuplicateSubscription) {
     std::shared_ptr<DummyListener> dummyListener = ndk::SharedRefBase::make<DummyListener>();
     ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(dummyListener);
     ASSERT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogData.push_back({"registerEventListener()", "registerEventListener.*"});
 
     // Expect to subscribe failed with registered listener instance.
     status = mDnsResolver->registerEventListener(dummyListener);
     ASSERT_FALSE(status.isOk());
     ASSERT_EQ(EEXIST, status.getServiceSpecificError());
+    mExpectedLogData.push_back(
+            {"registerEventListener() -> ServiceSpecificException(17, \"File exists\")",
+             "registerEventListener.*17"});
 }
 
 // TODO: Move this test to resolv_integration_test.cpp
@@ -161,6 +339,7 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_onDnsEvent) {
             ndk::SharedRefBase::make<TestOnDnsEvent>(expectedResults);
     ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(testOnDnsEvent);
     ASSERT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogData.push_back({"registerEventListener()", "registerEventListener.*"});
 
     // DNS queries.
     // Once all expected events of expectedResults are received by the listener, the unit test will
@@ -238,10 +417,13 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_Tls) {
             SCOPED_TRACE(StringPrintf("test case %zu should have passed", i));
             SCOPED_TRACE(status.getMessage());
             EXPECT_EQ(0, status.getServiceSpecificError());
+            mExpectedLogDataWithPacel.push_back(toSetResolverConfigurationLogData(resolverParams));
         } else {
             SCOPED_TRACE(StringPrintf("test case %zu should have failed", i));
             EXPECT_EQ(EX_SERVICE_SPECIFIC, status.getExceptionCode());
             EXPECT_EQ(td.expectedReturnCode, status.getServiceSpecificError());
+            mExpectedLogDataWithPacel.push_back(
+                    toSetResolverConfigurationLogData(resolverParams, td.expectedReturnCode));
         }
     }
 }
@@ -252,6 +434,7 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_TransportTypes) {
     resolverParams.transportTypes = {IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_VPN};
     ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
     EXPECT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogDataWithPacel.push_back(toSetResolverConfigurationLogData(resolverParams));
     // TODO: Find a way to fix a potential deadlock here if it's larger than pipe buffer
     // size(65535).
     android::base::unique_fd writeFd, readFd;
@@ -268,6 +451,7 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_TransportTypes_Default) {
     auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
     ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
     EXPECT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogDataWithPacel.push_back(toSetResolverConfigurationLogData(resolverParams));
     android::base::unique_fd writeFd, readFd;
     EXPECT_TRUE(Pipe(&readFd, &writeFd));
     EXPECT_EQ(mDnsResolver->dump(writeFd.get(), nullptr, 0), 0);
@@ -291,6 +475,7 @@ TEST_F(DnsResolverBinderTest, GetResolverInfo) {
             TEST_NETID, testParams, servers, domains, "", {});
     ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
     EXPECT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogDataWithPacel.push_back(toSetResolverConfigurationLogData(resolverParams));
 
     std::vector<std::string> res_servers;
     std::vector<std::string> res_domains;
@@ -335,46 +520,68 @@ TEST_F(DnsResolverBinderTest, CreateDestroyNetworkCache) {
 
     // Create a new network cache.
     EXPECT_TRUE(mDnsResolver->createNetworkCache(ANOTHER_TEST_NETID).isOk());
+    mExpectedLogData.push_back({"createNetworkCache(31)", "createNetworkCache.*31"});
 
     // create it again, expect a EEXIST.
     EXPECT_EQ(EEXIST,
               mDnsResolver->createNetworkCache(ANOTHER_TEST_NETID).getServiceSpecificError());
+    mExpectedLogData.push_back(
+            {"createNetworkCache(31) -> ServiceSpecificException(17, \"File exists\")",
+             "createNetworkCache.*31.*17"});
 
     // destroy it.
     EXPECT_TRUE(mDnsResolver->destroyNetworkCache(ANOTHER_TEST_NETID).isOk());
+    mExpectedLogData.push_back({"destroyNetworkCache(31)", "destroyNetworkCache.*31"});
 
     // re-create it
     EXPECT_TRUE(mDnsResolver->createNetworkCache(ANOTHER_TEST_NETID).isOk());
+    mExpectedLogData.push_back({"createNetworkCache(31)", "createNetworkCache.*31"});
 
     // destroy it.
     EXPECT_TRUE(mDnsResolver->destroyNetworkCache(ANOTHER_TEST_NETID).isOk());
+    mExpectedLogData.push_back({"destroyNetworkCache(31)", "destroyNetworkCache.*31"});
 
     // re-destroy it
     EXPECT_TRUE(mDnsResolver->destroyNetworkCache(ANOTHER_TEST_NETID).isOk());
+    mExpectedLogData.push_back({"destroyNetworkCache(31)", "destroyNetworkCache.*31"});
 }
 
 TEST_F(DnsResolverBinderTest, FlushNetworkCache) {
     SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsResolver.get(), 4);
     // cache has beed created in DnsResolverBinderTest constructor
     EXPECT_TRUE(mDnsResolver->flushNetworkCache(TEST_NETID).isOk());
+    mExpectedLogData.push_back({"flushNetworkCache(30)", "destroyNetworkCache.*30"});
     EXPECT_EQ(ENONET, mDnsResolver->flushNetworkCache(-1).getServiceSpecificError());
+    mExpectedLogData.push_back(
+            {"flushNetworkCache(-1) -> ServiceSpecificException(64, \"Machine is not on the "
+             "network\")",
+             "flushNetworkCache.*-1.*64"});
 }
 
 TEST_F(DnsResolverBinderTest, setLogSeverity) {
     // Expect fail
     EXPECT_EQ(EINVAL, mDnsResolver->setLogSeverity(-1).getServiceSpecificError());
+    mExpectedLogData.push_back(
+            {"setLogSeverity(-1) -> ServiceSpecificException(22, \"Invalid argument\")",
+             "flushNetworkCache.*-1.*22"});
 
     // Test set different log level
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_VERBOSE).isOk());
+    mExpectedLogData.push_back({"setLogSeverity(0)", "setLogSeverity.*0"});
 
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_DEBUG).isOk());
+    mExpectedLogData.push_back({"setLogSeverity(1)", "setLogSeverity.*1"});
 
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_INFO).isOk());
+    mExpectedLogData.push_back({"setLogSeverity(2)", "setLogSeverity.*2"});
 
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_WARNING).isOk());
+    mExpectedLogData.push_back({"setLogSeverity(3)", "setLogSeverity.*3"});
 
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_ERROR).isOk());
+    mExpectedLogData.push_back({"setLogSeverity(4)", "setLogSeverity.*4"});
 
     // Set back to default
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_WARNING).isOk());
+    mExpectedLogData.push_back({"setLogSeverity(3)", "setLogSeverity.*3"});
 }
