@@ -71,19 +71,25 @@ class PrivateDnsConfiguration {
 
     PrivateDnsConfiguration() = default;
 
-    void validatePrivateDnsProvider(const DnsTlsServer& server, PrivateDnsTracker& tracker,
-                                    unsigned netId, uint32_t mark) REQUIRES(mPrivateDnsLock);
+    void startValidation(const DnsTlsServer& server, unsigned netId, uint32_t mark)
+            REQUIRES(mPrivateDnsLock);
 
-    bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success);
+    bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success)
+            EXCLUDES(mPrivateDnsLock);
 
     bool needValidateThread(const DnsTlsServer& server, unsigned netId) REQUIRES(mPrivateDnsLock);
-    void cleanValidateThreadTracker(const DnsTlsServer& server, unsigned netId);
+    void cleanValidateThreadTracker(const DnsTlsServer& server, unsigned netId)
+            EXCLUDES(mPrivateDnsLock);
 
     // Start validation for newly added servers as well as any servers that have
     // landed in Validation::fail state. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
     // thread running are marked as being Validation::in_process.
-    bool needsValidation(const PrivateDnsTracker& tracker, const DnsTlsServer& server);
+    bool needsValidation(const PrivateDnsTracker& tracker, const DnsTlsServer& server)
+            REQUIRES(mPrivateDnsLock);
+
+    void updateServerState(const DnsTlsServer& server, Validation state, uint32_t netId)
+            REQUIRES(mPrivateDnsLock);
 
     std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);
@@ -94,6 +100,9 @@ class PrivateDnsConfiguration {
 
     // For testing. The observer is notified of onValidationStateUpdate 1) when a validation is
     // about to begin or 2) when a validation finishes.
+    // WARNING: The Observer is notified while the lock is being held. Be careful not to call any
+    // method of PrivateDnsConfiguration from the observer.
+    // TODO: fix the reentrancy problem.
     class Observer {
       public:
         virtual ~Observer(){};

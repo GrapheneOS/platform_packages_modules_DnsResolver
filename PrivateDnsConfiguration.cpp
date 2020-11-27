@@ -122,7 +122,27 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
     // Add any new or changed servers to the tracker, and initiate async checks for them.
     for (const auto& server : tlsServers) {
         if (needsValidation(tracker, server)) {
-            validatePrivateDnsProvider(server, tracker, netId, mark);
+            // This is temporarily required. Consider the following scenario, for example,
+            //   Step 1) A DoTServer (s1) is set for the network. A validation (v1) for s1 starts.
+            //           tracker has s1 alone.
+            //   Step 2) The configuration changes. DotServer2 (s2) is set for the network. A
+            //           validation (v2) for s2 starts. tracker has s2 alone.
+            //   Step 3) Assume v1 and v2 somehow block. Now, if the configuration changes back to
+            //           set s1, there won't be a v1' starts because needValidateThread() will
+            //           return false.
+            //
+            // If we didn't add servers to tracker before needValidateThread(), tracker would
+            // become empty. We would report s1 validation failed.
+            tracker[server] = Validation::in_process;
+            LOG(DEBUG) << "Server " << addrToString(&server.ss) << " marked as in_process on netId "
+                       << netId << ". Tracker now has size " << tracker.size();
+            // This judge must be after "tracker[server] = Validation::in_process;"
+            if (!needValidateThread(server, netId)) {
+                continue;
+            }
+
+            updateServerState(server, Validation::in_process, netId);
+            startValidation(server, netId, mark);
         }
     }
 
@@ -155,19 +175,8 @@ void PrivateDnsConfiguration::clear(unsigned netId) {
     mPrivateDnsValidateThreads.erase(netId);
 }
 
-void PrivateDnsConfiguration::validatePrivateDnsProvider(const DnsTlsServer& server,
-                                                         PrivateDnsTracker& tracker, unsigned netId,
-                                                         uint32_t mark) REQUIRES(mPrivateDnsLock) {
-    tracker[server] = Validation::in_process;
-    LOG(DEBUG) << "Server " << addrToString(&server.ss) << " marked as in_process on netId "
-               << netId << ". Tracker now has size " << tracker.size();
-    // This judge must be after "tracker[server] = Validation::in_process;"
-    if (!needValidateThread(server, netId)) {
-        return;
-    }
-
-    maybeNotifyObserver(server, Validation::in_process, netId);
-
+void PrivateDnsConfiguration::startValidation(const DnsTlsServer& server, unsigned netId,
+                                              uint32_t mark) REQUIRES(mPrivateDnsLock) {
     // Note that capturing |server| and |netId| in this lambda create copies.
     std::thread validate_thread([this, server, netId, mark] {
         setThreadName(StringPrintf("TlsVerify_%u", netId).c_str());
@@ -273,18 +282,14 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
     }
 
     if (success) {
-        tracker[server] = Validation::success;
-        maybeNotifyObserver(server, Validation::success, netId);
+        updateServerState(server, Validation::success, netId);
     } else {
         // Validation failure is expected if a user is on a captive portal.
         // TODO: Trigger a second validation attempt after captive portal login
         // succeeds.
-        tracker[server] = (reevaluationStatus == NEEDS_REEVALUATION) ? Validation::in_process
-                                                                     : Validation::fail;
-        maybeNotifyObserver(server,
-                            (reevaluationStatus == NEEDS_REEVALUATION) ? Validation::in_process
-                                                                       : Validation::fail,
-                            netId);
+        const auto result = (reevaluationStatus == NEEDS_REEVALUATION) ? Validation::in_process
+                                                                       : Validation::fail;
+        updateServerState(server, result, netId);
     }
     LOG(WARNING) << "Validation " << (success ? "success" : "failed");
 
@@ -319,6 +324,17 @@ bool PrivateDnsConfiguration::needValidateThread(const DnsTlsServer& server, uns
     }
 }
 
+void PrivateDnsConfiguration::updateServerState(const DnsTlsServer& server, Validation state,
+                                                uint32_t netId) {
+    auto netPair = mPrivateDnsTransports.find(netId);
+    if (netPair != mPrivateDnsTransports.end()) {
+        auto& tracker = netPair->second;
+        tracker[server] = state;
+    }
+
+    maybeNotifyObserver(server, state, netId);
+}
+
 void PrivateDnsConfiguration::cleanValidateThreadTracker(const DnsTlsServer& server,
                                                          unsigned netId) {
     std::lock_guard<std::mutex> guard(mPrivateDnsLock);
@@ -335,10 +351,6 @@ void PrivateDnsConfiguration::cleanValidateThreadTracker(const DnsTlsServer& ser
     }
 }
 
-// Start validation for newly added servers as well as any servers that have
-// landed in Validation::fail state. Note that servers that have failed
-// multiple validation attempts but for which there is still a validating
-// thread running are marked as being Validation::in_process.
 bool PrivateDnsConfiguration::needsValidation(const PrivateDnsTracker& tracker,
                                               const DnsTlsServer& server) {
     const auto& iter = tracker.find(server);
