@@ -39,7 +39,6 @@
 #include <cutils/misc.h>           // FIRST_APPLICATION_UID
 #include <cutils/multiuser.h>
 #include <netdutils/InternetAddresses.h>
-#include <netdutils/OperationLimiter.h>
 #include <netdutils/ResponseCode.h>
 #include <netdutils/Slice.h>
 #include <netdutils/Stopwatch.h>
@@ -50,6 +49,7 @@
 
 #include "DnsResolver.h"
 #include "NetdPermissions.h"
+#include "OperationLimiter.h"
 #include "PrivateDnsConfiguration.h"
 #include "ResolverEventReporter.h"
 #include "dnsproxyd_protocol/DnsProxydProtocol.h"  // NETID_USE_LOCAL_NAMESERVERS
