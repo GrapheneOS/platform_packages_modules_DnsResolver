@@ -393,7 +393,7 @@ TEST_F(ResolverTest, GetHostByName) {
     result = gethostbyname("nonexistent");
     EXPECT_EQ(1U, GetNumQueriesForType(dns, ns_type::ns_t_a, nonexistent_host_name));
     ASSERT_TRUE(result == nullptr);
-    ASSERT_EQ(HOST_NOT_FOUND, h_errno);
+    EXPECT_EQ(HOST_NOT_FOUND, h_errno);
 
     dns.clearQueries();
     result = gethostbyname("hello");
@@ -403,6 +403,19 @@ TEST_F(ResolverTest, GetHostByName) {
     ASSERT_FALSE(result->h_addr_list[0] == nullptr);
     EXPECT_EQ("1.2.3.3", ToString(result));
     EXPECT_TRUE(result->h_addr_list[1] == nullptr);
+}
+
+TEST_F(ResolverTest, GetHostByName_NULL) {
+    // Most libc implementations would just crash on gethostbyname(NULL). Instead, Bionic
+    // serializes the null argument over dnsproxyd, causing the server-side to crash!
+    // This is a regression test.
+    const char* const testcases[] = {nullptr, "", "^"};
+    for (const char* name : testcases) {
+        SCOPED_TRACE(fmt::format("gethostbyname({})", name ? name : "NULL"));
+        const hostent* result = gethostbyname(name);
+        EXPECT_TRUE(result == nullptr);
+        EXPECT_EQ(HOST_NOT_FOUND, h_errno);
+    }
 }
 
 TEST_F(ResolverTest, GetHostByName_cnames) {

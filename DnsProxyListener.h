@@ -65,9 +65,9 @@ class DnsProxyListener : public FrameworkListener {
     class GetAddrInfoHandler : public Handler {
       public:
         // Note: All of host, service, and hints may be NULL
-        GetAddrInfoHandler(SocketClient* c, char* host, char* service, addrinfo* hints,
-                           const android_net_context& netcontext);
-        ~GetAddrInfoHandler() override;
+        GetAddrInfoHandler(SocketClient* c, std::string host, std::string service,
+                           std::unique_ptr<addrinfo> hints, const android_net_context& netcontext);
+        ~GetAddrInfoHandler() override = default;
 
         void run() override;
         std::string threadName() override;
@@ -75,9 +75,9 @@ class DnsProxyListener : public FrameworkListener {
       private:
         void doDns64Synthesis(int32_t* rv, addrinfo** res, NetworkDnsEventReported* event);
 
-        char* mHost;            // owned. TODO: convert to std::string.
-        char* mService;         // owned. TODO: convert to std::string.
-        addrinfo* mHints;       // owned
+        std::string mHost;
+        std::string mService;
+        std::unique_ptr<addrinfo> mHints;
         android_net_context mNetContext;
     };
 
@@ -91,9 +91,9 @@ class DnsProxyListener : public FrameworkListener {
 
     class GetHostByNameHandler : public Handler {
       public:
-        GetHostByNameHandler(SocketClient* c, char* name, int af,
+        GetHostByNameHandler(SocketClient* c, std::string name, int af,
                              const android_net_context& netcontext);
-        ~GetHostByNameHandler() override;
+        ~GetHostByNameHandler() override = default;
 
         void run() override;
         std::string threadName() override;
@@ -102,7 +102,7 @@ class DnsProxyListener : public FrameworkListener {
         void doDns64Synthesis(int32_t* rv, hostent* hbuf, char* buf, size_t buflen, hostent** hpp,
                               NetworkDnsEventReported* event);
 
-        char* mName;            // owned. TODO: convert to std::string.
+        std::string mName;
         int mAf;
         android_net_context mNetContext;
     };
@@ -117,9 +117,9 @@ class DnsProxyListener : public FrameworkListener {
 
     class GetHostByAddrHandler : public Handler {
       public:
-        GetHostByAddrHandler(SocketClient* c, void* address, int addressLen, int addressFamily,
+        GetHostByAddrHandler(SocketClient* c, in6_addr address, int addressLen, int addressFamily,
                              const android_net_context& netcontext);
-        ~GetHostByAddrHandler() override;
+        ~GetHostByAddrHandler() override = default;
 
         void run() override;
         std::string threadName() override;
@@ -128,7 +128,7 @@ class DnsProxyListener : public FrameworkListener {
         void doDns64ReverseLookup(hostent* hbuf, char* buf, size_t buflen, hostent** hpp,
                                   NetworkDnsEventReported* event);
 
-        void* mAddress;         // address to lookup; owned
+        in6_addr mAddress;
         int mAddressLen;        // length of address to look up
         int mAddressFamily;     // address family
         android_net_context mNetContext;
