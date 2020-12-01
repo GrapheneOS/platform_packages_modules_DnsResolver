@@ -110,7 +110,7 @@ bool queryingViaTls(unsigned dns_netid) {
 
 bool hasPermissionToBypassPrivateDns(uid_t uid) {
     static_assert(AID_SYSTEM >= 0 && AID_SYSTEM < FIRST_APPLICATION_UID,
-        "Calls from AID_SYSTEM must not result in a permission check to avoid deadlock.");
+                  "Calls from AID_SYSTEM must not result in a permission check to avoid deadlock.");
     if (uid >= 0 && uid < FIRST_APPLICATION_UID) {
         return true;
     }
@@ -149,7 +149,7 @@ int extractResNsendAnswers(const uint8_t* answer, size_t anslen, int ipType,
                            std::vector<std::string>* ip_addrs) {
     int total_ip_addr_count = 0;
     ns_msg handle;
-    if (ns_initparse((const uint8_t*) answer, anslen, &handle) < 0) {
+    if (ns_initparse((const uint8_t*)answer, anslen, &handle) < 0) {
         return 0;
     }
     int ancount = ns_msg_count(handle, ns_s_an);
@@ -162,12 +162,12 @@ int extractResNsendAnswers(const uint8_t* answer, size_t anslen, int ipType,
         if (ipType == ns_t_a) {
             sockaddr_in sin = {.sin_family = AF_INET};
             memcpy(&sin.sin_addr, rdata, sizeof(sin.sin_addr));
-            addIpAddrWithinLimit(ip_addrs, (sockaddr*) &sin, sizeof(sin));
+            addIpAddrWithinLimit(ip_addrs, (sockaddr*)&sin, sizeof(sin));
             total_ip_addr_count++;
         } else if (ipType == ns_t_aaaa) {
             sockaddr_in6 sin6 = {.sin6_family = AF_INET6};
             memcpy(&sin6.sin6_addr, rdata, sizeof(sin6.sin6_addr));
-            addIpAddrWithinLimit(ip_addrs, (sockaddr*) &sin6, sizeof(sin6));
+            addIpAddrWithinLimit(ip_addrs, (sockaddr*)&sin6, sizeof(sin6));
             total_ip_addr_count++;
         }
     }
@@ -196,17 +196,17 @@ int extractGetHostByNameAnswers(const hostent* hp, std::vector<std::string>* ip_
         return 0;
     }
     if (hp->h_addrtype == AF_INET) {
-        in_addr** list = (in_addr**) hp->h_addr_list;
+        in_addr** list = (in_addr**)hp->h_addr_list;
         for (int i = 0; list[i] != nullptr; i++) {
             sockaddr_in sin = {.sin_family = AF_INET, .sin_addr = *list[i]};
-            addIpAddrWithinLimit(ip_addrs, (sockaddr*) &sin, sizeof(sin));
+            addIpAddrWithinLimit(ip_addrs, (sockaddr*)&sin, sizeof(sin));
             total_ip_addr_count++;
         }
     } else if (hp->h_addrtype == AF_INET6) {
-        in6_addr** list = (in6_addr**) hp->h_addr_list;
+        in6_addr** list = (in6_addr**)hp->h_addr_list;
         for (int i = 0; list[i] != nullptr; i++) {
             sockaddr_in6 sin6 = {.sin6_family = AF_INET6, .sin6_addr = *list[i]};
-            addIpAddrWithinLimit(ip_addrs, (sockaddr*) &sin6, sizeof(sin6));
+            addIpAddrWithinLimit(ip_addrs, (sockaddr*)&sin6, sizeof(sin6));
             total_ip_addr_count++;
         }
     }
@@ -382,7 +382,7 @@ bool isSpecialUseIPv4Address(const struct in_addr& ia) {
 bool isSpecialUseIPv4Address(const struct sockaddr* sa) {
     if (sa->sa_family != AF_INET) return false;
 
-    return isSpecialUseIPv4Address(((struct sockaddr_in*) sa)->sin_addr);
+    return isSpecialUseIPv4Address(((struct sockaddr_in*)sa)->sin_addr);
 }
 
 bool onlyNonSpecialUseIPv4Addresses(struct hostent* hp) {
@@ -391,7 +391,7 @@ bool onlyNonSpecialUseIPv4Addresses(struct hostent* hp) {
     if (hp->h_addrtype != AF_INET) return false;
 
     for (int i = 0; hp->h_addr_list[i] != nullptr; i++)
-        if (isSpecialUseIPv4Address(*(struct in_addr*) hp->h_addr_list[i])) return false;
+        if (isSpecialUseIPv4Address(*(struct in_addr*)hp->h_addr_list[i])) return false;
 
     return true;
 }
@@ -461,10 +461,10 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, struct 
     if (!isValidNat64Prefix(prefix)) return false;
 
     struct sockaddr_storage ss = netdutils::IPSockAddr(prefix.ip());
-    struct sockaddr_in6* v6prefix = (struct sockaddr_in6*) &ss;
+    struct sockaddr_in6* v6prefix = (struct sockaddr_in6*)&ss;
     for (int i = 0; hp->h_addr_list[i] != nullptr; i++) {
-        struct in_addr iaOriginal = *(struct in_addr*) hp->h_addr_list[i];
-        struct in6_addr* ia6 = (struct in6_addr*) hp->h_addr_list[i];
+        struct in_addr iaOriginal = *(struct in_addr*)hp->h_addr_list[i];
+        struct in6_addr* ia6 = (struct in6_addr*)hp->h_addr_list[i];
         memset(ia6, 0, sizeof(struct in6_addr));
 
         // Synthesize /96 NAT64 prefix in place. The space has reserved by getanswer() and
@@ -496,10 +496,10 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinf
     if (!isValidNat64Prefix(prefix)) return false;
 
     struct sockaddr_storage ss = netdutils::IPSockAddr(prefix.ip());
-    struct sockaddr_in6* v6prefix = (struct sockaddr_in6*) &ss;
+    struct sockaddr_in6* v6prefix = (struct sockaddr_in6*)&ss;
     for (addrinfo* ai = result; ai; ai = ai->ai_next) {
-        struct sockaddr_in sinOriginal = *(struct sockaddr_in*) ai->ai_addr;
-        struct sockaddr_in6* sin6 = (struct sockaddr_in6*) ai->ai_addr;
+        struct sockaddr_in sinOriginal = *(struct sockaddr_in*)ai->ai_addr;
+        struct sockaddr_in6* sin6 = (struct sockaddr_in6*)ai->ai_addr;
         memset(sin6, 0, sizeof(sockaddr_in6));
 
         // Synthesize /96 NAT64 prefix in place. The space has reserved by get_ai() in
@@ -557,21 +557,18 @@ void DnsProxyListener::Handler::spawn() {
     delete this;
 }
 
-DnsProxyListener::GetAddrInfoHandler::GetAddrInfoHandler(SocketClient* c, char* host, char* service,
-                                                         addrinfo* hints,
+DnsProxyListener::GetAddrInfoHandler::GetAddrInfoHandler(SocketClient* c, std::string host,
+                                                         std::string service,
+                                                         std::unique_ptr<addrinfo> hints,
                                                          const android_net_context& netcontext)
-    : Handler(c), mHost(host), mService(service), mHints(hints), mNetContext(netcontext) {}
+    : Handler(c),
+      mHost(move(host)),
+      mService(move(service)),
+      mHints(move(hints)),
+      mNetContext(netcontext) {}
 
-DnsProxyListener::GetAddrInfoHandler::~GetAddrInfoHandler() {
-    free(mHost);
-    free(mService);
-    free(mHints);
-}
-
-static bool evaluate_domain_name(const android_net_context &netcontext,
-                                 const char *host) {
-    if (!gResNetdCallbacks.evaluate_domain_name)
-        return true;
+static bool evaluate_domain_name(const android_net_context& netcontext, const char* host) {
+    if (!gResNetdCallbacks.evaluate_domain_name) return true;
     return gResNetdCallbacks.evaluate_domain_name(netcontext, host);
 }
 
@@ -591,15 +588,15 @@ static bool sendhostent(SocketClient* c, hostent* hp) {
     bool success = true;
     int i;
     if (hp->h_name != nullptr) {
-        success &= sendLenAndData(c, strlen(hp->h_name)+1, hp->h_name);
+        success &= sendLenAndData(c, strlen(hp->h_name) + 1, hp->h_name);
     } else {
         success &= sendLenAndData(c, 0, "") == 0;
     }
 
-    for (i=0; hp->h_aliases[i] != nullptr; i++) {
-        success &= sendLenAndData(c, strlen(hp->h_aliases[i])+1, hp->h_aliases[i]);
+    for (i = 0; hp->h_aliases[i] != nullptr; i++) {
+        success &= sendLenAndData(c, strlen(hp->h_aliases[i]) + 1, hp->h_aliases[i]);
     }
-    success &= sendLenAndData(c, 0, ""); // null to indicate we're done
+    success &= sendLenAndData(c, 0, "");  // null to indicate we're done
 
     uint32_t buf = htonl(hp->h_addrtype);
     success &= c->sendData(&buf, sizeof(buf)) == 0;
@@ -607,10 +604,10 @@ static bool sendhostent(SocketClient* c, hostent* hp) {
     buf = htonl(hp->h_length);
     success &= c->sendData(&buf, sizeof(buf)) == 0;
 
-    for (i=0; hp->h_addr_list[i] != nullptr; i++) {
+    for (i = 0; hp->h_addr_list[i] != nullptr; i++) {
         success &= sendLenAndData(c, 16, hp->h_addr_list[i]);
     }
-    success &= sendLenAndData(c, 0, ""); // null to indicate we're done
+    success &= sendLenAndData(c, 0, "");  // null to indicate we're done
     return success;
 }
 
@@ -628,11 +625,8 @@ static bool sendaddrinfo(SocketClient* c, addrinfo* ai) {
 
     // Write the struct piece by piece because we might be a 64-bit netd
     // talking to a 32-bit process.
-    bool success =
-            sendBE32(c, ai->ai_flags) &&
-            sendBE32(c, ai->ai_family) &&
-            sendBE32(c, ai->ai_socktype) &&
-            sendBE32(c, ai->ai_protocol);
+    bool success = sendBE32(c, ai->ai_flags) && sendBE32(c, ai->ai_family) &&
+                   sendBE32(c, ai->ai_socktype) && sendBE32(c, ai->ai_protocol);
     if (!success) {
         return false;
     }
@@ -652,8 +646,6 @@ static bool sendaddrinfo(SocketClient* c, addrinfo* ai) {
 
 void DnsProxyListener::GetAddrInfoHandler::doDns64Synthesis(int32_t* rv, addrinfo** res,
                                                             NetworkDnsEventReported* event) {
-    if (mHost == nullptr) return;
-
     const bool ipv6WantedButNoData = (mHints && mHints->ai_family == AF_INET6 && *rv == EAI_NODATA);
     const bool unspecWantedButNoIPv6 =
             ((!mHints || mHints->ai_family == AF_UNSPEC) && *rv == 0 && onlyIPv4Answers(*res));
@@ -671,10 +663,12 @@ void DnsProxyListener::GetAddrInfoHandler::doDns64Synthesis(int32_t* rv, addrinf
         // If caller wants IPv6 answers but no data, try to query IPv4 answers for synthesis
         const uid_t uid = mClient->getUid();
         if (queryLimiter.start(uid)) {
+            const char* host = mHost.starts_with('^') ? nullptr : mHost.c_str();
+            const char* service = mService.starts_with('^') ? nullptr : mService.c_str();
             mHints->ai_family = AF_INET;
             // Don't need to do freeaddrinfo(res) before starting new DNS lookup because previous
             // DNS lookup is failed with error EAI_NODATA.
-            *rv = resolv_getaddrinfo(mHost, mService, mHints, &mNetContext, res, event);
+            *rv = resolv_getaddrinfo(host, service, mHints.get(), &mNetContext, res, event);
             queryLimiter.finish(uid);
             if (*rv) {
                 *rv = EAI_NODATA;  // return original error code
@@ -712,9 +706,10 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
-        if (evaluate_domain_name(mNetContext, mHost)) {
-            rv = resolv_getaddrinfo(mHost, mService, mHints, &mNetContext, &result,
-                                    &event);
+        const char* host = mHost.starts_with('^') ? nullptr : mHost.c_str();
+        const char* service = mService.starts_with('^') ? nullptr : mService.c_str();
+        if (evaluate_domain_name(mNetContext, host)) {
+            rv = resolv_getaddrinfo(host, service, mHints.get(), &mNetContext, &result, &event);
         } else {
             rv = EAI_SYSTEM;
         }
@@ -782,34 +777,20 @@ void addIpAddrWithinLimit(std::vector<std::string>* ip_addrs, const sockaddr* ad
 
 DnsProxyListener::GetAddrInfoCmd::GetAddrInfoCmd() : FrameworkCommand("getaddrinfo") {}
 
-int DnsProxyListener::GetAddrInfoCmd::runCommand(SocketClient *cli,
-                                            int argc, char **argv) {
+int DnsProxyListener::GetAddrInfoCmd::runCommand(SocketClient* cli, int argc, char** argv) {
     logArguments(argc, argv);
 
     if (argc != 8) {
         char* msg = nullptr;
-        asprintf( &msg, "Invalid number of arguments to getaddrinfo: %i", argc);
+        asprintf(&msg, "Invalid number of arguments to getaddrinfo: %i", argc);
         LOG(WARNING) << "GetAddrInfoCmd::runCommand: " << (msg ? msg : "null");
         cli->sendMsg(ResponseCode::CommandParameterError, msg, false);
         free(msg);
         return -1;
     }
 
-    char* name = argv[1];
-    if (strcmp("^", name) == 0) {
-        name = nullptr;
-    } else {
-        name = strdup(name);
-    }
-
-    char* service = argv[2];
-    if (strcmp("^", service) == 0) {
-        service = nullptr;
-    } else {
-        service = strdup(service);
-    }
-
-    addrinfo* hints = nullptr;
+    const std::string name = argv[1];
+    const std::string service = argv[2];
     int ai_flags = strtol(argv[3], nullptr, 10);
     int ai_family = strtol(argv[4], nullptr, 10);
     int ai_socktype = strtol(argv[5], nullptr, 10);
@@ -825,16 +806,16 @@ int DnsProxyListener::GetAddrInfoCmd::runCommand(SocketClient *cli,
         netcontext.flags |= NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS;
     }
 
-    if (ai_flags != -1 || ai_family != -1 ||
-        ai_socktype != -1 || ai_protocol != -1) {
-        hints = (addrinfo*) calloc(1, sizeof(addrinfo));
+    std::unique_ptr<addrinfo> hints;
+    if (ai_flags != -1 || ai_family != -1 || ai_socktype != -1 || ai_protocol != -1) {
+        hints.reset((addrinfo*)calloc(1, sizeof(addrinfo)));
         hints->ai_flags = ai_flags;
         hints->ai_family = ai_family;
         hints->ai_socktype = ai_socktype;
         hints->ai_protocol = ai_protocol;
     }
 
-    (new GetAddrInfoHandler(cli, name, service, hints, netcontext))->spawn();
+    (new GetAddrInfoHandler(cli, name, service, move(hints), netcontext))->spawn();
     return 0;
 }
 
@@ -976,7 +957,7 @@ void DnsProxyListener::ResNSendHandler::run() {
     if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
         std::vector<std::string> ip_addrs;
         const int total_ip_addr_count =
-                extractResNsendAnswers((uint8_t*) ansBuf.data(), nsendAns, rr_type, &ip_addrs);
+                extractResNsendAnswers((uint8_t*)ansBuf.data(), nsendAns, rr_type, &ip_addrs);
         reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
                        resNSendToAiError(nsendAns, rcode), event, rr_name, ip_addrs,
                        total_ip_addr_count);
@@ -1043,8 +1024,7 @@ int DnsProxyListener::GetDnsNetIdCommand::runCommand(SocketClient* cli, int argc
  *******************************************************/
 DnsProxyListener::GetHostByNameCmd::GetHostByNameCmd() : FrameworkCommand("gethostbyname") {}
 
-int DnsProxyListener::GetHostByNameCmd::runCommand(SocketClient *cli,
-                                            int argc, char **argv) {
+int DnsProxyListener::GetHostByNameCmd::runCommand(SocketClient* cli, int argc, char** argv) {
     logArguments(argc, argv);
 
     if (argc != 4) {
@@ -1059,14 +1039,8 @@ int DnsProxyListener::GetHostByNameCmd::runCommand(SocketClient *cli,
     uid_t uid = cli->getUid();
     unsigned netId = strtoul(argv[1], nullptr, 10);
     const bool useLocalNameservers = checkAndClearUseLocalNameserversFlag(&netId);
-    char* name = argv[2];
+    std::string name = argv[2];
     int af = strtol(argv[3], nullptr, 10);
-
-    if (strcmp(name, "^") == 0) {
-        name = nullptr;
-    } else {
-        name = strdup(name);
-    }
 
     android_net_context netcontext;
     gResNetdCallbacks.get_network_context(netId, uid, &netcontext);
@@ -1079,13 +1053,10 @@ int DnsProxyListener::GetHostByNameCmd::runCommand(SocketClient *cli,
     return 0;
 }
 
-DnsProxyListener::GetHostByNameHandler::GetHostByNameHandler(SocketClient* c, char* name, int af,
+DnsProxyListener::GetHostByNameHandler::GetHostByNameHandler(SocketClient* c, std::string name,
+                                                             int af,
                                                              const android_net_context& netcontext)
-    : Handler(c), mName(name), mAf(af), mNetContext(netcontext) {}
-
-DnsProxyListener::GetHostByNameHandler::~GetHostByNameHandler() {
-    free(mName);
-}
+    : Handler(c), mName(move(name)), mAf(af), mNetContext(netcontext) {}
 
 void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, hostent* hbuf, char* buf,
                                                               size_t buflen, struct hostent** hpp,
@@ -1106,7 +1077,8 @@ void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, hoste
     // If caller wants IPv6 answers but no data, try to query IPv4 answers for synthesis
     const uid_t uid = mClient->getUid();
     if (queryLimiter.start(uid)) {
-        *rv = resolv_gethostbyname(mName, AF_INET, hbuf, buf, buflen, &mNetContext, hpp, event);
+        const char* name = mName.starts_with('^') ? nullptr : mName.c_str();
+        *rv = resolv_gethostbyname(name, AF_INET, hbuf, buf, buflen, &mNetContext, hpp, event);
         queryLimiter.finish(uid);
         if (*rv) {
             *rv = EAI_NODATA;  // return original error code
@@ -1135,8 +1107,9 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
-        if (evaluate_domain_name(mNetContext, mName)) {
-            rv = resolv_gethostbyname(mName, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
+        const char* name = mName.starts_with('^') ? nullptr : mName.c_str();
+        if (evaluate_domain_name(mNetContext, name)) {
+            rv = resolv_gethostbyname(name, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
                                       &event);
         } else {
             rv = EAI_SYSTEM;
@@ -1184,8 +1157,7 @@ std::string DnsProxyListener::GetHostByNameHandler::threadName() {
  *******************************************************/
 DnsProxyListener::GetHostByAddrCmd::GetHostByAddrCmd() : FrameworkCommand("gethostbyaddr") {}
 
-int DnsProxyListener::GetHostByAddrCmd::runCommand(SocketClient *cli,
-                                            int argc, char **argv) {
+int DnsProxyListener::GetHostByAddrCmd::runCommand(SocketClient* cli, int argc, char** argv) {
     logArguments(argc, argv);
 
     if (argc != 5) {
@@ -1204,15 +1176,14 @@ int DnsProxyListener::GetHostByAddrCmd::runCommand(SocketClient *cli,
     unsigned netId = strtoul(argv[4], nullptr, 10);
     const bool useLocalNameservers = checkAndClearUseLocalNameserversFlag(&netId);
 
-    void* addr = malloc(sizeof(in6_addr));
+    in6_addr addr;
     errno = 0;
-    int result = inet_pton(addrFamily, addrStr, addr);
+    int result = inet_pton(addrFamily, addrStr, &addr);
     if (result <= 0) {
         char* msg = nullptr;
         asprintf(&msg, "inet_pton(\"%s\") failed %s", addrStr, strerror(errno));
         LOG(WARNING) << "GetHostByAddrCmd::runCommand: " << (msg ? msg : "null");
         cli->sendMsg(ResponseCode::OperationFailed, msg, false);
-        free(addr);
         free(msg);
         return -1;
     }
@@ -1228,7 +1199,7 @@ int DnsProxyListener::GetHostByAddrCmd::runCommand(SocketClient *cli,
     return 0;
 }
 
-DnsProxyListener::GetHostByAddrHandler::GetHostByAddrHandler(SocketClient* c, void* address,
+DnsProxyListener::GetHostByAddrHandler::GetHostByAddrHandler(SocketClient* c, in6_addr address,
                                                              int addressLen, int addressFamily,
                                                              const android_net_context& netcontext)
     : Handler(c),
@@ -1237,15 +1208,11 @@ DnsProxyListener::GetHostByAddrHandler::GetHostByAddrHandler(SocketClient* c, vo
       mAddressFamily(addressFamily),
       mNetContext(netcontext) {}
 
-DnsProxyListener::GetHostByAddrHandler::~GetHostByAddrHandler() {
-    free(mAddress);
-}
-
 void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(hostent* hbuf, char* buf,
                                                                   size_t buflen,
                                                                   struct hostent** hpp,
                                                                   NetworkDnsEventReported* event) {
-    if (*hpp != nullptr || mAddressFamily != AF_INET6 || !mAddress) {
+    if (*hpp != nullptr || mAddressFamily != AF_INET6) {
         return;
     }
 
@@ -1259,8 +1226,8 @@ void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(hostent* hbuf,
     }
 
     struct sockaddr_storage ss = netdutils::IPSockAddr(prefix.ip());
-    struct sockaddr_in6* v6prefix = (struct sockaddr_in6*) &ss;
-    struct in6_addr v6addr = *(in6_addr*) mAddress;
+    struct sockaddr_in6* v6prefix = (struct sockaddr_in6*)&ss;
+    struct in6_addr v6addr = mAddress;
     // Check if address has NAT64 prefix. Only /96 IPv6 NAT64 prefixes are supported
     if ((v6addr.s6_addr32[0] != v6prefix->sin6_addr.s6_addr32[0]) ||
         (v6addr.s6_addr32[1] != v6prefix->sin6_addr.s6_addr32[1]) ||
@@ -1300,7 +1267,7 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
-        rv = resolv_gethostbyaddr(mAddress, mAddressLen, mAddressFamily, &hbuf, tmpbuf,
+        rv = resolv_gethostbyaddr(&mAddress, mAddressLen, mAddressFamily, &hbuf, tmpbuf,
                                   sizeof tmpbuf, &mNetContext, &hp, &event);
         queryLimiter.finish(uid);
     } else {

@@ -388,8 +388,11 @@ nospc:
 int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_t buflen,
                          const android_net_context* netcontext, hostent** result,
                          NetworkDnsEventReported* event) {
-    getnamaddr info;
+    if (name == nullptr || hp == nullptr) {
+        return EAI_SYSTEM;
+    }
 
+    getnamaddr info;
     ResState res;
     res_init(&res, netcontext, event);
 
