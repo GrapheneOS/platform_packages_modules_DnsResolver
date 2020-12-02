@@ -70,6 +70,8 @@ constexpr const char* validationStatusToString(Validation value) {
             return "in_process";
         case Validation::success:
             return "success";
+        case Validation::success_but_expired:
+            return "success_but_expired";
         case Validation::fail:
             return "fail";
         case Validation::unknown_server:

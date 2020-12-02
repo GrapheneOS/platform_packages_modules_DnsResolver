@@ -95,26 +95,22 @@ class PrivateDnsConfiguration {
     bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success)
             EXCLUDES(mPrivateDnsLock);
 
-    bool needValidateThread(const DnsTlsServer& server, unsigned netId) REQUIRES(mPrivateDnsLock);
-    void cleanValidateThreadTracker(const DnsTlsServer& server, unsigned netId)
-            EXCLUDES(mPrivateDnsLock);
-
-    // Start validation for newly added servers as well as any servers that have
-    // landed in Validation::fail state. Note that servers that have failed
+    // Decide if a validation for |server| is needed. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
     // thread running are marked as being Validation::in_process.
-    bool needsValidation(const PrivateDnsTracker& tracker, const DnsTlsServer& server)
-            REQUIRES(mPrivateDnsLock);
+    bool needsValidation(const DnsTlsServer& server) REQUIRES(mPrivateDnsLock);
 
     void updateServerState(const ServerIdentity& identity, Validation state, uint32_t netId)
             REQUIRES(mPrivateDnsLock);
 
     std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);
-    // Structure for tracking the validation status of servers on a specific netId.
-    // Using the AddressComparator ensures at most one entry per IP address.
+
+    // Contains all servers for a network, along with their current validation status.
+    // In case a server is removed due to a configuration change, it remains in this map,
+    // but is marked inactive.
+    // Any pending validation threads will continue running because we have no way to cancel them.
     std::map<unsigned, PrivateDnsTracker> mPrivateDnsTransports GUARDED_BY(mPrivateDnsLock);
-    std::map<unsigned, ThreadTracker> mPrivateDnsValidateThreads GUARDED_BY(mPrivateDnsLock);
 
     // For testing. The observer is notified of onValidationStateUpdate 1) when a validation is
     // about to begin or 2) when a validation finishes. If a validation finishes when in OFF mode
