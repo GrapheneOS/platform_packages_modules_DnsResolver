@@ -20,7 +20,6 @@
 
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
-#include <netdb.h>
 #include <netdutils/ThreadUtil.h>
 #include <sys/socket.h>
 
@@ -36,13 +35,6 @@ using std::chrono::milliseconds;
 
 namespace android {
 namespace net {
-
-std::string addrToString(const sockaddr_storage* addr) {
-    char out[INET6_ADDRSTRLEN] = {0};
-    getnameinfo((const sockaddr*) addr, sizeof(sockaddr_storage), out, INET6_ADDRSTRLEN, nullptr, 0,
-                NI_NUMERICHOST);
-    return std::string(out);
-}
 
 bool parseServer(const char* server, sockaddr_storage* parsed) {
     addrinfo hints = {
@@ -178,7 +170,7 @@ void PrivateDnsConfiguration::startValidation(const DnsTlsServer& server, unsign
             LOG(WARNING) << "Validating DnsTlsServer on netId " << netId;
             const bool success = DnsTlsTransport::validate(server, netId, mark);
             LOG(DEBUG) << "validateDnsTlsServer returned " << success << " for "
-                       << addrToString(&server.ss);
+                       << server.toIpString();
 
             const bool needs_reeval = this->recordPrivateDnsValidation(server, netId, success);
             if (!needs_reeval) {
@@ -225,20 +217,19 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
     auto& tracker = netPair->second;
     auto serverPair = tracker.find(identity);
     if (serverPair == tracker.end()) {
-        LOG(WARNING) << "Server " << addrToString(&server.ss)
+        LOG(WARNING) << "Server " << server.toIpString()
                      << " was removed during private DNS validation";
         success = false;
         reevaluationStatus = DONT_REEVALUATE;
     } else if (!(serverPair->second == server)) {
         // TODO: It doesn't seem correct to overwrite the tracker entry for
         // |server| down below in this circumstance... Fix this.
-        LOG(WARNING) << "Server " << addrToString(&server.ss)
+        LOG(WARNING) << "Server " << server.toIpString()
                      << " was changed during private DNS validation";
         success = false;
         reevaluationStatus = DONT_REEVALUATE;
     } else if (!serverPair->second.active()) {
-        LOG(WARNING) << "Server " << addrToString(&server.ss)
-                     << " was removed from the configuration";
+        LOG(WARNING) << "Server " << server.toIpString() << " was removed from the configuration";
         success = false;
         reevaluationStatus = DONT_REEVALUATE;
     }
@@ -247,11 +238,11 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
     const auto& listeners = ResolverEventReporter::getInstance().getListeners();
     if (listeners.size() != 0) {
         for (const auto& it : listeners) {
-            it->onPrivateDnsValidationEvent(netId, addrToString(&server.ss), server.name, success);
+            it->onPrivateDnsValidationEvent(netId, server.toIpString(), server.name, success);
         }
         LOG(DEBUG) << "Sent validation " << (success ? "success" : "failure") << " event on netId "
-                   << netId << " for " << addrToString(&server.ss) << " with hostname {"
-                   << server.name << "}";
+                   << netId << " for " << server.toIpString() << " with hostname {" << server.name
+                   << "}";
     } else {
         LOG(ERROR)
                 << "Validation event not sent since no INetdEventListener receiver is available.";

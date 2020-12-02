@@ -18,6 +18,8 @@
 
 #include <algorithm>
 
+#include <netdutils/InternetAddresses.h>
+
 namespace {
 
 // Returns a tuple of references to the elements of a.
@@ -122,6 +124,10 @@ bool DnsTlsServer::operator ==(const DnsTlsServer& other) const {
 
 bool DnsTlsServer::wasExplicitlyConfigured() const {
     return !name.empty();
+}
+
+std::string DnsTlsServer::toIpString() const {
+    return netdutils::IPSockAddr::toIPSockAddr(ss).ip().toString();
 }
 
 }  // namespace net
