@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <android-base/thread_annotations.h>
+#include <netdutils/InternetAddresses.h>
 
 #include "DnsTlsServer.h"
 
@@ -31,11 +32,10 @@ namespace net {
 // The DNS over TLS mode on a specific netId.
 enum class PrivateDnsMode : uint8_t { OFF, OPPORTUNISTIC, STRICT };
 
-// Validation status of a DNS over TLS server (on a specific netId).
-enum class Validation : uint8_t { in_process, success, fail, unknown_server, unknown_netid };
-
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
+
+    // TODO: change the type to std::vector<DnsTlsServer>.
     std::map<DnsTlsServer, Validation, AddressComparator> serversMap;
 
     std::list<DnsTlsServer> validatedServers() const {
@@ -65,8 +65,26 @@ class PrivateDnsConfiguration {
 
     void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
+    struct ServerIdentity {
+        const netdutils::IPAddress ip;
+        const std::string name;
+        const int protocol;
+
+        explicit ServerIdentity(const DnsTlsServer& server)
+            : ip(netdutils::IPSockAddr::toIPSockAddr(server.ss).ip()),
+              name(server.name),
+              protocol(server.protocol) {}
+
+        bool operator<(const ServerIdentity& other) const {
+            return std::tie(ip, name, protocol) < std::tie(other.ip, other.name, other.protocol);
+        }
+        bool operator==(const ServerIdentity& other) const {
+            return std::tie(ip, name, protocol) == std::tie(other.ip, other.name, other.protocol);
+        }
+    };
+
   private:
-    typedef std::map<DnsTlsServer, Validation, AddressComparator> PrivateDnsTracker;
+    typedef std::map<ServerIdentity, DnsTlsServer> PrivateDnsTracker;
     typedef std::set<DnsTlsServer, AddressComparator> ThreadTracker;
 
     PrivateDnsConfiguration() = default;
@@ -88,7 +106,7 @@ class PrivateDnsConfiguration {
     bool needsValidation(const PrivateDnsTracker& tracker, const DnsTlsServer& server)
             REQUIRES(mPrivateDnsLock);
 
-    void updateServerState(const DnsTlsServer& server, Validation state, uint32_t netId)
+    void updateServerState(const ServerIdentity& identity, Validation state, uint32_t netId)
             REQUIRES(mPrivateDnsLock);
 
     std::mutex mPrivateDnsLock;
@@ -99,19 +117,20 @@ class PrivateDnsConfiguration {
     std::map<unsigned, ThreadTracker> mPrivateDnsValidateThreads GUARDED_BY(mPrivateDnsLock);
 
     // For testing. The observer is notified of onValidationStateUpdate 1) when a validation is
-    // about to begin or 2) when a validation finishes.
-    // WARNING: The Observer is notified while the lock is being held. Be careful not to call any
-    // method of PrivateDnsConfiguration from the observer.
+    // about to begin or 2) when a validation finishes. If a validation finishes when in OFF mode
+    // or when the network has been destroyed, |validation| will be Validation::fail.
+    // WARNING: The Observer is notified while the lock is being held. Be careful not to call
+    // any method of PrivateDnsConfiguration from the observer.
     // TODO: fix the reentrancy problem.
     class Observer {
       public:
         virtual ~Observer(){};
-        virtual void onValidationStateUpdate(const std::string& server, Validation validation,
+        virtual void onValidationStateUpdate(const std::string& serverIp, Validation validation,
                                              uint32_t netId) = 0;
     };
 
     void setObserver(Observer* observer);
-    void maybeNotifyObserver(const DnsTlsServer& server, Validation validation,
+    void maybeNotifyObserver(const std::string& serverIp, Validation validation,
                              uint32_t netId) const REQUIRES(mPrivateDnsLock);
 
     Observer* mObserver GUARDED_BY(mPrivateDnsLock);
