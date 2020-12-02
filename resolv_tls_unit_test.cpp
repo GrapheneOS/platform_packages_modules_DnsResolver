@@ -800,6 +800,18 @@ void checkUnequal(const DnsTlsServer& s1, const DnsTlsServer& s2) {
     EXPECT_FALSE(s2 == s1);
 }
 
+void checkEqual(const DnsTlsServer& s1, const DnsTlsServer& s2) {
+    EXPECT_TRUE(s1 == s1);
+    EXPECT_TRUE(s2 == s2);
+    EXPECT_TRUE(isAddressEqual(s1, s1));
+    EXPECT_TRUE(isAddressEqual(s2, s2));
+
+    EXPECT_FALSE(s1 < s2);
+    EXPECT_FALSE(s2 < s1);
+    EXPECT_TRUE(s1 == s2);
+    EXPECT_TRUE(s2 == s1);
+}
+
 class ServerTest : public BaseTest {};
 
 TEST_F(ServerTest, IPv4) {
@@ -871,6 +883,18 @@ TEST_F(ServerTest, Name) {
 
     EXPECT_TRUE(s1.wasExplicitlyConfigured());
     EXPECT_TRUE(s2.wasExplicitlyConfigured());
+}
+
+TEST_F(ServerTest, State) {
+    DnsTlsServer s1(V4ADDR1), s2(V4ADDR1);
+    checkEqual(s1, s2);
+    s1.setValidationState(Validation::success);
+    checkEqual(s1, s2);
+    s2.setValidationState(Validation::fail);
+    checkEqual(s1, s2);
+
+    EXPECT_EQ(s1.validationState(), Validation::success);
+    EXPECT_EQ(s2.validationState(), Validation::fail);
 }
 
 TEST(QueryMapTest, Basic) {

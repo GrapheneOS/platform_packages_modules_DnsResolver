@@ -63,7 +63,8 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
     class MockObserver : public PrivateDnsConfiguration::Observer {
       public:
         MOCK_METHOD(void, onValidationStateUpdate,
-                    (const std::string& server, Validation validation, uint32_t netId), (override));
+                    (const std::string& serverIp, Validation validation, uint32_t netId),
+                    (override));
 
         std::map<std::string, Validation> getServerStateMap() const {
             std::lock_guard guard(lock);
@@ -172,6 +173,11 @@ TEST_F(PrivateDnsConfigurationTest, ValidationBlock) {
     backend.setDeferredResp(false);
 
     ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
+
+    // kServer1 is not a present server and thus should not be available from
+    // PrivateDnsConfiguration::getStatus().
+    mObserver.removeFromServerStateMap(kServer1);
+
     expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 }
 
@@ -216,6 +222,36 @@ TEST_F(PrivateDnsConfigurationTest, NoValidation) {
 
     EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {}, {}), 0);
     expectStatus();
+}
+
+TEST_F(PrivateDnsConfigurationTest, ServerIdentity_Comparison) {
+    using ServerIdentity = PrivateDnsConfiguration::ServerIdentity;
+
+    DnsTlsServer server(netdutils::IPSockAddr::toIPSockAddr("127.0.0.1", 853));
+    server.name = "dns.example.com";
+    server.protocol = 1;
+
+    // Different IP address (port is ignored).
+    DnsTlsServer other = server;
+    EXPECT_EQ(ServerIdentity(server), ServerIdentity(other));
+    other.ss = netdutils::IPSockAddr::toIPSockAddr("127.0.0.1", 5353);
+    EXPECT_EQ(ServerIdentity(server), ServerIdentity(other));
+    other.ss = netdutils::IPSockAddr::toIPSockAddr("127.0.0.2", 853);
+    EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
+
+    // Different provider hostname.
+    other = server;
+    EXPECT_EQ(ServerIdentity(server), ServerIdentity(other));
+    other.name = "other.example.com";
+    EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
+    other.name = "";
+    EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
+
+    // Different protocol.
+    other = server;
+    EXPECT_EQ(ServerIdentity(server), ServerIdentity(other));
+    other.protocol++;
+    EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
 }
 
 // TODO: add ValidationFail_Strict test.
