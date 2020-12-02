@@ -862,12 +862,16 @@ TEST_F(ServerTest, Port) {
     parseServer("192.0.2.1", 854, &s2.ss);
     checkUnequal(s1, s2);
     EXPECT_TRUE(isAddressEqual(s1, s2));
+    EXPECT_EQ(s1.toIpString(), "192.0.2.1");
+    EXPECT_EQ(s2.toIpString(), "192.0.2.1");
 
     DnsTlsServer s3, s4;
     parseServer("2001:db8::1", 853, &s3.ss);
     parseServer("2001:db8::1", 852, &s4.ss);
     checkUnequal(s3, s4);
     EXPECT_TRUE(isAddressEqual(s3, s4));
+    EXPECT_EQ(s3.toIpString(), "2001:db8::1");
+    EXPECT_EQ(s4.toIpString(), "2001:db8::1");
 
     EXPECT_FALSE(s1.wasExplicitlyConfigured());
     EXPECT_FALSE(s2.wasExplicitlyConfigured());
