@@ -69,6 +69,7 @@ struct DnsTlsServer {
     bool operator==(const DnsTlsServer& other) const;
 
     bool wasExplicitlyConfigured() const;
+    std::string toIpString() const;
 
     Validation validationState() const { return mValidation; }
     void setValidationState(Validation val) { mValidation = val; }
