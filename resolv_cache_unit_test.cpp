@@ -32,15 +32,14 @@
 
 #include "res_init.h"
 #include "resolv_cache.h"
-#include "resolv_private.h"
 #include "stats.h"
 #include "tests/dns_responder/dns_responder.h"
+#include "tests/resolv_test_utils.h"
 
 using namespace std::chrono_literals;
 
 using android::netdutils::IPSockAddr;
 
-constexpr int TEST_NETID = 30;
 constexpr int TEST_NETID_2 = 31;
 constexpr int DNS_PORT = 53;
 
@@ -227,7 +226,7 @@ class ResolvCacheTest : public ::testing::Test {
         // Server checking.
         EXPECT_EQ(nscount, static_cast<int>(expected.setup.servers.size())) << msg;
         for (int i = 0; i < nscount; i++) {
-            EXPECT_EQ(addrToString(&servers[i]), expected.setup.servers[i]) << msg;
+            EXPECT_EQ(ToString(&servers[i]), expected.setup.servers[i]) << msg;
         }
 
         // Domain checking
