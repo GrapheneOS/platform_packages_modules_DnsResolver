@@ -892,9 +892,15 @@ TEST_F(ServerTest, State) {
     checkEqual(s1, s2);
     s2.setValidationState(Validation::fail);
     checkEqual(s1, s2);
+    s1.setActive(true);
+    checkEqual(s1, s2);
+    s2.setActive(false);
+    checkEqual(s1, s2);
 
     EXPECT_EQ(s1.validationState(), Validation::success);
     EXPECT_EQ(s2.validationState(), Validation::fail);
+    EXPECT_TRUE(s1.active());
+    EXPECT_FALSE(s2.active());
 }
 
 TEST(QueryMapTest, Basic) {

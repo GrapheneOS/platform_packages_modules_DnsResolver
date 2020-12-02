@@ -28,7 +28,14 @@ namespace android {
 namespace net {
 
 // Validation status of a DNS over TLS server (on a specific netId).
-enum class Validation : uint8_t { in_process, success, fail, unknown_server, unknown_netid };
+enum class Validation : uint8_t {
+    in_process,
+    success,
+    success_but_expired,
+    fail,
+    unknown_server,
+    unknown_netid,
+};
 
 // DnsTlsServer represents a recursive resolver that supports, or may support, a
 // secure protocol.
@@ -66,9 +73,15 @@ struct DnsTlsServer {
     Validation validationState() const { return mValidation; }
     void setValidationState(Validation val) { mValidation = val; }
 
+    // Return whether or not the server can be used for a network. It depends on
+    // the resolver configuration.
+    bool active() const { return mActive; }
+    void setActive(bool val) { mActive = val; }
+
   private:
     // State, unrelated to the comparison of DnsTlsServer objects.
     Validation mValidation = Validation::unknown_server;
+    bool mActive = false;
 };
 
 // This comparison only checks the IP address.  It ignores ports, names, and fingerprints.
