@@ -4763,6 +4763,7 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
     StartDns(dns2, {});
     test::DnsTlsFrontend workableTls(addr1, "853", addr1, "53");
     test::DnsTlsFrontend unresponsiveTls(addr2, "853", addr2, "53");
+    int validationAttemptsToUnresponsiveTls = 1;
     unresponsiveTls.setHangOnHandshakeForTesting(true);
     ASSERT_TRUE(workableTls.startServer());
     ASSERT_TRUE(unresponsiveTls.startServer());
@@ -4776,7 +4777,9 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
     // Check the validation results.
     EXPECT_TRUE(WaitForPrivateDnsValidation(workableTls.listen_address(), true));
     EXPECT_TRUE(WaitForPrivateDnsValidation(unusable_addr, false));
-    EXPECT_EQ(unresponsiveTls.acceptConnectionsCount(), 1);  // The validation is still in progress.
+
+    // The validation is still in progress.
+    EXPECT_EQ(unresponsiveTls.acceptConnectionsCount(), validationAttemptsToUnresponsiveTls);
 
     static const struct TestConfig {
         std::vector<std::string> tlsServers;
@@ -4806,13 +4809,23 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
             SCOPED_TRACE(serverAddr);
             if (serverAddr == workableTls.listen_address()) {
                 if (dnsModeChanged) {
-                    // In despite of the identical IP address, the server is regarded as a different
+                    // Despite the identical IP address, the server is regarded as a different
                     // server when DnsTlsServer.name is different. The resolver treats it as a
                     // different object and begins the validation process.
                     EXPECT_TRUE(WaitForPrivateDnsValidation(serverAddr, true));
                 }
             } else if (serverAddr == unresponsiveTls.listen_address()) {
-                // No revalidation needed for the server which have been marked as in_progesss.
+                if (dnsModeChanged) {
+                    // Despite the identical IP address, the server is regarded as a different
+                    // server when DnsTlsServer.name is different. The resolver treats it as a
+                    // different object and begins the validation process.
+                    validationAttemptsToUnresponsiveTls++;
+
+                    // This is the limitation from DnsTlsFrontend. DnsTlsFrontend can't operate
+                    // concurrently. As soon as there's another connection request,
+                    // DnsTlsFrontend resets the unique_fd to the new connection.
+                    EXPECT_TRUE(WaitForPrivateDnsValidation(serverAddr, false));
+                }
             } else {
                 // Must be unusable_addr.
                 // In opportunistic mode, when a validation for a private DNS server fails, the
@@ -4839,7 +4852,7 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
             EXPECT_TRUE(WaitForPrivateDnsValidation(unusable_addr, false));
         }
 
-        EXPECT_EQ(unresponsiveTls.acceptConnectionsCount(), 1);
+        EXPECT_EQ(unresponsiveTls.acceptConnectionsCount(), validationAttemptsToUnresponsiveTls);
 
         TlsNameLastTime = config.tlsName;
     }
@@ -4885,17 +4898,18 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
             {{addr2}, "", false, false},
             {{addr1}, "", false, true},
             {{addr2}, "", false, true},
-            {{addr1}, kDefaultPrivateDnsHostName, false, true},
-            {{addr2}, kDefaultPrivateDnsHostName, false, true},
+
+            // expectNothingHappenWhenServerUnresponsive is false in the two cases because of the
+            // limitation from DnsTlsFrontend which can't operate concurrently.
+            {{addr1}, kDefaultPrivateDnsHostName, false, false},
+            {{addr2}, kDefaultPrivateDnsHostName, false, false},
             {{addr1}, kDefaultPrivateDnsHostName, true, true},
             {{addr2}, kDefaultPrivateDnsHostName, true, true},
 
-            // There's no new validation to start because there are already two validation threads
-            // running (one is for addr1, the other is for addr2). This is because the comparator
-            // doesn't compare DnsTlsServer.name. Keep the design as-is until it's known to be
-            // harmful.
-            {{addr1}, "", true, true},
-            {{addr2}, "", true, true},
+            // expectNothingHappenWhenServerUnresponsive is true in the two cases because of the
+            // limitation from DnsTlsFrontend which can't operate concurrently.
+            {{addr1}, "", true, false},
+            {{addr2}, "", true, false},
             {{addr1}, "", true, true},
             {{addr2}, "", true, true},
     };
@@ -4944,6 +4958,8 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
                     // It's possible that the resolver hasn't yet started to
                     // connect. Wait a while.
                     std::this_thread::sleep_for(100ms);
+                } else {
+                    EXPECT_TRUE(WaitForPrivateDnsValidation(config.tlsServer, false));
                 }
                 const auto condition = [&]() {
                     return tls.acceptConnectionsCount() == connectCountsBefore + expectCountDiff;
