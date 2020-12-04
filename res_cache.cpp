@@ -1016,9 +1016,13 @@ struct NetConfig {
     // Map format: ReturnCode:rate_denom
     std::unordered_map<int, uint32_t> dns_event_subsampling_map;
     DnsStats dnsStats;
+
     // Customized hostname/address table will be stored in customizedTable.
     // If resolverParams.hosts is empty, the existing customized table will be erased.
+    typedef std::multimap<std::string /* hostname */, std::string /* IPv4/IPv6 address */>
+            HostMapping;
     HostMapping customizedTable = {};
+
     int tc_mode = aidl::android::net::IDnsResolver::TC_MODE_DEFAULT;
     bool enforceDnsUid = false;
     std::vector<int32_t> transportTypes;
