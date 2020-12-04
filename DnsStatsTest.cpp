@@ -59,8 +59,16 @@ class StatsRecordsTest : public ::testing::Test {};
 TEST_F(StatsRecordsTest, PushRecord) {
     const IPSockAddr server = IPSockAddr::toIPSockAddr("127.0.0.2", 53);
     constexpr size_t size = 3;
-    const StatsRecords::Record recordNoError = {NS_R_NO_ERROR, 10ms};
-    const StatsRecords::Record recordTimeout = {NS_R_TIMEOUT, 250ms};
+    const StatsRecords::Record recordNoError = {
+            .rcode = NS_R_NO_ERROR,
+            .linux_errno = 0,
+            .latencyUs{10ms},
+    };
+    const StatsRecords::Record recordTimeout = {
+            .rcode = NS_R_TIMEOUT,
+            .linux_errno = 0,
+            .latencyUs{250ms},
+    };
 
     StatsRecords sr(server, size);
     EXPECT_EQ(sr.getStatsData(), makeStatsData(server, 0, 0ms, {}));
@@ -421,6 +429,17 @@ TEST_F(DnsStatsTest, GetServers_SortingByLatency) {
 
     // Add a record, with a very large value of respose time, to server4.
     EXPECT_TRUE(mDnsStats.addStats(server4, makeDnsQueryEvent(PROTO_UDP, NS_R_NO_ERROR, 500000ms)));
+    EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
+                testing::ElementsAreArray({server2, server3, server1, server4}));
+
+    // Add some internal_error records with permission error to server2.
+    // The internal_error won't cause the priority of server2 drop. (but some of the other
+    // quality factors will still be counted, such as skipped_count and latency)
+    auto recordFromNetworkRestricted = makeDnsQueryEvent(PROTO_UDP, NS_R_INTERNAL_ERROR, 1ms);
+    recordFromNetworkRestricted.set_linux_errno(static_cast<LinuxErrno>(EPERM));
+    for (int i = 0; i < 3; i++) {
+        EXPECT_TRUE(mDnsStats.addStats(server2, recordFromNetworkRestricted));
+    }
     EXPECT_THAT(mDnsStats.getSortedServers(PROTO_UDP),
                 testing::ElementsAreArray({server2, server3, server1, server4}));
 
