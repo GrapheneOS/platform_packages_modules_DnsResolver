@@ -88,6 +88,33 @@ union sockaddr_union {
 constexpr int MAXPACKET = 8 * 1024;
 
 struct ResState {
+    ResState(const android_net_context* netcontext, android::net::NetworkDnsEventReported* dnsEvent)
+        : netid(netcontext->dns_netid),
+          uid(netcontext->uid),
+          pid(netcontext->pid),
+          _mark(netcontext->dns_mark),
+          event(dnsEvent),
+          netcontext_flags(netcontext->flags) {}
+
+    ResState clone(android::net::NetworkDnsEventReported* dnsEvent = nullptr) {
+        // TODO: Separate non-copyable members to other structures and let default copy
+        //       constructor do its work for below copyable members.
+        ResState copy;
+        copy.netid = netid;
+        copy.uid = uid;
+        copy.pid = pid;
+        copy.search_domains = search_domains;
+        copy.nsaddrs = nsaddrs;
+        copy.ndots = ndots;
+        copy._mark = _mark;
+        copy._flags = _flags;
+        copy.event = (dnsEvent == nullptr) ? event : dnsEvent;
+        copy.netcontext_flags = netcontext_flags;
+        copy.tc_mode = tc_mode;
+        copy.enforce_dns_uid = enforce_dns_uid;
+        copy.sort_nameservers = sort_nameservers;
+        return copy;
+    }
     void closeSockets() {
         tcp_nssock.reset();
         _flags &= ~RES_F_VC;
@@ -103,11 +130,10 @@ struct ResState {
     unsigned netid;                             // NetId: cache key and socket mark
     uid_t uid;                                  // uid of the app that sent the DNS lookup
     pid_t pid;                                  // pid of the app that sent the DNS lookup
-    uint16_t id;                                // current message id
     std::vector<std::string> search_domains{};  // domains to search
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
     android::base::unique_fd nssocks[MAXNS];    // UDP sockets to nameservers
-    unsigned ndots : 4;                         // threshold for initial abs. query
+    unsigned ndots : 4 = 1;                     // threshold for initial abs. query
     unsigned _mark;                             // If non-0 SET_MARK to _mark on all request sockets
     android::base::unique_fd tcp_nssock;        // TCP socket (but why not one per nameserver?)
     uint32_t _flags = 0;                        // See RES_F_* defines below
@@ -118,6 +144,8 @@ struct ResState {
     bool sort_nameservers = false;              // A flag to indicate whether nsaddrs has been
                                                 // sorted or not.
     // clang-format on
+  private:
+    ResState() {}
 };
 
 // TODO: remove these legacy aliases
