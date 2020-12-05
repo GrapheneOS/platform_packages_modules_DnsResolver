@@ -76,8 +76,8 @@
 #include "netd_resolv/resolv.h"
 #include "res_comp.h"
 #include "res_debug.h"  // p_class(), p_type()
-#include "res_init.h"
 #include "resolv_cache.h"
+#include "resolv_private.h"
 #include "stats.pb.h"
 
 using android::net::NetworkDnsEventReported;
@@ -393,8 +393,7 @@ int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_
     }
 
     getnamaddr info;
-    ResState res;
-    res_init(&res, netcontext, event);
+    ResState res(netcontext, event);
 
     size_t size;
     switch (af) {
@@ -730,8 +729,7 @@ static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
 
     auto buf = std::make_unique<querybuf>();
 
-    ResState res;
-    res_init(&res, netcontext, event);
+    ResState res(netcontext, event);
     int he;
     n = res_nquery(&res, qbuf, C_IN, T_PTR, buf->buf, (int)sizeof(buf->buf), &he);
     if (n < 0) {

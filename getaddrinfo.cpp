@@ -62,7 +62,6 @@
 #include "netd_resolv/resolv.h"
 #include "res_comp.h"
 #include "res_debug.h"
-#include "res_init.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
 #include "util.h"
@@ -1436,8 +1435,7 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
             return EAI_FAMILY;
     }
 
-    ResState res;
-    res_init(&res, netcontext, event);
+    ResState res(netcontext, event);
 
     int he;
     if (res_searchN(name, &q, &res, &he) < 0) {
@@ -1633,7 +1631,6 @@ QueryResult doQuery(const char* name, res_target* t, res_state res,
     NetworkDnsEventReported event;
     if (n <= 0) {
         LOG(ERROR) << __func__ << ": res_nmkquery failed";
-        return {0, -1, NO_RECOVERY, event};
         return {
                 .ancount = 0,
                 .rcode = -1,
@@ -1642,7 +1639,7 @@ QueryResult doQuery(const char* name, res_target* t, res_state res,
         };
     }
 
-    ResState res_temp = fromResState(*res, &event);
+    ResState res_temp = res->clone(&event);
 
     int rcode = NOERROR;
     n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0, sleepTimeMs);
