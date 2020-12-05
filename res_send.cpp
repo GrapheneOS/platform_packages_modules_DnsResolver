@@ -111,7 +111,6 @@
 
 #include "res_comp.h"
 #include "res_debug.h"
-#include "res_init.h"
 #include "resolv_cache.h"
 #include "stats.h"
 #include "stats.pb.h"
@@ -1298,8 +1297,7 @@ int resolv_res_nsend(const android_net_context* netContext, const uint8_t* msg, 
                      uint8_t* ans, int ansLen, int* rcode, uint32_t flags,
                      NetworkDnsEventReported* event) {
     assert(event != nullptr);
-    ResState res;
-    res_init(&res, netContext, event);
+    ResState res(netContext, event);
     resolv_populate_res_for_net(&res);
     *rcode = NOERROR;
     return res_nsend(&res, msg, msgLen, ans, ansLen, rcode, flags);
