@@ -5301,7 +5301,7 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
     neverRespondDns.setResponseProbability(0.0);
     StartDns(neverRespondDns, records);
     ScopedSystemProperties scopedSystemProperties(
-            "persist.device_config.netd_native.parallel_lookup", "1");
+            "persist.device_config.netd_native.parallel_lookup_release", "1");
     // The default value of parallel_lookup_sleep_time should be very small
     // that we can ignore in this test case.
     // Re-setup test network to make experiment flag take effect.
@@ -5336,7 +5336,7 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
     test::DNSResponder dns(listen_addr);
     StartDns(dns, records);
     ScopedSystemProperties scopedSystemProperties1(
-            "persist.device_config.netd_native.parallel_lookup", "1");
+            "persist.device_config.netd_native.parallel_lookup_release", "1");
     constexpr int PARALLEL_LOOKUP_SLEEP_TIME_MS = 500;
     ScopedSystemProperties scopedSystemProperties2(
             "persist.device_config.netd_native.parallel_lookup_sleep_time",
