@@ -114,7 +114,6 @@ bool DnsTlsFrontend::startServer() {
             PLOG(INFO) << "ignore creating socket failed " << s.get();
             continue;
         }
-        enableSockopt(s.get(), SOL_SOCKET, SO_REUSEPORT).ignoreError();
         enableSockopt(s.get(), SOL_SOCKET, SO_REUSEADDR).ignoreError();
         std::string host_str = addr2str(ai->ai_addr, ai->ai_addrlen);
         if (bind(s.get(), ai->ai_addr, ai->ai_addrlen)) {
