@@ -110,7 +110,16 @@ void StatsRecords::push(const Record& record) {
 
     // Update the quality factors.
     mSkippedCount = 0;
-    updatePenalty(record);
+
+    // Because failures due to no permission can't prove that the quality of DNS server is bad,
+    // skip the penalty update. The average latency, however, has been updated. For short-latency
+    // servers, it will be fine. For long-latency servers, their average latency will be
+    // decreased but the latency-based algorithm will adjust their average latency back to the
+    // right range after few attempts when network is not restricted.
+    // The check is synced from isNetworkRestricted() in res_send.cpp.
+    if (record.linux_errno != EPERM) {
+        updatePenalty(record);
+    }
 }
 
 void StatsRecords::updateStatsData(const Record& record, const bool add) {
@@ -194,6 +203,7 @@ bool DnsStats::addStats(const IPSockAddr& ipSockAddr, const DnsQueryEvent& recor
         if (serverSockAddr == ipSockAddr) {
             const StatsRecords::Record rec = {
                     .rcode = record.rcode(),
+                    .linux_errno = record.linux_errno(),
                     .latencyUs = microseconds(record.latency_micros()),
             };
             statsRecords.push(rec);

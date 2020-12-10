@@ -68,7 +68,8 @@ struct StatsData {
 class StatsRecords {
   public:
     struct Record {
-        int rcode;
+        int rcode = 0;        // NS_R_NO_ERROR
+        int linux_errno = 0;  // SYS_NO_ERROR
         std::chrono::microseconds latencyUs;
     };
 
