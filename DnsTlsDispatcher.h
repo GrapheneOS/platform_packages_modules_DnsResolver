@@ -28,6 +28,7 @@
 #include "DnsTlsServer.h"
 #include "DnsTlsTransport.h"
 #include "IDnsTlsSocketFactory.h"
+#include "PrivateDnsValidationObserver.h"
 #include "resolv_private.h"
 
 namespace android {
@@ -35,7 +36,7 @@ namespace net {
 
 // This is a singleton class that manages the collection of active DnsTlsTransports.
 // Queries made here are dispatched to an existing or newly constructed DnsTlsTransport.
-class DnsTlsDispatcher {
+class DnsTlsDispatcher : public PrivateDnsValidationObserver {
   public:
     // Constructor with dependency injection for testing.
     explicit DnsTlsDispatcher(std::unique_ptr<IDnsTlsSocketFactory> factory)
@@ -59,6 +60,9 @@ class DnsTlsDispatcher {
     DnsTlsTransport::Response query(const DnsTlsServer& server, unsigned mark,
                                     const netdutils::Slice query, const netdutils::Slice ans,
                                     int* _Nonnull resplen, bool* _Nonnull connectTriggered);
+
+    // Implement PrivateDnsValidationObserver.
+    void onValidationStateUpdate(const std::string&, Validation, uint32_t) override{};
 
   private:
     DnsTlsDispatcher();

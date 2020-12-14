@@ -20,6 +20,8 @@
 
 #include "DnsProxyListener.h"
 #include "DnsResolverService.h"
+#include "DnsTlsDispatcher.h"
+#include "PrivateDnsConfiguration.h"
 #include "netd_resolv/resolv.h"
 #include "res_debug.h"
 #include "util.h"
@@ -70,6 +72,14 @@ DnsResolver* DnsResolver::getInstance() {
     // Instantiated on first use.
     static DnsResolver instance;
     return &instance;
+}
+
+DnsResolver::DnsResolver() {
+    // TODO: make them member variables after fixing the circular dependency:
+    //   DnsTlsDispatcher.h -> resolv_private.h -> DnsResolver.h -> DnsTlsDispatcher.h
+    auto& dnsTlsDispatcher = DnsTlsDispatcher::getInstance();
+    auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
+    privateDnsConfiguration.setObserver(&dnsTlsDispatcher);
 }
 
 bool DnsResolver::start() {
