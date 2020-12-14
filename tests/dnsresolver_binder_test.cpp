@@ -56,6 +56,7 @@ using android::base::StringPrintf;
 using android::base::unique_fd;
 using android::net::ResolverStats;
 using android::net::metrics::TestOnDnsEvent;
+using android::net::resolv::aidl::UnsolicitedEventListener;
 using android::netdutils::Stopwatch;
 
 // TODO: make this dynamic and stop depending on implementation details.
@@ -302,17 +303,16 @@ TEST_F(DnsResolverBinderTest, RegisterUnsolicitedEventListener_NullListener) {
 }
 
 TEST_F(DnsResolverBinderTest, RegisterUnsolicitedEventListener_DuplicateSubscription) {
-    class FakeListener : public android::net::resolv::aidl::UnsolicitedEventListener {};
-
     // Expect to subscribe successfully.
-    std::shared_ptr<FakeListener> fakeListener = ndk::SharedRefBase::make<FakeListener>();
-    ::ndk::ScopedAStatus status = mDnsResolver->registerUnsolicitedEventListener(fakeListener);
+    std::shared_ptr<UnsolicitedEventListener> listener =
+            ndk::SharedRefBase::make<UnsolicitedEventListener>(TEST_NETID);
+    ::ndk::ScopedAStatus status = mDnsResolver->registerUnsolicitedEventListener(listener);
     ASSERT_TRUE(status.isOk()) << status.getMessage();
     mExpectedLogData.push_back(
             {"registerUnsolicitedEventListener()", "registerUnsolicitedEventListener.*"});
 
     // Expect to subscribe failed with registered listener instance.
-    status = mDnsResolver->registerUnsolicitedEventListener(fakeListener);
+    status = mDnsResolver->registerUnsolicitedEventListener(listener);
     ASSERT_FALSE(status.isOk());
     ASSERT_EQ(EEXIST, status.getServiceSpecificError());
     mExpectedLogData.push_back(
