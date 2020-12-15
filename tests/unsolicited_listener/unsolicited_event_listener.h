@@ -44,15 +44,26 @@ class UnsolicitedEventListener
     // Wait for the expected private DNS validation result until timeout.
     bool waitForPrivateDnsValidation(const std::string& serverAddr, int validation);
 
+    // Wait for expected NAT64 prefix operation until timeout.
+    bool waitForNat64Prefix(int operation, const std::chrono::milliseconds& timeout)
+            EXCLUDES(mMutex);
+
     // Return true if a validation result for |serverAddr| is found; otherwise, return false.
     bool findValidationRecord(const std::string& serverAddr) const EXCLUDES(mMutex) {
         std::lock_guard lock(mMutex);
         return mValidationRecords.find({mNetId, serverAddr}) != mValidationRecords.end();
     }
 
+    // Returns the number of updates to the NAT64 prefix that have not yet been waited for.
+    int getUnexpectedNat64PrefixUpdates() const EXCLUDES(mMutex) {
+        std::lock_guard lock(mMutex);
+        return mUnexpectedNat64PrefixUpdates;
+    }
+
     void reset() EXCLUDES(mMutex) {
         std::lock_guard lock(mMutex);
         mValidationRecords.clear();
+        mUnexpectedNat64PrefixUpdates = 0;
     }
 
   private:
@@ -67,6 +78,16 @@ class UnsolicitedEventListener
 
     // Used to store the data from onPrivateDnsValidationEvent.
     std::map<ServerKey, int> mValidationRecords GUARDED_BY(mMutex);
+
+    // The NAT64 prefix address of the network |mNetId|. It is updated by onNat64PrefixEvent().
+    std::string mNat64PrefixAddress GUARDED_BY(mMutex);
+
+    // The number of updates to the NAT64 prefix of network |mNetId| that have not yet been waited
+    // for. Increases by 1 every time onNat64PrefixEvent is called, and decreases by 1 every time
+    // waitForNat64Prefix returns true.
+    // This allows tests to check that no unexpected events have been received without having to
+    // resort to timeouts that make the tests slower and flakier.
+    int mUnexpectedNat64PrefixUpdates GUARDED_BY(mMutex);
 
     mutable std::mutex mMutex;
     std::condition_variable mCv;
