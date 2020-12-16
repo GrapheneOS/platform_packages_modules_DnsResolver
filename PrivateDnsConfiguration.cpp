@@ -70,6 +70,7 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         DnsTlsServer server(parsed);
         server.name = name;
         server.certificate = caCert;
+        server.mark = mark;
         tmp[ServerIdentity(server)] = server;
     }
 
@@ -138,6 +139,37 @@ void PrivateDnsConfiguration::clear(unsigned netId) {
     std::lock_guard guard(mPrivateDnsLock);
     mPrivateDnsModes.erase(netId);
     mPrivateDnsTransports.erase(netId);
+}
+
+bool PrivateDnsConfiguration::requestValidation(unsigned netId, const DnsTlsServer& server,
+                                                uint32_t mark) {
+    std::lock_guard guard(mPrivateDnsLock);
+    auto netPair = mPrivateDnsTransports.find(netId);
+    if (netPair == mPrivateDnsTransports.end()) {
+        return false;
+    }
+
+    auto& tracker = netPair->second;
+    const ServerIdentity identity = ServerIdentity(server);
+    auto it = tracker.find(identity);
+    if (it == tracker.end()) {
+        return false;
+    }
+
+    const DnsTlsServer& target = it->second;
+
+    if (!target.active()) return false;
+
+    if (target.validationState() != Validation::success) return false;
+
+    // Don't run the validation if |mark| (from android_net_context.dns_mark) is different.
+    // This is to protect validation from running on unexpected marks.
+    // Validation should be associated with a mark gotten by system permission.
+    if (target.mark != mark) return false;
+
+    updateServerState(identity, Validation::in_process, netId);
+    startValidation(target, netId, mark);
+    return true;
 }
 
 void PrivateDnsConfiguration::startValidation(const DnsTlsServer& server, unsigned netId,
