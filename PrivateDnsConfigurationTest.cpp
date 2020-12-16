@@ -60,7 +60,7 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
     }
 
   protected:
-    class MockObserver : public PrivateDnsConfiguration::Observer {
+    class MockObserver : public PrivateDnsValidationObserver {
       public:
         MOCK_METHOD(void, onValidationStateUpdate,
                     (const std::string& serverIp, Validation validation, uint32_t netId),

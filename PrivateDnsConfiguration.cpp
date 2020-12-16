@@ -330,7 +330,7 @@ bool PrivateDnsConfiguration::needsValidation(const DnsTlsServer& server) {
     return false;
 }
 
-void PrivateDnsConfiguration::setObserver(Observer* observer) {
+void PrivateDnsConfiguration::setObserver(PrivateDnsValidationObserver* observer) {
     std::lock_guard guard(mPrivateDnsLock);
     mObserver = observer;
 }
