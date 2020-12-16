@@ -107,7 +107,7 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
 
         if (needsValidation(server)) {
             updateServerState(identity, Validation::in_process, netId);
-            startValidation(server, netId, mark);
+            startValidation(server, netId);
         }
     }
 
@@ -168,14 +168,14 @@ bool PrivateDnsConfiguration::requestValidation(unsigned netId, const DnsTlsServ
     if (target.mark != mark) return false;
 
     updateServerState(identity, Validation::in_process, netId);
-    startValidation(target, netId, mark);
+    startValidation(target, netId);
     return true;
 }
 
-void PrivateDnsConfiguration::startValidation(const DnsTlsServer& server, unsigned netId,
-                                              uint32_t mark) REQUIRES(mPrivateDnsLock) {
+void PrivateDnsConfiguration::startValidation(const DnsTlsServer& server, unsigned netId)
+        REQUIRES(mPrivateDnsLock) {
     // Note that capturing |server| and |netId| in this lambda create copies.
-    std::thread validate_thread([this, server, netId, mark] {
+    std::thread validate_thread([this, server, netId] {
         setThreadName(StringPrintf("TlsVerify_%u", netId).c_str());
 
         // cat /proc/sys/net/ipv4/tcp_syn_retries yields "6".
@@ -199,10 +199,11 @@ void PrivateDnsConfiguration::startValidation(const DnsTlsServer& server, unsign
         while (true) {
             // ::validate() is a blocking call that performs network operations.
             // It can take milliseconds to minutes, up to the SYN retry limit.
-            LOG(WARNING) << "Validating DnsTlsServer on netId " << netId;
-            const bool success = DnsTlsTransport::validate(server, netId, mark);
-            LOG(DEBUG) << "validateDnsTlsServer returned " << success << " for "
-                       << server.toIpString();
+            LOG(WARNING) << "Validating DnsTlsServer " << server.toIpString() << " with mark 0x"
+                         << std::hex << server.mark;
+            const bool success = DnsTlsTransport::validate(server, server.mark);
+            LOG(WARNING) << "validateDnsTlsServer returned " << success << " for "
+                         << server.toIpString();
 
             const bool needs_reeval = this->recordPrivateDnsValidation(server, netId, success);
             if (!needs_reeval) {
@@ -231,14 +232,14 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
     auto netPair = mPrivateDnsTransports.find(netId);
     if (netPair == mPrivateDnsTransports.end()) {
         LOG(WARNING) << "netId " << netId << " was erased during private DNS validation";
-        maybeNotifyObserver(identity.ip.toString(), Validation::fail, netId);
+        notifyValidationStateUpdate(identity.ip.toString(), Validation::fail, netId);
         return DONT_REEVALUATE;
     }
 
     const auto mode = mPrivateDnsModes.find(netId);
     if (mode == mPrivateDnsModes.end()) {
         LOG(WARNING) << "netId " << netId << " has no private DNS validation mode";
-        maybeNotifyObserver(identity.ip.toString(), Validation::fail, netId);
+        notifyValidationStateUpdate(identity.ip.toString(), Validation::fail, netId);
         return DONT_REEVALUATE;
     }
     const bool modeDoesReevaluation = (mode->second == PrivateDnsMode::STRICT);
@@ -299,18 +300,18 @@ void PrivateDnsConfiguration::updateServerState(const ServerIdentity& identity, 
                                                 uint32_t netId) {
     auto netPair = mPrivateDnsTransports.find(netId);
     if (netPair == mPrivateDnsTransports.end()) {
-        maybeNotifyObserver(identity.ip.toString(), Validation::fail, netId);
+        notifyValidationStateUpdate(identity.ip.toString(), Validation::fail, netId);
         return;
     }
 
     auto& tracker = netPair->second;
     if (tracker.find(identity) == tracker.end()) {
-        maybeNotifyObserver(identity.ip.toString(), Validation::fail, netId);
+        notifyValidationStateUpdate(identity.ip.toString(), Validation::fail, netId);
         return;
     }
 
     tracker[identity].setValidationState(state);
-    maybeNotifyObserver(identity.ip.toString(), state, netId);
+    notifyValidationStateUpdate(identity.ip.toString(), state, netId);
 }
 
 bool PrivateDnsConfiguration::needsValidation(const DnsTlsServer& server) {
@@ -334,8 +335,9 @@ void PrivateDnsConfiguration::setObserver(Observer* observer) {
     mObserver = observer;
 }
 
-void PrivateDnsConfiguration::maybeNotifyObserver(const std::string& serverIp,
-                                                  Validation validation, uint32_t netId) const {
+void PrivateDnsConfiguration::notifyValidationStateUpdate(const std::string& serverIp,
+                                                          Validation validation,
+                                                          uint32_t netId) const {
     if (mObserver) {
         mObserver->onValidationStateUpdate(serverIp, validation, netId);
     }
