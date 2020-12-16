@@ -47,3 +47,8 @@ inline uint64_t getApiLevel() {
             android::base::GetUintProperty<uint64_t>("ro.product.first_api_level", 0);
     return std::max(buildVersionSdk + !!buildVersionPreviewSdk, firstApiLevel);
 }
+
+// It's the identical strategy as frameworks/base/core/java/android/os/Build.java did.
+inline bool isUserDebugBuild() {
+    return (android::base::GetProperty("ro.build.type", "user") == "userdebug");
+}
