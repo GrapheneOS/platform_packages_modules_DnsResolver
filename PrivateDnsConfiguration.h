@@ -94,8 +94,7 @@ class PrivateDnsConfiguration {
 
     PrivateDnsConfiguration() = default;
 
-    void startValidation(const DnsTlsServer& server, unsigned netId, uint32_t mark)
-            REQUIRES(mPrivateDnsLock);
+    void startValidation(const DnsTlsServer& server, unsigned netId) REQUIRES(mPrivateDnsLock);
 
     bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success)
             EXCLUDES(mPrivateDnsLock);
@@ -131,8 +130,8 @@ class PrivateDnsConfiguration {
     };
 
     void setObserver(Observer* observer);
-    void maybeNotifyObserver(const std::string& serverIp, Validation validation,
-                             uint32_t netId) const REQUIRES(mPrivateDnsLock);
+    void notifyValidationStateUpdate(const std::string& serverIp, Validation validation,
+                                     uint32_t netId) const REQUIRES(mPrivateDnsLock);
 
     Observer* mObserver GUARDED_BY(mPrivateDnsLock);
 
