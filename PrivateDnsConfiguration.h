@@ -65,6 +65,11 @@ class PrivateDnsConfiguration {
 
     void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
+    // Request |server| to be revalidated on a connection tagged with |mark|.
+    // Return true if the request is accepted; otherwise, return false.
+    bool requestValidation(unsigned netId, const DnsTlsServer& server, uint32_t mark)
+            EXCLUDES(mPrivateDnsLock);
+
     struct ServerIdentity {
         const netdutils::IPAddress ip;
         const std::string name;
