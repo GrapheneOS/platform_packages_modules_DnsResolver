@@ -86,6 +86,8 @@ class PrivateDnsConfiguration {
         }
     };
 
+    void setObserver(PrivateDnsValidationObserver* observer);
+
   private:
     typedef std::map<ServerIdentity, DnsTlsServer> PrivateDnsTracker;
     typedef std::set<DnsTlsServer, AddressComparator> ThreadTracker;
@@ -114,7 +116,6 @@ class PrivateDnsConfiguration {
     // Any pending validation threads will continue running because we have no way to cancel them.
     std::map<unsigned, PrivateDnsTracker> mPrivateDnsTransports GUARDED_BY(mPrivateDnsLock);
 
-    void setObserver(PrivateDnsValidationObserver* observer);
     void notifyValidationStateUpdate(const std::string& serverIp, Validation validation,
                                      uint32_t netId) const REQUIRES(mPrivateDnsLock);
 
