@@ -254,6 +254,56 @@ TEST_F(PrivateDnsConfigurationTest, ServerIdentity_Comparison) {
     EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
 }
 
+TEST_F(PrivateDnsConfigurationTest, RequestValidation) {
+    const DnsTlsServer server(netdutils::IPSockAddr::toIPSockAddr(kServer1, 853));
+
+    testing::InSequence seq;
+
+    for (const std::string_view config : {"SUCCESS", "IN_PROGRESS", "FAIL"}) {
+        SCOPED_TRACE(config);
+
+        EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
+        if (config == "SUCCESS") {
+            EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
+        } else if (config == "IN_PROGRESS") {
+            backend.setDeferredResp(true);
+        } else {
+            // config = "FAIL"
+            ASSERT_TRUE(backend.stopServer());
+            EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::fail, kNetId));
+        }
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {kServer1}, {}, {}), 0);
+        expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
+
+        // Wait until the validation state is transitioned.
+        const int runningThreads = (config == "IN_PROGRESS") ? 1 : 0;
+        ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == runningThreads; }));
+
+        bool requestAccepted = false;
+        if (config == "SUCCESS") {
+            EXPECT_CALL(mObserver,
+                        onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
+            EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
+            requestAccepted = true;
+        } else if (config == "IN_PROGRESS") {
+            EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
+        }
+
+        EXPECT_EQ(mPdc.requestValidation(kNetId, server, kMark), requestAccepted);
+
+        // Resending the same request or requesting nonexistent servers are denied.
+        EXPECT_FALSE(mPdc.requestValidation(kNetId, server, kMark));
+        EXPECT_FALSE(mPdc.requestValidation(kNetId, server, kMark + 1));
+        EXPECT_FALSE(mPdc.requestValidation(kNetId + 1, server, kMark));
+
+        // Reset the test state.
+        backend.setDeferredResp(false);
+        backend.startServer();
+        ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
+        mPdc.clear(kNetId);
+    }
+}
+
 // TODO: add ValidationFail_Strict test.
 
 }  // namespace android::net
