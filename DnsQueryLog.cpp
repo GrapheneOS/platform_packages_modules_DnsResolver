@@ -59,11 +59,7 @@ std::string timestampToString(const std::chrono::system_clock::time_point& ts) {
 }  // namespace
 
 void DnsQueryLog::push(Record&& record) {
-    std::lock_guard guard(mLock);
-    mQueue.push_back(std::move(record));
-    if (mQueue.size() > mCapacity) {
-        mQueue.pop_front();
-    }
+    mQueue.push(std::move(record));
 }
 
 void DnsQueryLog::dump(netdutils::DumpWriter& dw) const {
@@ -71,8 +67,7 @@ void DnsQueryLog::dump(netdutils::DumpWriter& dw) const {
     netdutils::ScopedIndent indentStats(dw);
     const auto now = std::chrono::system_clock::now();
 
-    std::lock_guard guard(mLock);
-    for (const auto& record : mQueue) {
+    for (const auto& record : mQueue.copy()) {
         if (now - record.timestamp > mValidityTimeMs) continue;
 
         const std::string maskedHostname = maskHostname(record.hostname);
