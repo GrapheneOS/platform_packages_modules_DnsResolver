@@ -44,36 +44,6 @@ namespace net {
 
 namespace {
 
-const char* getPrivateDnsModeString(PrivateDnsMode mode) {
-    switch (mode) {
-        case PrivateDnsMode::OFF:
-            return "OFF";
-        case PrivateDnsMode::OPPORTUNISTIC:
-            return "OPPORTUNISTIC";
-        case PrivateDnsMode::STRICT:
-            return "STRICT";
-    }
-}
-
-constexpr const char* validationStatusToString(Validation value) {
-    switch (value) {
-        case Validation::in_process:
-            return "in_process";
-        case Validation::success:
-            return "success";
-        case Validation::success_but_expired:
-            return "success_but_expired";
-        case Validation::fail:
-            return "fail";
-        case Validation::unknown_server:
-            return "unknown_server";
-        case Validation::unknown_netid:
-            return "unknown_netid";
-        default:
-            return "unknown_status";
-    }
-}
-
 void sendNat64PrefixEvent(const Dns64Configuration::Nat64PrefixInfo& args) {
     const auto& listeners = ResolverEventReporter::getInstance().getListeners();
     if (listeners.size() == 0) {

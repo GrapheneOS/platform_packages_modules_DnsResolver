@@ -17,7 +17,7 @@
 
 #include "DnsQueryLog.h"
 
-#include <android-base/stringprintf.h>
+#include "util.h"
 
 namespace android::net {
 
@@ -43,17 +43,6 @@ std::string maskIps(const std::vector<std::string>& ips) {
         if (v6Found && v4Found) break;
     }
     return ret.empty() ? "" : ret.substr(0, ret.length() - 2);
-}
-
-// Return the readable string format "hr:min:sec.ms".
-std::string timestampToString(const std::chrono::system_clock::time_point& ts) {
-    using std::chrono::duration_cast;
-    using std::chrono::milliseconds;
-    const auto time_sec = std::chrono::system_clock::to_time_t(ts);
-    char buf[32];
-    std::strftime(buf, sizeof(buf), "%H:%M:%S", std::localtime(&time_sec));
-    int ms = duration_cast<milliseconds>(ts.time_since_epoch()).count() % 1000;
-    return android::base::StringPrintf("%s.%03d", buf, ms);
 }
 
 }  // namespace
