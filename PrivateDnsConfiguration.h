@@ -22,9 +22,11 @@
 #include <vector>
 
 #include <android-base/thread_annotations.h>
+#include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
 
 #include "DnsTlsServer.h"
+#include "LockedQueue.h"
 #include "PrivateDnsValidationObserver.h"
 
 namespace android {
@@ -88,6 +90,8 @@ class PrivateDnsConfiguration {
 
     void setObserver(PrivateDnsValidationObserver* observer);
 
+    void dump(netdutils::DumpWriter& dw) const;
+
   private:
     typedef std::map<ServerIdentity, DnsTlsServer> PrivateDnsTracker;
     typedef std::set<DnsTlsServer, AddressComparator> ThreadTracker;
@@ -123,6 +127,18 @@ class PrivateDnsConfiguration {
     PrivateDnsValidationObserver* mObserver GUARDED_BY(mPrivateDnsLock);
 
     friend class PrivateDnsConfigurationTest;
+
+    struct RecordEntry {
+        RecordEntry(uint32_t netId, const ServerIdentity& identity, Validation state)
+            : netId(netId), serverIdentity(identity), state(state) {}
+
+        const uint32_t netId;
+        const ServerIdentity serverIdentity;
+        const Validation state;
+        const std::chrono::system_clock::time_point timestamp = std::chrono::system_clock::now();
+    };
+
+    LockedRingBuffer<RecordEntry> mPrivateDnsLog{100};
 };
 
 }  // namespace net

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <string>
 
 #include <netinet/in.h>
@@ -29,6 +30,9 @@ socklen_t sockaddrSize(const sockaddr_storage& ss);
 // TODO: getExperimentFlagString
 // TODO: Migrate it to DnsResolverExperiments.cpp
 int getExperimentFlagInt(const std::string& flagName, int defaultValue);
+
+// Convert time_point to readable string format "hr:min:sec.ms".
+std::string timestampToString(const std::chrono::system_clock::time_point& ts);
 
 // When sdk X release branch is created, aosp's sdk version would still be X-1,
 // internal would be X. Also there might be some different setting between real devices and

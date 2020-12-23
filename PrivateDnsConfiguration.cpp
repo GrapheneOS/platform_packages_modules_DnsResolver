@@ -18,6 +18,7 @@
 
 #include "PrivateDnsConfiguration.h"
 
+#include <android-base/format.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
 #include <netdutils/ThreadUtil.h>
@@ -312,6 +313,9 @@ void PrivateDnsConfiguration::updateServerState(const ServerIdentity& identity, 
 
     tracker[identity].setValidationState(state);
     notifyValidationStateUpdate(identity.ip.toString(), state, netId);
+
+    RecordEntry record(netId, identity, state);
+    mPrivateDnsLog.push(std::move(record));
 }
 
 bool PrivateDnsConfiguration::needsValidation(const DnsTlsServer& server) {
@@ -341,6 +345,19 @@ void PrivateDnsConfiguration::notifyValidationStateUpdate(const std::string& ser
     if (mObserver) {
         mObserver->onValidationStateUpdate(serverIp, validation, netId);
     }
+}
+
+void PrivateDnsConfiguration::dump(netdutils::DumpWriter& dw) const {
+    dw.println("PrivateDnsLog:");
+    netdutils::ScopedIndent indentStats(dw);
+
+    for (const auto& record : mPrivateDnsLog.copy()) {
+        dw.println(fmt::format("{} - netId={} PrivateDns={{{}/{}}} state={}",
+                               timestampToString(record.timestamp), record.netId,
+                               record.serverIdentity.ip.toString(), record.serverIdentity.name,
+                               validationStatusToString(record.state)));
+    }
+    dw.blankline();
 }
 
 }  // namespace net
