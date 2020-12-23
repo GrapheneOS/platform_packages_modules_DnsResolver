@@ -32,6 +32,7 @@
 #include "DnsResolver.h"
 #include "Experiments.h"
 #include "NetdPermissions.h"  // PERM_*
+#include "PrivateDnsConfiguration.h"
 #include "ResolverEventReporter.h"
 #include "resolv_cache.h"
 
@@ -117,6 +118,8 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
         gDnsResolv->resolverCtrl.dump(dw, netId);
         dw.blankline();
     }
+
+    PrivateDnsConfiguration::getInstance().dump(dw);
     Experiments::getInstance()->dump(dw);
     return STATUS_OK;
 }
