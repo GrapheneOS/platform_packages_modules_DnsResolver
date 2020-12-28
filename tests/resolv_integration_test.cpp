@@ -4121,6 +4121,9 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
     // The resolver will adjust the timeout value to 1000ms since the value is too small.
     ScopedSystemProperties scopedSystemProperties(kDotConnectTimeoutMsFlag, "100");
 
+    // Re-setup test network to make experiment flag take effect.
+    resetNetwork();
+
     // Set up resolver to opportunistic mode with the default configuration.
     const ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
