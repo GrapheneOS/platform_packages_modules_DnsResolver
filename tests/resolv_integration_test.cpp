@@ -95,6 +95,7 @@ using aidl::android::net::IDnsResolver;
 using aidl::android::net::INetd;
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::metrics::INetdEventListener;
+using aidl::android::net::resolv::aidl::DnsHealthEventParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
@@ -292,6 +293,20 @@ class ResolverTest : public ::testing::Test {
             if (dnsEvent.value() == expect) break;
             LOG(INFO) << "Skip unexpected DnsEvent: " << dnsEvent.value();
         } while (true);
+
+        while (returnCode == 0 || returnCode == RCODE_TIMEOUT) {
+            // Blocking call until timeout.
+            Result<int> result = sUnsolicitedEventListener->popDnsHealthResult();
+            ASSERT_TRUE(result.ok()) << "Expected dns health result is " << returnCode;
+            if ((returnCode == 0 &&
+                 result.value() == IDnsResolverUnsolicitedEventListener::DNS_HEALTH_RESULT_OK) ||
+                (returnCode == RCODE_TIMEOUT &&
+                 result.value() ==
+                         IDnsResolverUnsolicitedEventListener::DNS_HEALTH_RESULT_TIMEOUT)) {
+                break;
+            }
+            LOG(INFO) << "Skip unexpected dns health result:" << result.value();
+        }
     }
 
     enum class StatsCmp { LE, EQ };

@@ -23,6 +23,7 @@
 #include <utility>
 
 #include <aidl/android/net/resolv/aidl/BnDnsResolverUnsolicitedEventListener.h>
+#include <android-base/result.h>
 #include <android-base/thread_annotations.h>
 
 namespace android::net::resolv::aidl {
@@ -48,6 +49,9 @@ class UnsolicitedEventListener
     bool waitForNat64Prefix(int operation, const std::chrono::milliseconds& timeout)
             EXCLUDES(mMutex);
 
+    // Pop up last receiving dns health result.
+    android::base::Result<int> popDnsHealthResult() EXCLUDES(mMutex);
+
     // Return true if a validation result for |serverAddr| is found; otherwise, return false.
     bool findValidationRecord(const std::string& serverAddr) const EXCLUDES(mMutex) {
         std::lock_guard lock(mMutex);
@@ -64,6 +68,9 @@ class UnsolicitedEventListener
         std::lock_guard lock(mMutex);
         mValidationRecords.clear();
         mUnexpectedNat64PrefixUpdates = 0;
+
+        std::queue<int> emptyQueue;
+        std::swap(mDnsHealthResultRecords, emptyQueue);
     }
 
   private:
@@ -88,6 +95,9 @@ class UnsolicitedEventListener
     // This allows tests to check that no unexpected events have been received without having to
     // resort to timeouts that make the tests slower and flakier.
     int mUnexpectedNat64PrefixUpdates GUARDED_BY(mMutex);
+
+    // Used to store the dns health result from onDnsHealthEvent().
+    std::queue<int> mDnsHealthResultRecords GUARDED_BY(mMutex);
 
     mutable std::mutex mMutex;
     std::condition_variable mCv;
