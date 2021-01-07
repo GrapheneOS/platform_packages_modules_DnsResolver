@@ -141,6 +141,14 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     return statusFromErrcode(res);
 }
 
+::ndk::ScopedAStatus DnsResolverService::registerUnsolicitedEventListener(
+        const std::shared_ptr<
+                aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener>&) {
+    ENFORCE_NETWORK_STACK_PERMISSIONS();
+
+    return ::ndk::ScopedAStatus(AStatus_newOk());
+}
+
 ::ndk::ScopedAStatus DnsResolverService::checkAnyPermission(
         const std::vector<const char*>& permissions) {
     // TODO: Remove callback and move this to unnamed namespace after libbiner_ndk supports
