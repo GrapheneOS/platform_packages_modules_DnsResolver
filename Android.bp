@@ -27,6 +27,8 @@ aidl_interface {
         "binder/android/net/ResolverHostsParcel.aidl",
         "binder/android/net/ResolverOptionsParcel.aidl",
         "binder/android/net/ResolverParamsParcel.aidl",
+        // New AIDL classes should go into android.net.resolv.aidl so they can be clearly identified
+        "binder/android/net/resolv/aidl/**/*.aidl",
     ],
     imports: [
         "netd_event_listener_interface",
@@ -54,6 +56,7 @@ aidl_interface {
         "4",
         "5",
         "6",
+        "7",
     ],
 }
 
