@@ -18,6 +18,7 @@ package android.net;
 
 import android.net.ResolverParamsParcel;
 import android.net.metrics.INetdEventListener;
+import android.net.resolv.aidl.IDnsResolverUnsolicitedEventListener;
 
 /** {@hide} */
 interface IDnsResolver {
@@ -214,4 +215,21 @@ interface IDnsResolver {
      *         unix errno.
      */
     void setPrefix64(int netId, @utf8InCpp String prefix);
+
+    /**
+    * Register unsolicited event listener
+    * DnsResolver supports multiple unsolicited event listeners.
+    *
+    * This is a non-public interface between DnsResolver and Connectivity/NetworkStack.
+    * It is subject to change on Mainline updates without notice. DO NOT DEPEND ON IT.
+    *
+    * Only system services(Connectivity/NetworkStack) will register the unsolicited listener.
+    * Besides, there is no unregister method since the system services will be always there to
+    * listen unsolicited events.
+    *
+    * @param listener unsolicited event listener to register
+    * @throws ServiceSpecificException in case of failure, with an error code corresponding to the
+    *         unix errno.
+    */
+    void registerUnsolicitedEventListener(IDnsResolverUnsolicitedEventListener listener);
 }

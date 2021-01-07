@@ -39,6 +39,10 @@ class DnsResolverService : public aidl::android::net::BnDnsResolver {
     ::ndk::ScopedAStatus registerEventListener(
             const std::shared_ptr<aidl::android::net::metrics::INetdEventListener>& listener)
             override;
+    ::ndk::ScopedAStatus registerUnsolicitedEventListener(
+            const std::shared_ptr<
+                    aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener>&
+                    listener) override;
 
     // Resolver commands.
     ::ndk::ScopedAStatus setResolverConfiguration(
