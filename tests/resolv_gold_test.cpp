@@ -369,6 +369,7 @@ TEST_F(ResolvGetAddrInfo, BasicTlsQuery) {
     ASSERT_NO_FATAL_FAILURE(SetResolversWithTls());
     EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address()));
     tls.setDelayQueries(2);
+    tls.setDelayQueriesTimeout(200);
 
     dns.clearQueries();
     addrinfo* res = nullptr;
@@ -431,6 +432,7 @@ TEST_P(ResolvGoldTest, GoldData) {
     ASSERT_TRUE(dns.startServer());
     test::DnsTlsFrontend tls;
     tls.setDelayQueries(2);
+    tls.setDelayQueriesTimeout(200);
 
     if (protocol == DnsProtocol::CLEARTEXT) {
         ASSERT_NO_FATAL_FAILURE(SetResolvers());
