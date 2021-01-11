@@ -4161,10 +4161,6 @@ TEST_F(ResolverTest, getDnsNetId) {
 }
 
 TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
-    // This test relies on blocking traffic on loopback, which xt_qtaguid does not do.
-    // See aosp/358413 and b/34444781 for why.
-    SKIP_IF_BPF_NOT_SUPPORTED;
-
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
     constexpr char host_name[] = "howdy.example.com.";
@@ -4212,8 +4208,6 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
 }
 
 TEST_F(ResolverTest, EnforceDnsUid) {
-    SKIP_IF_BPF_NOT_SUPPORTED;
-
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
     constexpr char host_name[] = "howdy.example.com.";
@@ -5370,10 +5364,6 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
 }
 
 TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
-    // This test relies on blocking traffic on loopback, which xt_qtaguid does not do.
-    // See aosp/358413 and b/34444781 for why.
-    SKIP_IF_BPF_NOT_SUPPORTED;
-
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
     test::DNSResponder dns1(listen_addr1);
@@ -6003,7 +5993,6 @@ TEST_F(ResolverMultinetworkTest, OneCachePerNetwork) {
 
 TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
     SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
-    SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char host_name[] = "ohayou.example.com.";
     constexpr char ipv4_addr[] = "192.0.2.0";
     constexpr char ipv6_addr[] = "2001:db8:cafe:d00d::31";
