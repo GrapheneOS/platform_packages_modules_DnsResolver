@@ -165,7 +165,6 @@ cc_test {
     ],
     static_libs: [
         "dnsresolver_aidl_interface-unstable-ndk_platform",
-        "libbpf_android",
         "libcrypto_static",
         "libgmock",
         "libnetd_test_dnsresponder_ndk",
