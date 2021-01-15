@@ -176,6 +176,7 @@ cc_test {
         "netd_aidl_interface-ndk_platform",
         "netd_event_listener_interface-unstable-ndk_platform",
         "libipchecksum",
+        "resolv_unsolicited_listener",
     ],
     // This test talks to the DnsResolver module over a binary protocol on a socket, so keep it as
     // multilib setting is worth because we might be able to get some coverage for the case where
