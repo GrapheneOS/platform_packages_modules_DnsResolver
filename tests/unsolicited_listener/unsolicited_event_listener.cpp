@@ -16,24 +16,65 @@
 
 #include "unsolicited_event_listener.h"
 
+#include <thread>
+
+#include <android-base/chrono_utils.h>
+#include <android-base/format.h>
+
 namespace android::net::resolv::aidl {
+
+using ::aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
+using android::base::ScopedLockAssertion;
+using std::chrono::milliseconds;
+
+constexpr milliseconds kEventTimeoutMs{5000};
 
 ::ndk::ScopedAStatus UnsolicitedEventListener::onDnsHealthEvent(
         const ::aidl::android::net::resolv::aidl::DnsHealthEventParcel&) {
     // default no-op
     return ::ndk::ScopedAStatus::ok();
-};
+}
 
 ::ndk::ScopedAStatus UnsolicitedEventListener::onNat64PrefixEvent(
         const ::aidl::android::net::resolv::aidl::Nat64PrefixEventParcel&) {
     // default no-op
     return ::ndk::ScopedAStatus::ok();
-};
+}
 
 ::ndk::ScopedAStatus UnsolicitedEventListener::onPrivateDnsValidationEvent(
-        const ::aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel&) {
-    // default no-op
+        const PrivateDnsValidationEventParcel& event) {
+    {
+        std::lock_guard lock(mMutex);
+        // keep updating the server to have latest validation status.
+        mValidationRecords.insert_or_assign({event.netId, event.ipAddress}, event.validation);
+    }
+    mCv.notify_one();
     return ::ndk::ScopedAStatus::ok();
-};
+}
+
+bool UnsolicitedEventListener::waitForPrivateDnsValidation(const std::string& serverAddr,
+                                                           int validation) {
+    const auto now = std::chrono::steady_clock::now();
+
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
+
+    // onPrivateDnsValidationEvent() might already be invoked. Search for the record first.
+    do {
+        if (findAndRemoveValidationRecord({mNetId, serverAddr}, validation)) return true;
+    } while (mCv.wait_until(lock, now + kEventTimeoutMs) != std::cv_status::timeout);
+
+    // Timeout.
+    return false;
+}
+
+bool UnsolicitedEventListener::findAndRemoveValidationRecord(const ServerKey& key, int value) {
+    auto it = mValidationRecords.find(key);
+    if (it != mValidationRecords.end() && it->second == value) {
+        mValidationRecords.erase(it);
+        return true;
+    }
+    return false;
+}
 
 }  // namespace android::net::resolv::aidl
