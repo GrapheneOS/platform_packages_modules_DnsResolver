@@ -103,6 +103,9 @@ class PrivateDnsConfiguration {
     bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success)
             EXCLUDES(mPrivateDnsLock);
 
+    void sendPrivateDnsValidationEvent(const DnsTlsServer& server, unsigned netId, bool success)
+            REQUIRES(mPrivateDnsLock);
+
     // Decide if a validation for |server| is needed. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
     // thread running are marked as being Validation::in_process.
