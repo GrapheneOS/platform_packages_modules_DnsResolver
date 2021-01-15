@@ -40,6 +40,7 @@
 
 #include "dns_metrics_listener/base_metrics_listener.h"
 #include "dns_metrics_listener/test_metrics.h"
+#include "unsolicited_listener/unsolicited_event_listener.h"
 
 #include "ResolverStats.h"
 #include "dns_responder.h"
@@ -273,21 +274,50 @@ TEST_F(DnsResolverBinderTest, RegisterEventListener_NullListener) {
 }
 
 TEST_F(DnsResolverBinderTest, RegisterEventListener_DuplicateSubscription) {
-    class DummyListener : public android::net::metrics::BaseMetricsListener {};
+    class FakeListener : public android::net::metrics::BaseMetricsListener {};
 
     // Expect to subscribe successfully.
-    std::shared_ptr<DummyListener> dummyListener = ndk::SharedRefBase::make<DummyListener>();
-    ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(dummyListener);
+    std::shared_ptr<FakeListener> fakeListener = ndk::SharedRefBase::make<FakeListener>();
+    ::ndk::ScopedAStatus status = mDnsResolver->registerEventListener(fakeListener);
     ASSERT_TRUE(status.isOk()) << status.getMessage();
     mExpectedLogData.push_back({"registerEventListener()", "registerEventListener.*"});
 
     // Expect to subscribe failed with registered listener instance.
-    status = mDnsResolver->registerEventListener(dummyListener);
+    status = mDnsResolver->registerEventListener(fakeListener);
     ASSERT_FALSE(status.isOk());
     ASSERT_EQ(EEXIST, status.getServiceSpecificError());
     mExpectedLogData.push_back(
             {"registerEventListener() -> ServiceSpecificException(17, \"File exists\")",
              "registerEventListener.*17"});
+}
+
+TEST_F(DnsResolverBinderTest, RegisterUnsolicitedEventListener_NullListener) {
+    ::ndk::ScopedAStatus status = mDnsResolver->registerUnsolicitedEventListener(nullptr);
+    ASSERT_FALSE(status.isOk());
+    ASSERT_EQ(EINVAL, status.getServiceSpecificError());
+    mExpectedLogData.push_back(
+            {"registerUnsolicitedEventListener() -> ServiceSpecificException(22, \"Invalid "
+             "argument\")",
+             "registerUnsolicitedEventListener.*22"});
+}
+
+TEST_F(DnsResolverBinderTest, RegisterUnsolicitedEventListener_DuplicateSubscription) {
+    class FakeListener : public android::net::resolv::aidl::UnsolicitedEventListener {};
+
+    // Expect to subscribe successfully.
+    std::shared_ptr<FakeListener> fakeListener = ndk::SharedRefBase::make<FakeListener>();
+    ::ndk::ScopedAStatus status = mDnsResolver->registerUnsolicitedEventListener(fakeListener);
+    ASSERT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogData.push_back(
+            {"registerUnsolicitedEventListener()", "registerUnsolicitedEventListener.*"});
+
+    // Expect to subscribe failed with registered listener instance.
+    status = mDnsResolver->registerUnsolicitedEventListener(fakeListener);
+    ASSERT_FALSE(status.isOk());
+    ASSERT_EQ(EEXIST, status.getServiceSpecificError());
+    mExpectedLogData.push_back(
+            {"registerUnsolicitedEventListener() -> ServiceSpecificException(17, \"File exists\")",
+             "registerUnsolicitedEventListener.*17"});
 }
 
 // TODO: Move this test to resolv_integration_test.cpp
