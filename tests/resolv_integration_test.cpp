@@ -71,6 +71,7 @@
 #include "tests/dns_responder/dns_tls_frontend.h"
 #include "tests/resolv_test_utils.h"
 #include "tests/tun_forwarder.h"
+#include "tests/unsolicited_listener/unsolicited_event_listener.h"
 
 // Valid VPN netId range is 100 ~ 65535
 constexpr int TEST_VPN_NETID = 65502;
@@ -94,6 +95,8 @@ using aidl::android::net::IDnsResolver;
 using aidl::android::net::INetd;
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::metrics::INetdEventListener;
+using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::Error;
 using android::base::ParseInt;
 using android::base::Result;
@@ -102,6 +105,7 @@ using android::base::unique_fd;
 using android::net::ResolverStats;
 using android::net::TunForwarder;
 using android::net::metrics::DnsMetricsListener;
+using android::net::resolv::aidl::UnsolicitedEventListener;
 using android::netdutils::enableSockopt;
 using android::netdutils::makeSlice;
 using android::netdutils::ResponseCode;
@@ -204,6 +208,12 @@ class ResolverTest : public ::testing::Test {
                 TEST_NETID /*monitor specific network*/);
         ASSERT_TRUE(resolvService->registerEventListener(sDnsMetricsListener).isOk());
 
+        // Subscribe the unsolicited event listener for verifying unsolicited event contents.
+        sUnsolicitedEventListener = ndk::SharedRefBase::make<UnsolicitedEventListener>(
+                TEST_NETID /*monitor specific network*/);
+        ASSERT_TRUE(
+                resolvService->registerUnsolicitedEventListener(sUnsolicitedEventListener).isOk());
+
         // Start the binder thread pool for listening DNS metrics events and receiving death
         // recipient.
         ABinderProcess_startThreadPool();
@@ -214,6 +224,7 @@ class ResolverTest : public ::testing::Test {
     void SetUp() {
         mDnsClient.SetUp();
         sDnsMetricsListener->reset();
+        sUnsolicitedEventListener->reset();
     }
 
     void TearDown() {
@@ -251,11 +262,16 @@ class ResolverTest : public ::testing::Test {
     }
 
     bool WaitForPrivateDnsValidation(std::string serverAddr, bool validated) {
-        return sDnsMetricsListener->waitForPrivateDnsValidation(serverAddr, validated);
+        return sDnsMetricsListener->waitForPrivateDnsValidation(serverAddr, validated) &&
+               sUnsolicitedEventListener->waitForPrivateDnsValidation(
+                       serverAddr,
+                       validated ? IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_SUCCESS
+                                 : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE);
     }
 
     bool hasUncaughtPrivateDnsValidation(const std::string& serverAddr) {
-        return sDnsMetricsListener->findValidationRecord(serverAddr);
+        return sDnsMetricsListener->findValidationRecord(serverAddr) &&
+               sUnsolicitedEventListener->findValidationRecord(serverAddr);
     }
 
     void ExpectDnsEvent(int32_t eventType, int32_t returnCode, const std::string& hostname,
@@ -366,6 +382,9 @@ class ResolverTest : public ::testing::Test {
     // could be terminated earlier.
     static std::shared_ptr<DnsMetricsListener>
             sDnsMetricsListener;  // Initialized in SetUpTestSuite.
+
+    inline static std::shared_ptr<UnsolicitedEventListener>
+            sUnsolicitedEventListener;  // Initialized in SetUpTestSuite.
 
     // Use a shared static death recipient to monitor the service death. The static death
     // recipient could monitor the death not only during the test but also between tests.

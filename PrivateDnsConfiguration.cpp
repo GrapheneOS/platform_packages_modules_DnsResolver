@@ -30,6 +30,8 @@
 #include "netdutils/BackoffSequence.h"
 #include "util.h"
 
+using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::StringPrintf;
 using android::netdutils::setThreadName;
 using std::chrono::milliseconds;
@@ -222,6 +224,35 @@ void PrivateDnsConfiguration::startValidation(const DnsTlsServer& server, unsign
     validate_thread.detach();
 }
 
+void PrivateDnsConfiguration::sendPrivateDnsValidationEvent(const DnsTlsServer& server,
+                                                            unsigned netId, bool success) {
+    LOG(DEBUG) << "Sending validation " << (success ? "success" : "failure") << " event on netId "
+               << netId << " for " << server.toIpString() << " with hostname {" << server.name
+               << "}";
+    // Send a validation event to NetdEventListenerService.
+    const auto& listeners = ResolverEventReporter::getInstance().getListeners();
+    if (listeners.empty()) {
+        LOG(ERROR)
+                << "Validation event not sent since no INetdEventListener receiver is available.";
+    }
+    for (const auto& it : listeners) {
+        it->onPrivateDnsValidationEvent(netId, server.toIpString(), server.name, success);
+    }
+
+    // Send a validation event to unsolicited event listeners.
+    const auto& unsolEventListeners = ResolverEventReporter::getInstance().getUnsolEventListeners();
+    const PrivateDnsValidationEventParcel validationEvent = {
+            .netId = static_cast<int32_t>(netId),
+            .ipAddress = server.toIpString(),
+            .hostname = server.name,
+            .validation = success ? IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_SUCCESS
+                                  : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE,
+    };
+    for (const auto& it : unsolEventListeners) {
+        it->onPrivateDnsValidationEvent(validationEvent);
+    }
+}
+
 bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId,
                                                          bool success) {
     constexpr bool NEEDS_REEVALUATION = true;
@@ -268,19 +299,8 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
         reevaluationStatus = DONT_REEVALUATE;
     }
 
-    // Send a validation event to NetdEventListenerService.
-    const auto& listeners = ResolverEventReporter::getInstance().getListeners();
-    if (listeners.size() != 0) {
-        for (const auto& it : listeners) {
-            it->onPrivateDnsValidationEvent(netId, server.toIpString(), server.name, success);
-        }
-        LOG(DEBUG) << "Sent validation " << (success ? "success" : "failure") << " event on netId "
-                   << netId << " for " << server.toIpString() << " with hostname {" << server.name
-                   << "}";
-    } else {
-        LOG(ERROR)
-                << "Validation event not sent since no INetdEventListener receiver is available.";
-    }
+    // Send private dns validation result to listeners.
+    sendPrivateDnsValidationEvent(server, netId, success);
 
     if (success) {
         updateServerState(identity, Validation::success, netId);
