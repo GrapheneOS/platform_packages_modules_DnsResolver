@@ -143,10 +143,12 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
 
 ::ndk::ScopedAStatus DnsResolverService::registerUnsolicitedEventListener(
         const std::shared_ptr<
-                aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener>&) {
+                aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener>& listener) {
     ENFORCE_NETWORK_STACK_PERMISSIONS();
 
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    int res = ResolverEventReporter::getInstance().addUnsolEventListener(listener);
+
+    return statusFromErrcode(res);
 }
 
 ::ndk::ScopedAStatus DnsResolverService::checkAnyPermission(

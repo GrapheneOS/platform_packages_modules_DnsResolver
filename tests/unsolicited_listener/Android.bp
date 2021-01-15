@@ -1,0 +1,14 @@
+cc_test_library {
+    name: "resolv_unsolicited_listener",
+    defaults: ["resolv_test_defaults"],
+    srcs: [
+        "unsolicited_event_listener.cpp",
+    ],
+    shared_libs: [
+        "libbinder_ndk",
+    ],
+    static_libs: [
+        "dnsresolver_aidl_interface-unstable-ndk_platform",
+        "libutils",
+    ],
+}
