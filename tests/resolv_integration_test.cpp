@@ -5431,8 +5431,6 @@ TEST_F(ResolverTest, DnsServerSelection) {
     StartDns(dns2, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
     StartDns(dns3, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
 
-    ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, "1");
-
     // NOTE: the servers must be sorted alphabetically.
     std::vector<std::string> serverList = {
             dns1.listen_address(),
@@ -5444,6 +5442,9 @@ TEST_F(ResolverTest, DnsServerSelection) {
         SCOPED_TRACE(fmt::format("testConfig: [{}]", fmt::join(serverList, ", ")));
         const int queryNum = 50;
         int64_t accumulatedTime = 0;
+
+        // The flag can be reset any time. It's better to re-setup the flag in each iteration.
+        ScopedSystemProperties scopedSystemProperties(kSortNameserversFlag, "1");
 
         // Restart the testing network to 1) make the flag take effect and 2) reset the statistics.
         resetNetwork();
