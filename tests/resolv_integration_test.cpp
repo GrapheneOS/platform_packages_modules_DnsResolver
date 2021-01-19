@@ -96,6 +96,7 @@ using aidl::android::net::INetd;
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::metrics::INetdEventListener;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::Error;
 using android::base::ParseInt;
@@ -258,7 +259,12 @@ class ResolverTest : public ::testing::Test {
 
     bool WaitForNat64Prefix(ExpectNat64PrefixStatus status,
                             std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)) {
-        return sDnsMetricsListener->waitForNat64Prefix(status, timeout);
+        return sDnsMetricsListener->waitForNat64Prefix(status, timeout) &&
+               sUnsolicitedEventListener->waitForNat64Prefix(
+                       status == EXPECT_FOUND
+                               ? IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED
+                               : IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_REMOVED,
+                       timeout);
     }
 
     bool WaitForPrivateDnsValidation(std::string serverAddr, bool validated) {
@@ -4031,6 +4037,7 @@ TEST_F(ResolverTest, SetAndClearNat64Prefix) {
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_NOT_FOUND));
 
     EXPECT_EQ(0, sDnsMetricsListener->getUnexpectedNat64PrefixUpdates());
+    EXPECT_EQ(0, sUnsolicitedEventListener->getUnexpectedNat64PrefixUpdates());
 }
 
 namespace {
