@@ -35,6 +35,8 @@
 #include "stats.h"
 
 using aidl::android::net::ResolverParamsParcel;
+using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
 
 namespace android {
 
@@ -45,13 +47,29 @@ namespace net {
 namespace {
 
 void sendNat64PrefixEvent(const Dns64Configuration::Nat64PrefixInfo& args) {
+    LOG(DEBUG) << "Sending Nat64Prefix " << (args.added ? "added" : "removed") << " event on netId "
+               << args.netId << " with address {" << args.prefixString << "(" << args.prefixLength
+               << ")}";
+    // Send a nat64 prefix event to NetdEventListenerService.
     const auto& listeners = ResolverEventReporter::getInstance().getListeners();
-    if (listeners.size() == 0) {
-        LOG(ERROR) << __func__ << ": No available listener. dropping NAT64 prefix event";
-        return;
+    if (listeners.empty()) {
+        LOG(ERROR) << __func__ << ": No available listener. Skipping NAT64 prefix event";
     }
     for (const auto& it : listeners) {
         it->onNat64PrefixEvent(args.netId, args.added, args.prefixString, args.prefixLength);
+    }
+
+    const auto& unsolEventListeners = ResolverEventReporter::getInstance().getUnsolEventListeners();
+    const Nat64PrefixEventParcel nat64PrefixEvent = {
+            .netId = static_cast<int32_t>(args.netId),
+            .prefixOperation =
+                    args.added ? IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED
+                               : IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_REMOVED,
+            .prefixAddress = args.prefixString,
+            .prefixLength = args.prefixLength,
+    };
+    for (const auto& it : unsolEventListeners) {
+        it->onNat64PrefixEvent(nat64PrefixEvent);
     }
 }
 
