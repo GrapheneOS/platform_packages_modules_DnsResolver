@@ -23,11 +23,14 @@
 
 namespace android::net::resolv::aidl {
 
+using ::aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using ::aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
 using ::aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::ScopedLockAssertion;
 using std::chrono::milliseconds;
 
 constexpr milliseconds kEventTimeoutMs{5000};
+constexpr milliseconds kRetryIntervalMs{20};
 
 ::ndk::ScopedAStatus UnsolicitedEventListener::onDnsHealthEvent(
         const ::aidl::android::net::resolv::aidl::DnsHealthEventParcel&) {
@@ -36,8 +39,15 @@ constexpr milliseconds kEventTimeoutMs{5000};
 }
 
 ::ndk::ScopedAStatus UnsolicitedEventListener::onNat64PrefixEvent(
-        const ::aidl::android::net::resolv::aidl::Nat64PrefixEventParcel&) {
-    // default no-op
+        const Nat64PrefixEventParcel& event) {
+    std::lock_guard lock(mMutex);
+    mUnexpectedNat64PrefixUpdates++;
+    if (event.netId == mNetId) {
+        mNat64PrefixAddress = (event.prefixOperation ==
+                               IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED)
+                                      ? event.prefixAddress
+                                      : "";
+    }
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -73,6 +83,24 @@ bool UnsolicitedEventListener::findAndRemoveValidationRecord(const ServerKey& ke
     if (it != mValidationRecords.end() && it->second == value) {
         mValidationRecords.erase(it);
         return true;
+    }
+    return false;
+}
+
+bool UnsolicitedEventListener::waitForNat64Prefix(int operation, const milliseconds& timeout) {
+    android::base::Timer t;
+    while (t.duration() < timeout) {
+        {
+            std::lock_guard lock(mMutex);
+            if ((operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED &&
+                 !mNat64PrefixAddress.empty()) ||
+                (operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_REMOVED &&
+                 mNat64PrefixAddress.empty())) {
+                mUnexpectedNat64PrefixUpdates--;
+                return true;
+            }
+        }
+        std::this_thread::sleep_for(kRetryIntervalMs);
     }
     return false;
 }
