@@ -62,6 +62,8 @@
 #include "stats.pb.h"
 
 using aidl::android::net::metrics::INetdEventListener;
+using aidl::android::net::resolv::aidl::DnsHealthEventParcel;
+using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using android::net::NetworkDnsEventReported;
 
 namespace android {
@@ -347,15 +349,42 @@ void reportDnsEvent(int eventType, const android_net_context& netContext, int la
     maybeLogQuery(eventType, netContext, event, query_name, ip_addrs);
 
     const auto& listeners = ResolverEventReporter::getInstance().getListeners();
-    if (listeners.size() == 0) {
+    if (listeners.empty()) {
         LOG(ERROR) << __func__
                    << ": DNS event not sent since no INetdEventListener receiver is available.";
-        return;
     }
     const int latencyMs = latencyUs / 1000;
     for (const auto& it : listeners) {
         it->onDnsEvent(netContext.dns_netid, eventType, returnCode, latencyMs, query_name, ip_addrs,
                        total_ip_addr_count, netContext.uid);
+    }
+
+    const auto& unsolEventListeners = ResolverEventReporter::getInstance().getUnsolEventListeners();
+
+    if (returnCode == NETD_RESOLV_TIMEOUT) {
+        const DnsHealthEventParcel dnsHealthEvent = {
+                .netId = static_cast<int32_t>(netContext.dns_netid),
+                .healthResult = IDnsResolverUnsolicitedEventListener::DNS_HEALTH_RESULT_TIMEOUT,
+        };
+        for (const auto& it : unsolEventListeners) {
+            it->onDnsHealthEvent(dnsHealthEvent);
+        }
+    } else if (returnCode == NOERROR) {
+        DnsHealthEventParcel dnsHealthEvent = {
+                .netId = static_cast<int32_t>(netContext.dns_netid),
+                .healthResult = IDnsResolverUnsolicitedEventListener::DNS_HEALTH_RESULT_OK,
+        };
+        for (const auto& query : event.dns_query_events().dns_query_event()) {
+            if (query.cache_hit() != CS_FOUND && query.rcode() == NS_R_NO_ERROR) {
+                dnsHealthEvent.successRttMicros.push_back(query.latency_micros());
+            }
+        }
+
+        if (!dnsHealthEvent.successRttMicros.empty()) {
+            for (const auto& it : unsolEventListeners) {
+                it->onDnsHealthEvent(dnsHealthEvent);
+            }
+        }
     }
 }
 
