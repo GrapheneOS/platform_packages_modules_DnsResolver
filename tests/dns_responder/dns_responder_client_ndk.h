@@ -139,6 +139,8 @@ class DnsResponderClient {
     aidl::android::net::IDnsResolver* resolvService() const { return mDnsResolvSrv.get(); }
     aidl::android::net::INetd* netdService() const { return mNetdSrv.get(); }
 
+    inline static const std::string sCaCert = ReadRelativeFile(kCaCertPath);
+
   private:
     std::shared_ptr<aidl::android::net::INetd> mNetdSrv;
     std::shared_ptr<aidl::android::net::IDnsResolver> mDnsResolvSrv;

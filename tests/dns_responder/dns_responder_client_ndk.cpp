@@ -133,7 +133,7 @@ bool DnsResponderClient::SetResolversWithTls(const std::vector<std::string>& ser
                                              const std::vector<std::string>& tlsServers,
                                              const std::string& name) {
     const auto& resolverParams = makeResolverParamsParcel(TEST_NETID, params, servers, domains,
-                                                          name, tlsServers, kCaCert);
+                                                          name, tlsServers, sCaCert);
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
     if (!rv.isOk()) LOG(ERROR) << "SetResolversWithTls() -> " << rv.getMessage();
     return rv.isOk();
@@ -148,7 +148,7 @@ bool DnsResponderClient::SetResolversFromParcel(const ResolverParamsParcel& reso
 ResolverParamsParcel DnsResponderClient::GetDefaultResolverParamsParcel() {
     return makeResolverParamsParcel(TEST_NETID, kDefaultParams, kDefaultServers,
                                     kDefaultSearchDomains, {} /* tlsHostname */, kDefaultServers,
-                                    kCaCert);
+                                    sCaCert);
 }
 
 void DnsResponderClient::SetupDNSServers(unsigned numServers, const std::vector<Mapping>& mappings,
