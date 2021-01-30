@@ -4326,9 +4326,6 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
             {hostname2, ns_type::ns_t_a, "1.2.3.5"},
     };
 
-    // The resolver will adjust the timeout value to 1000ms since the value is too small.
-    ScopedSystemProperties scopedSystemProperties(kDotConnectTimeoutMsFlag, "100");
-
     static const struct TestConfig {
         bool asyncHandshake;
         int maxRetries;
@@ -4357,6 +4354,8 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
         test::DnsTlsFrontend tls(addr, "853", addr, "53");
         ASSERT_TRUE(tls.startServer());
 
+        // The resolver will adjust the timeout value to 1000ms since the value is too small.
+        ScopedSystemProperties scopedSystemProperties(kDotConnectTimeoutMsFlag, "100");
         ScopedSystemProperties scopedSystemProperties1(kDotAsyncHandshakeFlag,
                                                        config.asyncHandshake ? "1" : "0");
         ScopedSystemProperties scopedSystemProperties2(kDotMaxretriesFlag,
