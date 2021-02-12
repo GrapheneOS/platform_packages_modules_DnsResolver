@@ -132,11 +132,24 @@ class DnsResolverBinderTest : public ::testing::Test {
         // For each element of testdata, check that the expected output appears in the dump output.
         // If not, fail the test and use hintRegex to print similar lines to assist in debugging.
         for (const auto& td : mExpectedLogData) {
+            const std::string toErase = "(null)";
             const bool found =
                     std::any_of(lines.begin(), lines.end(), [&](const std::string& line) {
                         std::smatch match;
                         if (!std::regex_match(line, match, lineRegex)) return false;
-                        return (match.size() == 2) && (match[1].str() == td.output);
+                        if (match.size() != 2) return false;
+
+                        // The binder_to_string format is changed from S that will add "(null)" to
+                        // the log on method's argument if binder object is null. But Q and R don't
+                        // have this format in log. So to make register null listener tests are
+                        // compatible from all version, just remove the "(null)" argument from
+                        // output logs if existed.
+                        std::string output = match[1].str();
+                        const auto pos = output.find(toErase);
+                        if (pos != std::string::npos && pos < output.length()) {
+                            output.erase(pos, toErase.length());
+                        }
+                        return output == td.output;
                     });
             EXPECT_TRUE(found) << "Didn't find line '" << td.output << "' in dumpsys output.";
             if (found) continue;
