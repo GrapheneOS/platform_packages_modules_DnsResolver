@@ -247,7 +247,7 @@ cc_test {
     name: "resolv_unit_test",
     test_suites: [
         "general-tests",
-        "mts",
+        "mts-dnsresolver",
     ],
     require_root: true,
     // TODO: Drop root privileges and make it be an real unit test.
