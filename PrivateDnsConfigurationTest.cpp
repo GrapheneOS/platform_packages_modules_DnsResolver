@@ -234,13 +234,12 @@ TEST_F(PrivateDnsConfigurationTest, ServerIdentity_Comparison) {
 
     DnsTlsServer server(netdutils::IPSockAddr::toIPSockAddr("127.0.0.1", 853));
     server.name = "dns.example.com";
-    server.protocol = 1;
 
-    // Different IP address (port is ignored).
+    // Different socket address.
     DnsTlsServer other = server;
     EXPECT_EQ(ServerIdentity(server), ServerIdentity(other));
     other.ss = netdutils::IPSockAddr::toIPSockAddr("127.0.0.1", 5353);
-    EXPECT_EQ(ServerIdentity(server), ServerIdentity(other));
+    EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
     other.ss = netdutils::IPSockAddr::toIPSockAddr("127.0.0.2", 853);
     EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
 
@@ -250,12 +249,6 @@ TEST_F(PrivateDnsConfigurationTest, ServerIdentity_Comparison) {
     other.name = "other.example.com";
     EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
     other.name = "";
-    EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
-
-    // Different protocol.
-    other = server;
-    EXPECT_EQ(ServerIdentity(server), ServerIdentity(other));
-    other.protocol++;
     EXPECT_NE(ServerIdentity(server), ServerIdentity(other));
 }
 
