@@ -48,8 +48,8 @@ namespace {
 
 void sendNat64PrefixEvent(const Dns64Configuration::Nat64PrefixInfo& args) {
     LOG(DEBUG) << "Sending Nat64Prefix " << (args.added ? "added" : "removed") << " event on netId "
-               << args.netId << " with address {" << args.prefixString << "("
-               << (int)(args.prefixLength) << ")}";
+               << args.netId << " with prefix " << args.prefixString << "/"
+               << (int)(args.prefixLength);
     // Send a nat64 prefix event to NetdEventListenerService.
     const auto& listeners = ResolverEventReporter::getInstance().getListeners();
     if (listeners.empty()) {
