@@ -51,6 +51,19 @@ cc_library_headers {
     ],
 }
 
+dnsresolver_aidl_interface_lateststable_version = "V7"
+
+cc_library_static {
+    name: "dnsresolver_aidl_interface-lateststable-ndk_platform",
+    whole_static_libs: [
+        "dnsresolver_aidl_interface-" + dnsresolver_aidl_interface_lateststable_version + "-ndk_platform",
+    ],
+    apex_available: [
+        "com.android.resolv",
+    ],
+    min_sdk_version: "29",
+}
+
 aidl_interface {
     name: "dnsresolver_aidl_interface",
     local_include_dir: "binder",
@@ -165,7 +178,7 @@ cc_library {
     // Link most things statically to minimize our dependence on system ABIs.
     stl: "libc++_static",
     static_libs: [
-        "dnsresolver_aidl_interface-unstable-ndk_platform",
+        "dnsresolver_aidl_interface-lateststable-ndk_platform",
         "libbase",
         "libcutils",
         "libnetdutils",
@@ -173,7 +186,7 @@ cc_library {
         "libstatslog_resolv",
         "libstatspush_compat",
         "libsysutils",
-        "netd_event_listener_interface-unstable-ndk_platform",
+        "netd_event_listener_interface-lateststable-ndk_platform",
         "server_configurable_flags",
         "stats_proto",
     ],
@@ -306,9 +319,9 @@ cc_test {
         "libssl",
     ],
     static_libs: [
-        "dnsresolver_aidl_interface-unstable-ndk_platform",
-        "netd_aidl_interface-ndk_platform",
-        "netd_event_listener_interface-unstable-ndk_platform",
+        "dnsresolver_aidl_interface-lateststable-ndk_platform",
+        "netd_aidl_interface-lateststable-ndk_platform",
+        "netd_event_listener_interface-lateststable-ndk_platform",
         "libcutils",
         "libgmock",
         "libnetd_resolv",
