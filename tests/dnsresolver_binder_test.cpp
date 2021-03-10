@@ -123,9 +123,9 @@ class DnsResolverBinderTest : public ::testing::Test {
         // Basic regexp to match dump output lines. Matches the beginning and end of the line, and
         // puts the output of the command itself into the first match group.
         // Example: "      11-05 00:23:39.481 myCommand(args) <2.02ms>".
-        // Note: There are 4 leading blank characters in Q, but 6 in R.
+        // Accept any number of the leading space.
         const std::basic_regex lineRegex(
-                "^ {4,6}[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3} "
+                "^\\s*[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3} "
                 "(.*)"
                 " <[0-9]+[.][0-9]{2}ms>$");
 
