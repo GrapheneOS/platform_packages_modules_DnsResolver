@@ -5501,11 +5501,6 @@ TEST_F(ResolverTest, DnsServerSelection) {
         const int averageTime = accumulatedTime / queryNum;
         LOG(INFO) << "ResolverTest#DnsServerSelection: averageTime " << averageTime << "us";
 
-        // Since the average Time might differ depending on parameters, set [10ms, 20ms] as
-        // acceptable range.
-        EXPECT_GE(averageTime, 10000);
-        EXPECT_LE(averageTime, 20000);
-
         dns1.clearQueries();
         dns2.clearQueries();
         dns3.clearQueries();
