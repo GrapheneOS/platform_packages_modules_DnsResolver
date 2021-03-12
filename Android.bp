@@ -287,54 +287,13 @@ filegroup {
     ],
 }
 
-// TODO: Move this test to tests/
-cc_test {
-    name: "resolv_unit_test",
-    test_suites: [
-        "general-tests",
-        "mts-dnsresolver",
-    ],
-    require_root: true,
-    // TODO: Drop root privileges and make it be an real unit test.
-    // TODO: Remove resolv_test_mts_coverage_defaults after mts coverage switched to 64-bit device.
-    defaults: [
-        "netd_defaults",
-        "resolv_test_defaults",
-        "resolv_test_mts_coverage_defaults",
-    ],
+filegroup {
+    name: "resolv_unit_test_files",
     srcs: [
-        "resolv_cache_unit_test.cpp",
-        "resolv_callback_unit_test.cpp",
-        "resolv_tls_unit_test.cpp",
-        "resolv_unit_test.cpp",
         "DnsQueryLogTest.cpp",
         "DnsStatsTest.cpp",
         "ExperimentsTest.cpp",
         "OperationLimiterTest.cpp",
         "PrivateDnsConfigurationTest.cpp",
-    ],
-    shared_libs: [
-        "libcrypto",
-        "libbinder_ndk",
-        "libssl",
-    ],
-    static_libs: [
-        "dnsresolver_aidl_interface-lateststable-ndk_platform",
-        "netd_aidl_interface-lateststable-ndk_platform",
-        "netd_event_listener_interface-lateststable-ndk_platform",
-        "libcutils",
-        "libgmock",
-        "libnetd_resolv",
-        "libnetd_test_dnsresponder_ndk",
-        "libnetd_test_resolv_utils",
-        "libnetdutils",
-        "libprotobuf-cpp-lite",
-        "libstatslog_resolv",
-        "libstatspush_compat",
-        "libsysutils",
-        "libutils",
-        "resolv_stats_test_utils",
-        "server_configurable_flags",
-        "stats_proto",
     ],
 }
