@@ -58,6 +58,7 @@
 #include <aidl/android/net/IDnsResolver.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
+#include <bpf/BpfUtils.h>
 #include <util.h>  // getApiLevel
 #include "NetdClient.h"
 #include "ResolverStats.h"
@@ -4201,6 +4202,7 @@ TEST_F(ResolverTest, getDnsNetId) {
 }
 
 TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
+    SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
     constexpr char host_name[] = "howdy.example.com.";
@@ -4248,6 +4250,7 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
 }
 
 TEST_F(ResolverTest, EnforceDnsUid) {
+    SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
     constexpr char host_name[] = "howdy.example.com.";
@@ -5403,6 +5406,7 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
 }
 
 TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
+    SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
     test::DNSResponder dns1(listen_addr1);
@@ -6027,6 +6031,7 @@ TEST_F(ResolverMultinetworkTest, OneCachePerNetwork) {
 }
 
 TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
+    SKIP_IF_BPF_NOT_SUPPORTED;
     SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
     constexpr char host_name[] = "ohayou.example.com.";
     constexpr char ipv4_addr[] = "192.0.2.0";
