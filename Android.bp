@@ -30,6 +30,10 @@ license {
     ],
 }
 
+// Whether to enable the targets in this file that require rust toolchain.
+// Set to false in branches like mainline-prod where rust toolchain isn't supported.
+support_rust_toolchain = true
+
 cc_library_headers {
     name: "libnetd_resolv_headers",
     export_include_dirs: ["include"],
