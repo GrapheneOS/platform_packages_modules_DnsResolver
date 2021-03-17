@@ -98,7 +98,6 @@ cc_test {
     ],
     shared_libs: [
         "libbinder_ndk",
-        "libssl",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk_platform",
@@ -110,6 +109,7 @@ cc_test {
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libprotobuf-cpp-lite",
+        "libssl",
         "netd_aidl_interface-lateststable-ndk_platform",
         "netd_event_listener_interface-lateststable-ndk_platform",
         "server_configurable_flags",
@@ -225,7 +225,6 @@ cc_test {
     ],
     shared_libs: [
         "libbinder_ndk",
-        "libssl",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk_platform",
@@ -239,6 +238,7 @@ cc_test {
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libprotobuf-cpp-lite",
+        "libssl",
         "libstatslog_resolv",
         "libstatspush_compat",
         "libsysutils",
