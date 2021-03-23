@@ -48,6 +48,8 @@ cc_library_headers {
 
 cc_library_headers {
     name: "dnsproxyd_protocol_headers",
+    sdk_version: "29",
+    min_sdk_version: "29",
     export_include_dirs: ["include/dnsproxyd_protocol"],
     apex_available: [
         "//apex_available:platform",
@@ -90,6 +92,7 @@ aidl_interface {
                 "com.android.tethering",
                 "com.android.wifi",
             ],
+            min_sdk_version: "30",
         },
         ndk: {
             gen_log: true,
