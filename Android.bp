@@ -111,6 +111,9 @@ aidl_interface {
         "6",
         "7",
     ],
+    dumpapi: {
+        no_license: true,
+    },
 }
 
 cc_defaults {
