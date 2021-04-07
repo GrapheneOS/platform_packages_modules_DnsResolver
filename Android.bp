@@ -87,7 +87,6 @@ aidl_interface {
     backend: {
         java: {
             apex_available: [
-                "//apex_available:platform",
                 "com.android.bluetooth.updatable",
                 "com.android.tethering",
                 "com.android.wifi",
