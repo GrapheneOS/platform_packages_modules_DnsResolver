@@ -5499,8 +5499,8 @@ TEST_F(ResolverTest, DnsServerSelection) {
         EXPECT_GT(dns1Count, 0);
         EXPECT_GT(dns2Count, 0);
         EXPECT_GT(dns3Count, 0);
-        EXPECT_GT(dns1Count, dns2Count);
-        EXPECT_GT(dns2Count, dns3Count);
+        EXPECT_GE(dns1Count, dns2Count);
+        EXPECT_GE(dns2Count, dns3Count);
 
         const int averageTime = accumulatedTime / queryNum;
         LOG(INFO) << "ResolverTest#DnsServerSelection: averageTime " << averageTime << "us";
