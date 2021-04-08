@@ -109,7 +109,7 @@ Status DnsTlsSocket::tcpConnect() {
                 sizeof(mServer.ss)) != 0 &&
             errno != EINPROGRESS) {
         const int err = errno;
-        PLOG(ERROR) << "Socket failed to connect";
+        PLOG(WARNING) << "Socket failed to connect";
         mSslFd.reset();
         return Status(err);
     }
