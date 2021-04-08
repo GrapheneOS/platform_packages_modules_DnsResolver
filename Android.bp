@@ -308,3 +308,57 @@ filegroup {
         "PrivateDnsConfigurationTest.cpp",
     ],
 }
+
+rust_ffi_static {
+    name: "libdoh_ffi",
+    enabled: support_rust_toolchain,
+    crate_name: "doh",
+    srcs: ["doh.rs"],
+    edition: "2018",
+
+    rlibs: [
+        "libandroid_logger",
+        "libanyhow",
+        "liblazy_static",
+        "liblibc",
+        "liblog_rust",
+        "libquiche",
+        "libring",
+        "libtokio",
+        "liburl",
+    ],
+    prefer_rlib: true,
+
+    shared_libs: [
+        "libcrypto",
+        "libssl",
+    ],
+
+    apex_available: [
+        "//apex_available:platform",  // Needed by doh_ffi_test
+        "com.android.resolv"
+    ],
+    min_sdk_version: "29",
+}
+
+cc_test {
+    name: "doh_ffi_test",
+    enabled: support_rust_toolchain,
+    test_suites: [
+        "general-tests",
+    ],
+    defaults: ["netd_defaults"],
+    srcs: ["doh_ffi_test.cpp"],
+    static_libs: [
+        "libdoh_ffi",
+        "libgmock",
+        "liblog",
+        "libring-core",
+    ],
+    // These are not carried over from libdoh_ffi.
+    shared_libs: [
+        "libcrypto",
+        "libssl",
+    ],
+    min_sdk_version: "29",
+}
