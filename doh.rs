@@ -472,3 +472,14 @@ pub unsafe extern "C" fn doh_query(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn doh_init() {
+        unsafe {
+            // Safety: the returned pointer from doh_init() must be a null terminated string.
+            assert_eq!(std::ffi::CStr::from_ptr(super::doh_init()).to_str().unwrap(), "1.0");
+        }
+    }
+}
