@@ -362,3 +362,25 @@ cc_test {
     ],
     min_sdk_version: "29",
 }
+
+rust_test {
+    name: "doh_unit_test",
+    enabled: support_rust_toolchain,
+    crate_name: "doh",
+    srcs: ["doh.rs"],
+    edition: "2018",
+    test_suites: ["general-tests"],
+    auto_gen_config: true,
+    rustlibs: [
+        "libandroid_logger",
+        "libanyhow",
+        "liblazy_static",
+        "liblibc",
+        "liblog_rust",
+        "libquiche",
+        "libring",
+        "libtokio",
+        "liburl",
+    ],
+    min_sdk_version: "29",
+}
