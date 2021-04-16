@@ -1603,6 +1603,7 @@ struct QueryResult {
     int ancount;
     int rcode;
     int herrno;
+    int qerrno;
     NetworkDnsEventReported event;
 };
 
@@ -1635,6 +1636,7 @@ QueryResult doQuery(const char* name, res_target* t, res_state res,
                 .ancount = 0,
                 .rcode = -1,
                 .herrno = NO_RECOVERY,
+                .qerrno = errno,
                 .event = event,
         };
     }
@@ -1644,13 +1646,15 @@ QueryResult doQuery(const char* name, res_target* t, res_state res,
     int rcode = NOERROR;
     n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0, sleepTimeMs);
     if (n < 0 || hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
+        // To ensure that the rcode handling is identical to res_queryN().
+        if (rcode != RCODE_TIMEOUT) rcode = hp->rcode;
         // if the query choked with EDNS0, retry without EDNS0
         if ((res_temp.netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
             (res_temp._flags & RES_F_EDNS0ERR)) {
             LOG(DEBUG) << __func__ << ": retry without EDNS0";
             n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf,
-                             sizeof(buf), res->netcontext_flags);
+                             sizeof(buf), res_temp.netcontext_flags);
             n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0);
         }
     }
@@ -1661,6 +1665,7 @@ QueryResult doQuery(const char* name, res_target* t, res_state res,
     return {
             .ancount = ntohs(hp->ancount),
             .rcode = rcode,
+            .qerrno = errno,
             .event = event,
     };
 }
@@ -1695,6 +1700,7 @@ static int res_queryN_parallel(const char* name, res_target* target, res_state r
         res->event->MergeFrom(r.event);
         ancount += r.ancount;
         rcode = r.rcode;
+        errno = r.qerrno;
     }
 
     if (ancount == 0) {
