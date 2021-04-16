@@ -4249,6 +4249,56 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     }
 }
 
+TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
+    SKIP_IF_BPF_NOT_SUPPORTED;
+    constexpr char listen_addr1[] = "127.0.0.4";
+    constexpr char listen_addr2[] = "::1";
+    constexpr char host_name[] = "howdy.example.com.";
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+            {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
+    };
+    test::DNSResponder dns1(listen_addr1);
+    test::DNSResponder dns2(listen_addr2);
+    StartDns(dns1, records);
+    StartDns(dns2, records);
+
+    std::vector<std::string> servers = {listen_addr1, listen_addr2};
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers, kDefaultSearchDomains, kDefaultParams));
+
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
+
+    static struct {
+        const char* hname;
+        const int expectedErrorCode;
+    } kTestData[] = {
+            {host_name, EAI_NODATA},
+            // To test the query with search domain.
+            {"howdy", EAI_AGAIN},
+    };
+
+    INetd* netdService = mDnsClient.netdService();
+    for (auto& td : kTestData) {
+        SCOPED_TRACE(td.hname);
+        ScopeBlockedUIDRule scopeBlockUidRule(netdService, TEST_UID);
+        // If API level >= 30 (R+), these queries should be blocked.
+        if (isAtLeastR) {
+            addrinfo* result = nullptr;
+            // getaddrinfo() in bionic would convert all errors to EAI_NODATA
+            // except EAI_SYSTEM.
+            EXPECT_EQ(EAI_NODATA, getaddrinfo(td.hname, nullptr, &hints, &result));
+            ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, td.expectedErrorCode, td.hname,
+                           {});
+        } else {
+            ScopedAddrinfo result = safe_getaddrinfo(td.hname, nullptr, &hints);
+            EXPECT_NE(nullptr, result);
+            EXPECT_THAT(ToStrings(result),
+                        testing::UnorderedElementsAreArray({"1.2.3.4", "::1.2.3.4"}));
+            // To avoid flaky test, do not evaluate DnsEvent since event order is not guaranteed.
+        }
+    }
+}
+
 TEST_F(ResolverTest, EnforceDnsUid) {
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
