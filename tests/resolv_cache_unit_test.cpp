@@ -935,15 +935,16 @@ class ScopedCacheCreate {
 }  // namespace
 
 TEST_F(ResolvCacheTest, DnsEventSubsampling) {
-    // Test defaults, default flag is "default:1 0:100 7:10" if no experiment flag is set
+    // Test defaults, default flag is "default:8 0:400 2:110 7:110" if no experiment flag is set
     {
         ScopedCacheCreate scopedCacheCreate(TEST_NETID, "");
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA), 10U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK), 100U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_AGAIN), 110U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA), 110U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK), 400U);
         EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS),
-                  1U);  // default
+                  8U);  // default
         EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID),
-                    testing::UnorderedElementsAreArray({"default:1", "0:100", "7:10"}));
+                    testing::UnorderedElementsAreArray({"default:8", "0:400", "2:110", "7:110"}));
     }
     // Now change the experiment flag to "0:42 default:666"
     {
