@@ -903,7 +903,7 @@ namespace {
 // if the ReturnCode is not associated with any rate_denom, use default
 // Sampling rate varies by return code; events to log are chosen randomly, with a
 // probability proportional to the sampling rate.
-constexpr const char DEFAULT_SUBSAMPLING_MAP[] = "default:1 0:100 7:10";
+constexpr const char DEFAULT_SUBSAMPLING_MAP[] = "default:8 0:400 2:110 7:110";
 
 std::unordered_map<int, uint32_t> resolv_get_dns_event_subsampling_map() {
     using android::base::ParseInt;
