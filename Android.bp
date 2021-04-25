@@ -292,6 +292,13 @@ cc_library_static {
 }
 
 filegroup {
+    name: "resolv_rust_test_config_template",
+    srcs: [
+        "resolv_rust_test_config_template.xml",
+    ],
+}
+
+filegroup {
     name: "resolv_test_config_template",
     srcs: [
         "resolv_test_config_template.xml",
@@ -371,6 +378,9 @@ rust_test {
     edition: "2018",
     test_suites: ["general-tests"],
     auto_gen_config: true,
+    // Used to enable root permission for the test.
+    // TODO: remove after 'require_root' is supported in rust_test.
+    test_config_template: ":resolv_rust_test_config_template",
     rustlibs: [
         "libandroid_logger",
         "libanyhow",
