@@ -21,6 +21,8 @@
 #include <netdutils/Stopwatch.h>
 
 #include "DnsTlsSocketFactory.h"
+#include "Experiments.h"
+#include "PrivateDnsConfiguration.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
 #include "stats.pb.h"
@@ -46,8 +48,8 @@ DnsTlsDispatcher& DnsTlsDispatcher::getInstance() {
     return instance;
 }
 
-std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedServerList(
-        const std::list<DnsTlsServer> &tlsServers, unsigned mark) const {
+std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedAndUsableServerList(
+        const std::list<DnsTlsServer>& tlsServers, unsigned netId, unsigned mark) {
     // Our preferred DnsTlsServer order is:
     //     1) reuse existing IPv6 connections
     //     2) reuse existing IPv4 connections
@@ -65,7 +67,16 @@ std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedServerList(
 
         for (const auto& tlsServer : tlsServers) {
             const Key key = std::make_pair(mark, tlsServer);
-            if (mStore.find(key) != mStore.end()) {
+            if (const Transport* xport = getTransport(key); xport != nullptr) {
+                // DoT revalidation specific feature.
+                if (!xport->usable()) {
+                    // Don't use this xport. It will be removed after timeout
+                    // (IDLE_TIMEOUT minutes).
+                    LOG(DEBUG) << "Skip using DoT server " << tlsServer.toIpString() << " on "
+                               << netId;
+                    continue;
+                }
+
                 switch (tlsServer.ss.ss_family) {
                     case AF_INET:
                         existing4.push_back(tlsServer);
@@ -97,19 +108,21 @@ std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedServerList(
 DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>& tlsServers,
                                                   res_state statp, const Slice query,
                                                   const Slice ans, int* resplen) {
-    const std::list<DnsTlsServer> orderedServers(getOrderedServerList(tlsServers, statp->_mark));
+    const std::list<DnsTlsServer> servers(
+            getOrderedAndUsableServerList(tlsServers, statp->netid, statp->_mark));
 
-    if (orderedServers.empty()) LOG(WARNING) << "Empty DnsTlsServer list";
+    if (servers.empty()) LOG(WARNING) << "No usable DnsTlsServers";
 
     DnsTlsTransport::Response code = DnsTlsTransport::Response::internal_error;
     int serverCount = 0;
-    for (const auto& server : orderedServers) {
+    for (const auto& server : servers) {
         DnsQueryEvent* dnsQueryEvent =
                 statp->event->mutable_dns_query_events()->add_dns_query_event();
 
         bool connectTriggered = false;
         Stopwatch queryStopwatch;
-        code = this->query(server, statp->_mark, query, ans, resplen, &connectTriggered);
+        code = this->query(server, statp->netid, statp->_mark, query, ans, resplen,
+                           &connectTriggered);
 
         dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
         dnsQueryEvent->set_dns_server_index(serverCount++);
@@ -148,9 +161,9 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
     return code;
 }
 
-DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, unsigned mark,
-                                                  const Slice query, const Slice ans, int* resplen,
-                                                  bool* connectTriggered) {
+DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, unsigned netId,
+                                                  unsigned mark, const Slice query, const Slice ans,
+                                                  int* resplen, bool* connectTriggered) {
     // TODO: This can cause the resolver to create multiple connections to the same DoT server
     // merely due to different mark, such as the bit explicitlySelected unset.
     // See if we can save them and just create one connection for one DoT server.
@@ -158,12 +171,8 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     Transport* xport;
     {
         std::lock_guard guard(sLock);
-        auto it = mStore.find(key);
-        if (it == mStore.end()) {
-            xport = new Transport(server, mark, mFactory.get());
-            mStore[key].reset(xport);
-        } else {
-            xport = it->second.get();
+        if (xport = getTransport(key); xport == nullptr) {
+            xport = addTransport(server, mark);
         }
         ++xport->useCount;
     }
@@ -198,6 +207,23 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
         std::lock_guard guard(sLock);
         --xport->useCount;
         xport->lastUsed = now;
+
+        // DoT revalidation specific feature.
+        if (xport->checkRevalidationNecessary(code)) {
+            // Even if the revalidation passes, it doesn't guarantee that DoT queries
+            // to the xport can stop failing because revalidation creates a new connection
+            // to probe while the xport still uses an existing connection. So far, there isn't
+            // a feasible way to force the xport to disconnect the connection. If the case
+            // happens, the xport will be marked as unusable and DoT queries won't be sent to
+            // it anymore. Eventually, after IDLE_TIMEOUT, the xport will be destroyed, and
+            // a new xport will be created.
+            const auto result =
+                    PrivateDnsConfiguration::getInstance().requestValidation(netId, server, mark);
+            LOG(WARNING) << "Requested validation for " << server.toIpString() << " with mark 0x"
+                         << std::hex << mark << ", "
+                         << (result.ok() ? "succeeded" : "failed: " + result.error().message());
+        }
+
         cleanup(now);
     }
     return code;
@@ -220,6 +246,64 @@ void DnsTlsDispatcher::cleanup(std::chrono::time_point<std::chrono::steady_clock
         }
     }
     mLastCleanup = now;
+}
+
+DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& server,
+                                                            unsigned mark) {
+    const Key key = std::make_pair(mark, server);
+    Transport* ret = getTransport(key);
+    if (ret != nullptr) return ret;
+
+    const Experiments* const instance = Experiments::getInstance();
+    int triggerThr =
+            instance->getFlag("dot_revalidation_threshold", Transport::kDotRevalidationThreshold);
+    int unusableThr = instance->getFlag("dot_xport_unusable_threshold",
+                                        Transport::kDotXportUnusableThreshold);
+
+    // Check and adjust the parameters if they are improperly set.
+    bool revalidationEnabled = false;
+    const bool isForOpportunisticMode = server.name.empty();
+    if (triggerThr > 0 && unusableThr > 0 && isForOpportunisticMode) {
+        revalidationEnabled = true;
+    } else {
+        triggerThr = -1;
+        unusableThr = -1;
+    }
+
+    ret = new Transport(server, mark, mFactory.get(), revalidationEnabled, triggerThr, unusableThr);
+    LOG(DEBUG) << "Transport is initialized with { " << triggerThr << ", " << unusableThr << "}"
+               << " for server { " << server.toIpString() << "/" << server.name << " }";
+
+    mStore[key].reset(ret);
+
+    return ret;
+}
+
+DnsTlsDispatcher::Transport* DnsTlsDispatcher::getTransport(const Key& key) {
+    auto it = mStore.find(key);
+    return (it == mStore.end() ? nullptr : it->second.get());
+}
+
+bool DnsTlsDispatcher::Transport::checkRevalidationNecessary(DnsTlsTransport::Response code) {
+    if (!revalidationEnabled) return false;
+
+    if (code == DnsTlsTransport::Response::network_error) {
+        continuousfailureCount++;
+    } else {
+        continuousfailureCount = 0;
+    }
+
+    // triggerThreshold must be greater than 0 because the value of revalidationEnabled is true.
+    if (usable() && continuousfailureCount == triggerThreshold) {
+        return true;
+    }
+    return false;
+}
+
+bool DnsTlsDispatcher::Transport::usable() const {
+    if (!revalidationEnabled) return true;
+
+    return continuousfailureCount < unusableThreshold;
 }
 
 }  // end of namespace net
