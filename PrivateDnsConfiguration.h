@@ -21,6 +21,7 @@
 #include <mutex>
 #include <vector>
 
+#include <android-base/result.h>
 #include <android-base/thread_annotations.h>
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
@@ -61,13 +62,13 @@ class PrivateDnsConfiguration {
     int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
             const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
 
-    PrivateDnsStatus getStatus(unsigned netId) EXCLUDES(mPrivateDnsLock);
+    PrivateDnsStatus getStatus(unsigned netId) const EXCLUDES(mPrivateDnsLock);
 
     void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
     // Request |server| to be revalidated on a connection tagged with |mark|.
-    // Return true if the request is accepted; otherwise, return false.
-    bool requestValidation(unsigned netId, const DnsTlsServer& server, uint32_t mark)
+    // Returns a Result to indicate if the request is accepted.
+    base::Result<void> requestValidation(unsigned netId, const DnsTlsServer& server, uint32_t mark)
             EXCLUDES(mPrivateDnsLock);
 
     struct ServerIdentity {
@@ -98,10 +99,13 @@ class PrivateDnsConfiguration {
 
     PrivateDnsConfiguration() = default;
 
-    void startValidation(const DnsTlsServer& server, unsigned netId) REQUIRES(mPrivateDnsLock);
+    // Launchs a thread to run the validation for |server| on the network |netId|.
+    // |isRevalidation| is true if this call is due to a revalidation request.
+    void startValidation(const DnsTlsServer& server, unsigned netId, bool isRevalidation)
+            REQUIRES(mPrivateDnsLock);
 
-    bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success)
-            EXCLUDES(mPrivateDnsLock);
+    bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success,
+                                    bool isRevalidation) EXCLUDES(mPrivateDnsLock);
 
     void sendPrivateDnsValidationEvent(const DnsTlsServer& server, unsigned netId, bool success)
             REQUIRES(mPrivateDnsLock);
@@ -114,7 +118,7 @@ class PrivateDnsConfiguration {
     void updateServerState(const ServerIdentity& identity, Validation state, uint32_t netId)
             REQUIRES(mPrivateDnsLock);
 
-    std::mutex mPrivateDnsLock;
+    mutable std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);
 
     // Contains all servers for a network, along with their current validation status.
