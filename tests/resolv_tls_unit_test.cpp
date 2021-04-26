@@ -102,6 +102,7 @@ bytevec make_query(uint16_t id, size_t size) {
 }
 
 // Query constants
+const unsigned NETID = 123;
 const unsigned MARK = 123;
 const uint16_t ID = 52;
 const uint16_t SIZE = 22;
@@ -687,7 +688,7 @@ TEST_F(DispatcherTest, Query) {
 
     auto factory = std::make_unique<FakeSocketFactory<FakeSocketEcho>>();
     DnsTlsDispatcher dispatcher(std::move(factory));
-    auto r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
+    auto r = dispatcher.query(SERVER1, NETID, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
                               &connectTriggered);
 
     EXPECT_EQ(DnsTlsTransport::Response::success, r);
@@ -697,7 +698,7 @@ TEST_F(DispatcherTest, Query) {
     EXPECT_EQ(QUERY, ans);
 
     // Expect to reuse the connection.
-    r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
+    r = dispatcher.query(SERVER1, NETID, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
                          &connectTriggered);
     EXPECT_EQ(DnsTlsTransport::Response::success, r);
     EXPECT_FALSE(connectTriggered);
@@ -710,7 +711,7 @@ TEST_F(DispatcherTest, AnswerTooLarge) {
 
     auto factory = std::make_unique<FakeSocketFactory<FakeSocketEcho>>();
     DnsTlsDispatcher dispatcher(std::move(factory));
-    auto r = dispatcher.query(SERVER1, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
+    auto r = dispatcher.query(SERVER1, NETID, MARK, makeSlice(QUERY), makeSlice(ans), &resplen,
                               &connectTriggered);
 
     EXPECT_EQ(DnsTlsTransport::Response::limit_error, r);
@@ -761,8 +762,9 @@ TEST_F(DispatcherTest, Dispatching) {
             int resplen = 0;
             bool connectTriggered = false;
             unsigned mark = key.first;
+            unsigned netId = key.first;
             const DnsTlsServer& server = key.second;
-            auto r = dispatcher->query(server, mark, makeSlice(q), makeSlice(ans), &resplen,
+            auto r = dispatcher->query(server, netId, mark, makeSlice(q), makeSlice(ans), &resplen,
                                        &connectTriggered);
             EXPECT_EQ(DnsTlsTransport::Response::success, r);
             EXPECT_EQ(int(q.size()), resplen);
