@@ -475,10 +475,102 @@ pub unsafe extern "C" fn doh_query(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
+    const TEST_MARK: u32 = 0xD0033;
+    const LOOPBACK_ADDR: &str = "127.0.0.1";
+
+    #[test]
+    fn dohdispatcher_invalid_args() {
+        let test_args = [
+            // Bad url
+            ("foo", "bar"),
+            ("https://1", "bar"),
+            ("https:/", "bar"),
+            // Bad ip
+            ("https://dns.google", "bar"),
+            ("https://dns.google", "256.256.256.256"),
+        ];
+        for args in &test_args {
+            assert!(
+                DohDispatcher::new(args.0, args.1, 0, None).is_err(),
+                "doh dispatcher should not be created"
+            )
+        }
+    }
+
+    #[test]
+    fn make_doh_udp_socket() {
+        // Bad ip
+        for ip in &["foo", "1", "333.333.333.333"] {
+            assert!(super::make_doh_udp_socket(ip, 0).is_err(), "udp socket should not be created");
+        }
+        // Make a socket connecting to loopback with a test mark.
+        let sk = super::make_doh_udp_socket(LOOPBACK_ADDR, TEST_MARK).unwrap();
+        // Check if the socket is connected to loopback.
+        assert_eq!(
+            sk.peer_addr().unwrap(),
+            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), DOH_PORT))
+        );
+
+        // Check if the socket mark is correct.
+        let fd: RawFd = sk.as_raw_fd();
+
+        let mut mark: u32 = 50;
+        let mut size = std::mem::size_of::<u32>() as libc::socklen_t;
+        unsafe {
+            // Safety: fd must be valid.
+            assert_eq!(
+                libc::getsockopt(
+                    fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_MARK,
+                    &mut mark as *mut _ as *mut libc::c_void,
+                    &mut size as *mut _ as *mut libc::socklen_t,
+                ),
+                0
+            );
+        }
+        assert_eq!(mark, TEST_MARK);
+
+        // Check if the socket is non-blocking.
+        unsafe {
+            // Safety: fd must be valid.
+            assert_eq!(libc::fcntl(fd, libc::F_GETFL, 0) & libc::O_NONBLOCK, libc::O_NONBLOCK);
+        }
+    }
+
+    #[test]
+    fn create_quiche_config() {
+        assert!(
+            super::create_quiche_config(None).is_ok(),
+            "quiche config without cert creating failed"
+        );
+        assert!(
+            super::create_quiche_config(Some("data/local/tmp/")).is_ok(),
+            "quiche config with cert creating failed"
+        );
+    }
+
+    const GOOGLE_DNS_URL: &str = "https://dns.google/dns-query";
+    const GOOGLE_DNS_IP: &str = "8.8.8.8";
+    // qtype: A, qname: www.example.com
+    const SAMPLE_QUERY: &str = "q80BAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB";
+    #[test]
+    fn close_doh() {
+        let doh = DohDispatcher::new(GOOGLE_DNS_URL, GOOGLE_DNS_IP, 0, None).unwrap();
+        let (resp_tx, resp_rx) = oneshot::channel();
+        let cmd = Command::DohQuery { query: SAMPLE_QUERY.as_bytes().to_vec(), resp: resp_tx };
+        assert!(doh.query(cmd).is_ok(), "Send query failed");
+        doh.abort_handler();
+        assert!(RUNTIME_STATIC.block_on(resp_rx).is_err(), "channel should already be closed");
+    }
+
     #[test]
     fn doh_init() {
         unsafe {
-            // Safety: the returned pointer from doh_init() must be a null terminated string.
+            // Safety: the returned pointer of doh_init() must be a null terminated string.
             assert_eq!(std::ffi::CStr::from_ptr(super::doh_init()).to_str().unwrap(), "1.0");
         }
     }
