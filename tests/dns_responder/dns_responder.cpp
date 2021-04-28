@@ -36,13 +36,16 @@
 #define LOG_TAG "DNSResponder"
 #include <android-base/logging.h>
 #include <android-base/strings.h>
+#include <netdutils/BackoffSequence.h>
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/Slice.h>
 #include <netdutils/SocketOption.h>
 
+using android::netdutils::BackoffSequence;
 using android::netdutils::enableSockopt;
 using android::netdutils::ScopedAddrinfo;
 using android::netdutils::Slice;
+using std::chrono::milliseconds;
 
 namespace test {
 
@@ -69,6 +72,33 @@ std::string addr2str(const sockaddr* sa, socklen_t sa_len) {
     int rv = getnameinfo(sa, sa_len, host_str, sizeof(host_str), nullptr, 0, NI_NUMERICHOST);
     if (rv == 0) return std::string(host_str);
     return std::string();
+}
+
+// Because The address might still being set up (b/186181084), This is a wrapper function
+// that retries bind() if errno is EADDRNOTAVAIL
+int bindSocket(int socket, const sockaddr* address, socklen_t address_len) {
+    // Set the wrapper to try bind() at most 6 times with backoff time
+    // (100 ms, 200 ms, ..., 1600 ms).
+    auto backoff = BackoffSequence<milliseconds>::Builder()
+                           .withInitialRetransmissionTime(milliseconds(100))
+                           .withMaximumRetransmissionCount(5)
+                           .build();
+
+    while (true) {
+        int ret = bind(socket, address, address_len);
+        if (ret == 0 || errno != EADDRNOTAVAIL) {
+            return ret;
+        }
+
+        if (!backoff.hasNextTimeout()) break;
+
+        LOG(WARNING) << "Retry to bind " << addr2str(address, address_len);
+        std::this_thread::sleep_for(backoff.getNextTimeout());
+    }
+
+    // Set errno before return since it might have been changed somewhere.
+    errno = EADDRNOTAVAIL;
+    return -1;
 }
 
 /* DNS struct helpers */
@@ -1206,7 +1236,7 @@ android::base::unique_fd DNSResponder::createListeningSocket(int socket_type) {
         const std::string host_str = addr2str(ai->ai_addr, ai->ai_addrlen);
         const char* socket_str = (socket_type == SOCK_STREAM) ? "TCP" : "UDP";
 
-        if (bind(fd.get(), ai->ai_addr, ai->ai_addrlen)) {
+        if (bindSocket(fd.get(), ai->ai_addr, ai->ai_addrlen)) {
             PLOG(ERROR) << "failed to bind " << socket_str << " " << host_str << ":"
                         << listen_service_;
             continue;
