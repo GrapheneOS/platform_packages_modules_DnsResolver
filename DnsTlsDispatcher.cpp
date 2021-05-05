@@ -182,10 +182,7 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     // stuck, this function also gets blocked.
     const int connectCounter = xport->transport.getConnectCounter();
 
-    LOG(DEBUG) << "Sending query of length " << query.size();
-    auto res = xport->transport.query(query);
-    LOG(DEBUG) << "Awaiting response";
-    const auto& result = res.get();
+    const auto& result = queryInternal(*xport, query);
     *connectTriggered = (xport->transport.getConnectCounter() > connectCounter);
 
     DnsTlsTransport::Response code = result.code;
@@ -229,6 +226,34 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     return code;
 }
 
+DnsTlsTransport::Result DnsTlsDispatcher::queryInternal(Transport& xport,
+                                                        const netdutils::Slice query) {
+    LOG(DEBUG) << "Sending query of length " << query.size();
+
+    // If dot_async_handshake is not set, the call might block in some cases; otherwise,
+    // the call should return very soon.
+    auto res = xport.transport.query(query);
+    LOG(DEBUG) << "Awaiting response";
+
+    if (xport.timeout().count() == -1) {
+        // Infinite timeout.
+        return res.get();
+    }
+
+    const auto status = res.wait_for(xport.timeout());
+    if (status == std::future_status::timeout) {
+        // TODO: notify the Transport to remove the query because no queries will await this future.
+        // b/186613628.
+        LOG(WARNING) << "DoT query timed out after " << xport.timeout().count() << " ms";
+        return DnsTlsTransport::Result{
+                .code = DnsTlsTransport::Response::network_error,
+                .response = {},
+        };
+    }
+
+    return res.get();
+}
+
 // This timeout effectively controls how long to keep SSL session tickets.
 static constexpr std::chrono::minutes IDLE_TIMEOUT(5);
 void DnsTlsDispatcher::cleanup(std::chrono::time_point<std::chrono::steady_clock> now) {
@@ -259,6 +284,7 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& 
             instance->getFlag("dot_revalidation_threshold", Transport::kDotRevalidationThreshold);
     int unusableThr = instance->getFlag("dot_xport_unusable_threshold",
                                         Transport::kDotXportUnusableThreshold);
+    int queryTimeout = instance->getFlag("dot_query_timeout_ms", Transport::kDotQueryTimeoutMs);
 
     // Check and adjust the parameters if they are improperly set.
     bool revalidationEnabled = false;
@@ -269,9 +295,16 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& 
         triggerThr = -1;
         unusableThr = -1;
     }
+    if (queryTimeout < 0) {
+        queryTimeout = -1;
+    } else if (queryTimeout < 1000) {
+        queryTimeout = 1000;
+    }
 
-    ret = new Transport(server, mark, mFactory.get(), revalidationEnabled, triggerThr, unusableThr);
-    LOG(DEBUG) << "Transport is initialized with { " << triggerThr << ", " << unusableThr << "}"
+    ret = new Transport(server, mark, mFactory.get(), revalidationEnabled, triggerThr, unusableThr,
+                        queryTimeout);
+    LOG(DEBUG) << "Transport is initialized with { " << triggerThr << ", " << unusableThr << ", "
+               << queryTimeout << "ms }"
                << " for server { " << server.toIpString() << "/" << server.name << " }";
 
     mStore[key].reset(ret);

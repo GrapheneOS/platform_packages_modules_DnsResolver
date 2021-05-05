@@ -83,6 +83,11 @@ const std::string kDotConnectTimeoutMsFlag(
         "persist.device_config.netd_native.dot_connect_timeout_ms");
 const std::string kDotAsyncHandshakeFlag("persist.device_config.netd_native.dot_async_handshake");
 const std::string kDotMaxretriesFlag("persist.device_config.netd_native.dot_maxtries");
+const std::string kDotRevalidationThresholdFlag(
+        "persist.device_config.netd_native.dot_revalidation_threshold");
+const std::string kDotXportUnusableThresholdFlag(
+        "persist.device_config.netd_native.dot_xport_unusable_threshold");
+const std::string kDotQueryTimeoutMsFlag("persist.device_config.netd_native.dot_query_timeout_ms");
 
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
@@ -4384,7 +4389,7 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
         int maxRetries;
 
         // if asyncHandshake:
-        //   expectedTimeout = dotConnectTimeoutMs * maxRetries
+        //   expectedTimeout = Min(DotQueryTimeoutMs, dotConnectTimeoutMs * maxRetries)
         // otherwise:
         //   expectedTimeout = dotConnectTimeoutMs
         int expectedTimeout;
@@ -4408,11 +4413,13 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
         ASSERT_TRUE(tls.startServer());
 
         // The resolver will adjust the timeout value to 1000ms since the value is too small.
-        ScopedSystemProperties scopedSystemProperties(kDotConnectTimeoutMsFlag, "100");
-        ScopedSystemProperties scopedSystemProperties1(kDotAsyncHandshakeFlag,
-                                                       config.asyncHandshake ? "1" : "0");
-        ScopedSystemProperties scopedSystemProperties2(kDotMaxretriesFlag,
-                                                       std::to_string(config.maxRetries));
+        ScopedSystemProperties sp1(kDotConnectTimeoutMsFlag, "100");
+
+        // Infinite timeout.
+        ScopedSystemProperties sp2(kDotQueryTimeoutMsFlag, "-1");
+
+        ScopedSystemProperties sp3(kDotAsyncHandshakeFlag, config.asyncHandshake ? "1" : "0");
+        ScopedSystemProperties sp4(kDotMaxretriesFlag, std::to_string(config.maxRetries));
         resetNetwork();
 
         // Set up resolver to opportunistic mode.
@@ -4465,25 +4472,28 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
     const std::vector<DnsRecord> records = {
             {hostname, ns_type::ns_t_a, "1.2.3.4"},
     };
+    int testConfigCount = 0;
 
     static const struct TestConfig {
         bool asyncHandshake;
         int dotConnectTimeoutMs;
+        int dotQueryTimeoutMs;
         int maxRetries;
         int concurrency;
 
         // if asyncHandshake:
-        //   expectedTimeout = dotConnectTimeoutMs * maxRetries
+        //   expectedTimeout = Min(DotQueryTimeoutMs, dotConnectTimeoutMs * maxRetries)
         // otherwise:
         //   expectedTimeout = dotConnectTimeoutMs * concurrency
         int expectedTimeout;
     } testConfigs[] = {
             // clang-format off
-            {false, 1000, 1, 5, 5000},
-            {false, 1000, 3, 5, 5000},
-            {true, 1000, 1, 5, 1000},
-            {true, 2500, 1, 10, 2500},
-            {true, 1000, 3, 5, 3000},
+            {false, 1000, 3000, 1, 5,  5000},
+            {false, 1000, 3000, 3, 5,  5000},
+            {false, 2000, 1500, 3, 2,  4000},
+            {true,  1000, 3000, 1, 5,  1000},
+            {true,  2500, 1500, 1, 10, 1500},
+            {true,  1000, 5000, 3, 5,  3000},
             // clang-format on
     };
 
@@ -4493,16 +4503,17 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
     // - when dot_async_handshake is enabled, only one handshake is triggered, and then
     //   all of the query threads time out at the same time.
     for (const auto& config : testConfigs) {
-        ScopedSystemProperties scopedSystemProperties1(kDotConnectTimeoutMsFlag,
-                                                       std::to_string(config.dotConnectTimeoutMs));
-        ScopedSystemProperties scopedSystemProperties2(kDotAsyncHandshakeFlag,
-                                                       config.asyncHandshake ? "1" : "0");
-        ScopedSystemProperties scopedSystemProperties3(kDotMaxretriesFlag,
-                                                       std::to_string(config.maxRetries));
+        testConfigCount++;
+        ScopedSystemProperties sp1(kDotQueryTimeoutMsFlag,
+                                   std::to_string(config.dotQueryTimeoutMs));
+        ScopedSystemProperties sp2(kDotConnectTimeoutMsFlag,
+                                   std::to_string(config.dotConnectTimeoutMs));
+        ScopedSystemProperties sp3(kDotAsyncHandshakeFlag, config.asyncHandshake ? "1" : "0");
+        ScopedSystemProperties sp4(kDotMaxretriesFlag, std::to_string(config.maxRetries));
         resetNetwork();
 
         for (const auto& dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
-            SCOPED_TRACE(fmt::format("testConfig: [{}, {}]", config.asyncHandshake, dnsMode));
+            SCOPED_TRACE(fmt::format("testConfig: [{}, {}]", testConfigCount, dnsMode));
 
             // Because a DnsTlsTransport lasts at least 5 minutes in spite of network
             // destroyed, let the resolver creates an unique DnsTlsTransport every time
@@ -4546,8 +4557,208 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
             // Recover the server from being unresponsive and try again.
             tls.setHangOnHandshakeForTesting(false);
             int fd = resNetworkQuery(TEST_NETID, hostname, ns_c_in, ns_t_a, cacheFlag);
-            expectAnswersValid(fd, AF_INET, "1.2.3.4");
+            if (dnsMode == "STRICT" && config.asyncHandshake &&
+                config.dotQueryTimeoutMs < (config.dotConnectTimeoutMs * config.maxRetries)) {
+                // In this case, the connection handshake is supposed to be in progress. Queries
+                // sent before the handshake finishes will time out (either due to connect timeout
+                // or query timeout).
+                expectAnswersNotValid(fd, -ETIMEDOUT);
+            } else {
+                expectAnswersValid(fd, AF_INET, "1.2.3.4");
+            }
         }
+    }
+}
+
+TEST_F(ResolverTest, QueryTlsServerTimeout) {
+    constexpr uint32_t cacheFlag = ANDROID_RESOLV_NO_CACHE_LOOKUP;
+    constexpr int INFINITE_QUERY_TIMEOUT = -1;
+    constexpr int DOT_SERVER_UNRESPONSIVE_TIME_MS = 5000;
+    constexpr char hostname1[] = "query1.example.com.";
+    constexpr char hostname2[] = "query2.example.com.";
+    const std::vector<DnsRecord> records = {
+            {hostname1, ns_type::ns_t_a, "1.2.3.4"},
+            {hostname2, ns_type::ns_t_a, "1.2.3.5"},
+    };
+
+    for (const int queryTimeoutMs : {INFINITE_QUERY_TIMEOUT, 1000}) {
+        for (const auto& dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
+            SCOPED_TRACE(fmt::format("testConfig: [{}] [{}]", dnsMode, queryTimeoutMs));
+
+            const std::string addr = getUniqueIPv4Address();
+            test::DNSResponder dns(addr);
+            StartDns(dns, records);
+            test::DnsTlsFrontend tls(addr, "853", addr, "53");
+            ASSERT_TRUE(tls.startServer());
+
+            ScopedSystemProperties sp(kDotQueryTimeoutMsFlag, std::to_string(queryTimeoutMs));
+            resetNetwork();
+
+            auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+            parcel.servers = {addr};
+            parcel.tlsServers = {addr};
+            if (dnsMode == "STRICT") parcel.tlsName = kDefaultPrivateDnsHostName;
+
+            ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+            EXPECT_TRUE(tls.waitForQueries(1));
+            tls.clearQueries();
+
+            // Set the DoT server to be unresponsive to DNS queries until either it receives
+            // 2 queries or 5s later.
+            tls.setDelayQueries(2);
+            tls.setDelayQueriesTimeout(DOT_SERVER_UNRESPONSIVE_TIME_MS);
+
+            // First query.
+            Stopwatch s;
+            int fd = resNetworkQuery(TEST_NETID, hostname1, ns_c_in, ns_t_a, cacheFlag);
+            if (dnsMode == "STRICT" && queryTimeoutMs != INFINITE_QUERY_TIMEOUT) {
+                expectAnswersNotValid(fd, -ETIMEDOUT);
+            } else {
+                expectAnswersValid(fd, AF_INET, "1.2.3.4");
+            }
+
+            // Besides checking the result of the query, check how much time the
+            // resolver processed the query.
+            int timeTakenMs = s.getTimeAndResetUs() / 1000;
+            const int expectedTimeTakenMs = (queryTimeoutMs == INFINITE_QUERY_TIMEOUT)
+                                                    ? DOT_SERVER_UNRESPONSIVE_TIME_MS
+                                                    : queryTimeoutMs;
+            EXPECT_GE(timeTakenMs, expectedTimeTakenMs);
+            EXPECT_LE(timeTakenMs, expectedTimeTakenMs + 1000);
+
+            // Second query.
+            tls.setDelayQueries(1);
+            fd = resNetworkQuery(TEST_NETID, hostname2, ns_c_in, ns_t_a, cacheFlag);
+            expectAnswersValid(fd, AF_INET, "1.2.3.5");
+
+            // Also check how much time the resolver processed the query.
+            timeTakenMs = s.timeTakenUs() / 1000;
+            EXPECT_LE(timeTakenMs, 500);
+            EXPECT_EQ(2, tls.queries());
+        }
+    }
+}
+
+// Verifies that the DnsResolver re-validates the DoT server when several DNS queries to
+// the server fails in a row.
+TEST_F(ResolverTest, TlsServerRevalidation) {
+    constexpr uint32_t cacheFlag = ANDROID_RESOLV_NO_CACHE_LOOKUP;
+    constexpr int dotXportUnusableThreshold = 10;
+    constexpr int dotQueryTimeoutMs = 1000;
+    constexpr char hostname[] = "hello.example.com.";
+    const std::vector<DnsRecord> records = {
+            {hostname, ns_type::ns_t_a, "1.2.3.4"},
+    };
+
+    static const struct TestConfig {
+        std::string dnsMode;
+        int validationThreshold;
+        int queries;
+
+        // Expected behavior in the DnsResolver.
+        bool expectRevalidationHappen;
+        bool expectDotUnusable;
+    } testConfigs[] = {
+            // clang-format off
+            {"OPPORTUNISTIC", -1,  5, false, false},
+            {"OPPORTUNISTIC", -1, 10, false, false},
+            {"OPPORTUNISTIC",  5,  5,  true, false},
+            {"OPPORTUNISTIC",  5, 10,  true,  true},
+            {"STRICT",        -1,  5, false, false},
+            {"STRICT",        -1, 10, false, false},
+            {"STRICT",         5,  5, false, false},
+            {"STRICT",         5, 10, false, false},
+            // clang-format on
+    };
+
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(fmt::format("testConfig: [{}, {}, {}]", config.dnsMode,
+                                 config.validationThreshold, config.queries));
+        const int queries = config.queries;
+        const int delayQueriesTimeout = dotQueryTimeoutMs + 1000;
+
+        ScopedSystemProperties sp1(kDotRevalidationThresholdFlag,
+                                   std::to_string(config.validationThreshold));
+        ScopedSystemProperties sp2(kDotXportUnusableThresholdFlag,
+                                   std::to_string(dotXportUnusableThreshold));
+        ScopedSystemProperties sp3(kDotQueryTimeoutMsFlag, std::to_string(dotQueryTimeoutMs));
+        resetNetwork();
+
+        const std::string addr = getUniqueIPv4Address();
+        test::DNSResponder dns(addr);
+        StartDns(dns, records);
+        test::DnsTlsFrontend tls(addr, "853", addr, "53");
+        ASSERT_TRUE(tls.startServer());
+
+        auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+        parcel.servers = {addr};
+        parcel.tlsServers = {addr};
+        if (config.dnsMode == "STRICT") parcel.tlsName = kDefaultPrivateDnsHostName;
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+        EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+        EXPECT_TRUE(tls.waitForQueries(1));
+        tls.clearQueries();
+        dns.clearQueries();
+
+        // Expect the things happening in order:
+        // 1. Configure the DoT server to postpone |queries + 1| DNS queries.
+        // 2. Send |queries| DNS queries, they will time out in 1 second.
+        // 3. 1 second later, the DoT server still waits for one more DNS query until
+        //    |delayQueriesTimeout| times out.
+        // 4. (opportunistic mode only) Meanwhile, DoT revalidation happens. The DnsResolver
+        //    creates a new connection and sends a query to the DoT server.
+        // 5. 1 second later, |delayQueriesTimeout| times out. The DoT server flushes all of the
+        //    postponed DNS queries, and handles the query which comes from the revalidation.
+        // 6. (opportunistic mode only) The revalidation succeeds.
+        // 7. Send another DNS query, and expect it will succeed.
+        // 8. (opportunistic mode only) If the DoT server has been deemed as unusable, the
+        //    DnsResolver skips trying the DoT server.
+
+        // Step 1.
+        tls.setDelayQueries(queries + 1);
+        tls.setDelayQueriesTimeout(delayQueriesTimeout);
+
+        // Step 2.
+        std::vector<std::thread> threads1(queries);
+        for (std::thread& thread : threads1) {
+            thread = std::thread([&]() {
+                int fd = resNetworkQuery(TEST_NETID, hostname, ns_c_in, ns_t_a, cacheFlag);
+                config.dnsMode == "STRICT" ? expectAnswersNotValid(fd, -ETIMEDOUT)
+                                           : expectAnswersValid(fd, AF_INET, "1.2.3.4");
+            });
+        }
+
+        // Step 3 and 4.
+        for (std::thread& thread : threads1) {
+            thread.join();
+        }
+
+        // Recover the config to make the revalidation can succeed.
+        tls.setDelayQueries(1);
+
+        // Step 5 and 6.
+        int expectedDotQueries = queries;
+        if (config.expectRevalidationHappen) {
+            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+            expectedDotQueries++;
+        }
+
+        // Step 7 and 8.
+        int fd = resNetworkQuery(TEST_NETID, hostname, ns_c_in, ns_t_a, cacheFlag);
+        expectAnswersValid(fd, AF_INET, "1.2.3.4");
+        expectedDotQueries++;
+
+        const int expectedDo53Queries =
+                expectedDotQueries + (config.dnsMode == "OPPORTUNISTIC" ? queries : 0);
+
+        if (config.expectDotUnusable) {
+            // A DoT server can be deemed as unusable only in opportunistic mode. When it happens,
+            // the DnsResolver doesn't use the DoT server for a certain period of time.
+            expectedDotQueries--;
+        }
+        EXPECT_EQ(dns.queries().size(), static_cast<unsigned>(expectedDo53Queries));
+        EXPECT_EQ(tls.queries(), expectedDotQueries);
     }
 }
 
