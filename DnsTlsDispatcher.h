@@ -80,11 +80,12 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
     // usage monitoring so we can expire idle sessions from the cache.
     struct Transport {
         Transport(const DnsTlsServer& server, unsigned mark, IDnsTlsSocketFactory* _Nonnull factory,
-                  bool revalidationEnabled, int triggerThr, int unusableThr)
+                  bool revalidationEnabled, int triggerThr, int unusableThr, int timeout)
             : transport(server, mark, factory),
               revalidationEnabled(revalidationEnabled),
               triggerThreshold(triggerThr),
-              unusableThreshold(unusableThr) {}
+              unusableThreshold(unusableThr),
+              mTimeout(timeout) {}
         // DnsTlsTransport is thread-safe, so it doesn't need to be guarded.
         DnsTlsTransport transport;
         // This use counter and timestamp are used to ensure that only idle sessions are
@@ -99,8 +100,11 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
 
         bool checkRevalidationNecessary(DnsTlsTransport::Response code) REQUIRES(sLock);
 
+        std::chrono::milliseconds timeout() const { return mTimeout; }
+
         static constexpr int kDotRevalidationThreshold = -1;
         static constexpr int kDotXportUnusableThreshold = -1;
+        static constexpr int kDotQueryTimeoutMs = -1;
 
       private:
         // Used to track if this Transport is usable.
@@ -123,6 +127,11 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
         // takes effect when DoT revalidation is on. If the value is not a positive value, DoT
         // revalidation is disabled.
         const int unusableThreshold;
+
+        // The time to await a future (the result of a DNS request) from the DnsTlsTransport
+        // of this Transport.
+        // To set an infinite timeout, assign the value to -1.
+        const std::chrono::milliseconds mTimeout;
     };
 
     Transport* _Nullable addTransport(const DnsTlsServer& server, unsigned mark) REQUIRES(sLock);
@@ -135,6 +144,9 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
     // The last time we did a cleanup.  For efficiency, we only perform a cleanup once every
     // few minutes.
     std::chrono::time_point<std::chrono::steady_clock> mLastCleanup GUARDED_BY(sLock);
+
+    DnsTlsTransport::Result queryInternal(Transport& transport, const netdutils::Slice query)
+            EXCLUDES(sLock);
 
     // Drop any cache entries whose useCount is zero and which have not been used recently.
     // This function performs a linear scan of mStore.
