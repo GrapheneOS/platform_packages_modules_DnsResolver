@@ -92,7 +92,6 @@ class PrivateDnsConfiguration {
 
   private:
     typedef std::map<ServerIdentity, DnsTlsServer> PrivateDnsTracker;
-    typedef std::set<DnsTlsServer, AddressComparator> ThreadTracker;
 
     PrivateDnsConfiguration() = default;
 
