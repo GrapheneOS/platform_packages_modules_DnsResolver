@@ -242,8 +242,7 @@ DnsTlsTransport::Result DnsTlsDispatcher::queryInternal(Transport& xport,
 
     const auto status = res.wait_for(xport.timeout());
     if (status == std::future_status::timeout) {
-        // TODO: notify the Transport to remove the query because no queries will await this future.
-        // b/186613628.
+        // TODO(b/186613628): notify the Transport to remove this query.
         LOG(WARNING) << "DoT query timed out after " << xport.timeout().count() << " ms";
         return DnsTlsTransport::Result{
                 .code = DnsTlsTransport::Response::network_error,
