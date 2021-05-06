@@ -72,20 +72,17 @@ class PrivateDnsConfiguration {
             EXCLUDES(mPrivateDnsLock);
 
     struct ServerIdentity {
-        const netdutils::IPAddress ip;
-        const std::string name;
-        const int protocol;
+        const netdutils::IPSockAddr sockaddr;
+        const std::string provider;
 
         explicit ServerIdentity(const DnsTlsServer& server)
-            : ip(netdutils::IPSockAddr::toIPSockAddr(server.ss).ip()),
-              name(server.name),
-              protocol(server.protocol) {}
+            : sockaddr(netdutils::IPSockAddr::toIPSockAddr(server.ss)), provider(server.name) {}
 
         bool operator<(const ServerIdentity& other) const {
-            return std::tie(ip, name, protocol) < std::tie(other.ip, other.name, other.protocol);
+            return std::tie(sockaddr, provider) < std::tie(other.sockaddr, other.provider);
         }
         bool operator==(const ServerIdentity& other) const {
-            return std::tie(ip, name, protocol) == std::tie(other.ip, other.name, other.protocol);
+            return std::tie(sockaddr, provider) == std::tie(other.sockaddr, other.provider);
         }
     };
 
@@ -127,7 +124,7 @@ class PrivateDnsConfiguration {
     // Any pending validation threads will continue running because we have no way to cancel them.
     std::map<unsigned, PrivateDnsTracker> mPrivateDnsTransports GUARDED_BY(mPrivateDnsLock);
 
-    void notifyValidationStateUpdate(const std::string& serverIp, Validation validation,
+    void notifyValidationStateUpdate(const netdutils::IPSockAddr& sockaddr, Validation validation,
                                      uint32_t netId) const REQUIRES(mPrivateDnsLock);
 
     // TODO: fix the reentrancy problem.
