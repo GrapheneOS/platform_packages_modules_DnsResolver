@@ -308,8 +308,6 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const DnsTlsServer& ser
         success = false;
         reevaluationStatus = DONT_REEVALUATE;
     } else if (!(serverPair->second == server)) {
-        // TODO: It doesn't seem correct to overwrite the tracker entry for
-        // |server| down below in this circumstance... Fix this.
         LOG(WARNING) << "Server " << server.toIpString()
                      << " was changed during private DNS validation";
         success = false;
