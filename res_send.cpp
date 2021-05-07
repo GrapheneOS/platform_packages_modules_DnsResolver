@@ -595,8 +595,8 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                     // TODO: Replace usable_servers of legacy stats with new one.
                     resolv_cache_add_resolver_stats_sample(
                             statp->netid, revision_id, serverSockAddr, sample, params.max_samples);
+                    resolv_stats_add(statp->netid, receivedServerAddr, dnsQueryEvent);
                 }
-                resolv_stats_add(statp->netid, receivedServerAddr, dnsQueryEvent);
             }
 
             if (resplen == 0) continue;
