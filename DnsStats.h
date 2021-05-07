@@ -121,9 +121,11 @@ class DnsStats {
 
     std::vector<netdutils::IPSockAddr> getSortedServers(Protocol protocol) const;
 
+    // Returns the average query latency in microseconds.
+    std::optional<std::chrono::microseconds> getAverageLatencyUs(Protocol protocol) const;
+
     void dump(netdutils::DumpWriter& dw);
 
-    // For testing.
     std::vector<StatsData> getStats(Protocol protocol) const;
 
     // TODO: Compatible support for getResolverInfo().
