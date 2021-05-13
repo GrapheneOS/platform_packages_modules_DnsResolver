@@ -33,6 +33,7 @@
 namespace android {
 namespace net {
 
+// TODO: decouple the dependency of DnsTlsServer.
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
 
@@ -53,24 +54,6 @@ struct PrivateDnsStatus {
 
 class PrivateDnsConfiguration {
   public:
-    // The only instance of PrivateDnsConfiguration.
-    static PrivateDnsConfiguration& getInstance() {
-        static PrivateDnsConfiguration instance;
-        return instance;
-    }
-
-    int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
-            const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
-
-    PrivateDnsStatus getStatus(unsigned netId) const EXCLUDES(mPrivateDnsLock);
-
-    void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
-
-    // Request |server| to be revalidated on a connection tagged with |mark|.
-    // Returns a Result to indicate if the request is accepted.
-    base::Result<void> requestValidation(unsigned netId, const DnsTlsServer& server, uint32_t mark)
-            EXCLUDES(mPrivateDnsLock);
-
     struct ServerIdentity {
         const netdutils::IPSockAddr sockaddr;
         const std::string provider;
@@ -86,6 +69,24 @@ class PrivateDnsConfiguration {
         }
     };
 
+    // The only instance of PrivateDnsConfiguration.
+    static PrivateDnsConfiguration& getInstance() {
+        static PrivateDnsConfiguration instance;
+        return instance;
+    }
+
+    int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
+            const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
+
+    PrivateDnsStatus getStatus(unsigned netId) const EXCLUDES(mPrivateDnsLock);
+
+    void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
+
+    // Request the server to be revalidated on a connection tagged with |mark|.
+    // Returns a Result to indicate if the request is accepted.
+    base::Result<void> requestValidation(unsigned netId, const ServerIdentity& identity,
+                                         uint32_t mark) EXCLUDES(mPrivateDnsLock);
+
     void setObserver(PrivateDnsValidationObserver* observer);
 
     void dump(netdutils::DumpWriter& dw) const;
@@ -97,21 +98,29 @@ class PrivateDnsConfiguration {
 
     // Launchs a thread to run the validation for |server| on the network |netId|.
     // |isRevalidation| is true if this call is due to a revalidation request.
-    void startValidation(const DnsTlsServer& server, unsigned netId, bool isRevalidation)
+    void startValidation(const ServerIdentity& identity, unsigned netId, bool isRevalidation)
             REQUIRES(mPrivateDnsLock);
 
-    bool recordPrivateDnsValidation(const DnsTlsServer& server, unsigned netId, bool success,
+    bool recordPrivateDnsValidation(const ServerIdentity& identity, unsigned netId, bool success,
                                     bool isRevalidation) EXCLUDES(mPrivateDnsLock);
 
-    void sendPrivateDnsValidationEvent(const DnsTlsServer& server, unsigned netId, bool success)
+    void sendPrivateDnsValidationEvent(const ServerIdentity& identity, unsigned netId, bool success)
             REQUIRES(mPrivateDnsLock);
 
     // Decide if a validation for |server| is needed. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
     // thread running are marked as being Validation::in_process.
+    // TODO: decouple the dependency of DnsTlsServer.
     bool needsValidation(const DnsTlsServer& server) REQUIRES(mPrivateDnsLock);
 
     void updateServerState(const ServerIdentity& identity, Validation state, uint32_t netId)
+            REQUIRES(mPrivateDnsLock);
+
+    // For testing.
+    base::Result<DnsTlsServer*> getPrivateDns(const ServerIdentity& identity, unsigned netId)
+            EXCLUDES(mPrivateDnsLock);
+
+    base::Result<DnsTlsServer*> getPrivateDnsLocked(const ServerIdentity& identity, unsigned netId)
             REQUIRES(mPrivateDnsLock);
 
     mutable std::mutex mPrivateDnsLock;
