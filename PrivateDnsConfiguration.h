@@ -23,6 +23,7 @@
 
 #include <android-base/result.h>
 #include <android-base/thread_annotations.h>
+#include <netdutils/BackoffSequence.h>
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
 
@@ -138,6 +139,13 @@ class PrivateDnsConfiguration {
     PrivateDnsValidationObserver* mObserver GUARDED_BY(mPrivateDnsLock);
 
     friend class PrivateDnsConfigurationTest;
+
+    // It's not const because PrivateDnsConfigurationTest needs to override it.
+    // TODO: make it const by dependency injection.
+    netdutils::BackoffSequence<>::Builder mBackoffBuilder =
+            netdutils::BackoffSequence<>::Builder()
+                    .withInitialRetransmissionTime(std::chrono::seconds(60))
+                    .withMaximumRetransmissionTime(std::chrono::seconds(3600));
 
     struct RecordEntry {
         RecordEntry(uint32_t netId, const ServerIdentity& identity, Validation state)
