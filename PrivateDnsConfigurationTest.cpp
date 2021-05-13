@@ -39,6 +39,8 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
 
     void SetUp() {
         mPdc.setObserver(&mObserver);
+        mPdc.mBackoffBuilder.withInitialRetransmissionTime(std::chrono::seconds(1))
+                .withMaximumRetransmissionTime(std::chrono::seconds(1));
 
         // The default and sole action when the observer is notified of onValidationStateUpdate.
         // Don't override the action. In other words, don't use WillOnce() or WillRepeatedly()
@@ -51,7 +53,17 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
         ON_CALL(mObserver, onValidationStateUpdate)
                 .WillByDefault([&](const std::string& server, Validation validation, uint32_t) {
                     if (validation == Validation::in_process) {
-                        mObserver.runningThreads++;
+                        std::lock_guard guard(mObserver.lock);
+                        auto it = mObserver.serverStateMap.find(server);
+                        if (it == mObserver.serverStateMap.end() ||
+                            it->second != Validation::in_process) {
+                            // Increment runningThreads only when receive the first in_process
+                            // notification. The rest of the continuous in_process notifications
+                            // are due to probe retry which runs on the same thread.
+                            // TODO: consider adding onValidationThreadStart() and
+                            // onValidationThreadEnd() callbacks.
+                            mObserver.runningThreads++;
+                        }
                     } else if (validation == Validation::success ||
                                validation == Validation::fail) {
                         mObserver.runningThreads--;
@@ -146,6 +158,40 @@ TEST_F(PrivateDnsConfigurationTest, ValidationFail_Opportunistic) {
     // Strictly wait for all of the validation finish; otherwise, the test can crash somehow.
     ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
     ASSERT_TRUE(backend.startServer());
+}
+
+TEST_F(PrivateDnsConfigurationTest, Revalidation_Opportunistic) {
+    const DnsTlsServer server(netdutils::IPSockAddr::toIPSockAddr(kServer1, 853));
+
+    // Step 1: Set up and wait for validation complete.
+    testing::InSequence seq;
+    EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
+    EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
+
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {kServer1}, {}, {}), 0);
+    expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
+    ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
+
+    // Step 2: Simulate the DNS is temporarily broken, and then request a validation.
+    // Expect the validation to run as follows:
+    //   1. DnsResolver notifies of Validation::in_process when the validation is about to run.
+    //   2. The first probing fails. DnsResolver notifies of Validation::in_process.
+    //   3. One second later, the second probing begins and succeeds. DnsResolver notifies of
+    //      Validation::success.
+    EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId))
+            .Times(2);
+    EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
+
+    std::thread t([] {
+        std::this_thread::sleep_for(1000ms);
+        backend.startServer();
+    });
+    backend.stopServer();
+    EXPECT_TRUE(mPdc.requestValidation(kNetId, ServerIdentity(server), kMark).ok());
+
+    t.join();
+    expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
+    ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
 }
 
 TEST_F(PrivateDnsConfigurationTest, ValidationBlock) {
