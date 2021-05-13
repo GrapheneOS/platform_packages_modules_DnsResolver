@@ -214,8 +214,8 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
             // happens, the xport will be marked as unusable and DoT queries won't be sent to
             // it anymore. Eventually, after IDLE_TIMEOUT, the xport will be destroyed, and
             // a new xport will be created.
-            const auto result =
-                    PrivateDnsConfiguration::getInstance().requestValidation(netId, server, mark);
+            const auto result = PrivateDnsConfiguration::getInstance().requestValidation(
+                    netId, PrivateDnsConfiguration::ServerIdentity{server}, mark);
             LOG(WARNING) << "Requested validation for " << server.toIpString() << " with mark 0x"
                          << std::hex << mark << ", "
                          << (result.ok() ? "succeeded" : "failed: " + result.error().message());
