@@ -58,8 +58,8 @@ class PrivateDnsConfiguration {
         const netdutils::IPSockAddr sockaddr;
         const std::string provider;
 
-        explicit ServerIdentity(const DnsTlsServer& server)
-            : sockaddr(netdutils::IPSockAddr::toIPSockAddr(server.ss)), provider(server.name) {}
+        explicit ServerIdentity(const IPrivateDnsServer& server)
+            : sockaddr(server.addr()), provider(server.provider()) {}
 
         bool operator<(const ServerIdentity& other) const {
             return std::tie(sockaddr, provider) < std::tie(other.sockaddr, other.provider);
@@ -92,7 +92,7 @@ class PrivateDnsConfiguration {
     void dump(netdutils::DumpWriter& dw) const;
 
   private:
-    typedef std::map<ServerIdentity, DnsTlsServer> PrivateDnsTracker;
+    typedef std::map<ServerIdentity, std::unique_ptr<IPrivateDnsServer>> PrivateDnsTracker;
 
     PrivateDnsConfiguration() = default;
 
@@ -110,18 +110,17 @@ class PrivateDnsConfiguration {
     // Decide if a validation for |server| is needed. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
     // thread running are marked as being Validation::in_process.
-    // TODO: decouple the dependency of DnsTlsServer.
-    bool needsValidation(const DnsTlsServer& server) REQUIRES(mPrivateDnsLock);
+    bool needsValidation(const IPrivateDnsServer& server) const REQUIRES(mPrivateDnsLock);
 
     void updateServerState(const ServerIdentity& identity, Validation state, uint32_t netId)
             REQUIRES(mPrivateDnsLock);
 
     // For testing.
-    base::Result<DnsTlsServer*> getPrivateDns(const ServerIdentity& identity, unsigned netId)
+    base::Result<IPrivateDnsServer*> getPrivateDns(const ServerIdentity& identity, unsigned netId)
             EXCLUDES(mPrivateDnsLock);
 
-    base::Result<DnsTlsServer*> getPrivateDnsLocked(const ServerIdentity& identity, unsigned netId)
-            REQUIRES(mPrivateDnsLock);
+    base::Result<IPrivateDnsServer*> getPrivateDnsLocked(const ServerIdentity& identity,
+                                                         unsigned netId) REQUIRES(mPrivateDnsLock);
 
     mutable std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);
