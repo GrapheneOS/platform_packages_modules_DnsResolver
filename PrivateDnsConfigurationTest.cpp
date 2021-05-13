@@ -28,6 +28,8 @@ using namespace std::chrono_literals;
 
 class PrivateDnsConfigurationTest : public ::testing::Test {
   public:
+    using ServerIdentity = PrivateDnsConfiguration::ServerIdentity;
+
     static void SetUpTestSuite() {
         // stopServer() will be called in their destructor.
         ASSERT_TRUE(tls1.startServer());
@@ -98,6 +100,10 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
             serverStateMap[ToString(&server.ss)] = validation;
         }
         return (serverStateMap == mObserver.getServerStateMap());
+    }
+
+    bool hasPrivateDnsServer(const ServerIdentity& identity, unsigned netId) {
+        return mPdc.getPrivateDns(identity, netId).ok();
     }
 
     static constexpr uint32_t kNetId = 30;
@@ -230,8 +236,6 @@ TEST_F(PrivateDnsConfigurationTest, NoValidation) {
 }
 
 TEST_F(PrivateDnsConfigurationTest, ServerIdentity_Comparison) {
-    using ServerIdentity = PrivateDnsConfiguration::ServerIdentity;
-
     DnsTlsServer server(netdutils::IPSockAddr::toIPSockAddr("127.0.0.1", 853));
     server.name = "dns.example.com";
 
@@ -254,6 +258,7 @@ TEST_F(PrivateDnsConfigurationTest, ServerIdentity_Comparison) {
 
 TEST_F(PrivateDnsConfigurationTest, RequestValidation) {
     const DnsTlsServer server(netdutils::IPSockAddr::toIPSockAddr(kServer1, 853));
+    const ServerIdentity identity(server);
 
     testing::InSequence seq;
 
@@ -281,18 +286,18 @@ TEST_F(PrivateDnsConfigurationTest, RequestValidation) {
             EXPECT_CALL(mObserver,
                         onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
             EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
-            EXPECT_TRUE(mPdc.requestValidation(kNetId, server, kMark).ok());
+            EXPECT_TRUE(mPdc.requestValidation(kNetId, identity, kMark).ok());
         } else if (config == "IN_PROGRESS") {
             EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
-            EXPECT_FALSE(mPdc.requestValidation(kNetId, server, kMark).ok());
+            EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark).ok());
         } else if (config == "FAIL") {
-            EXPECT_FALSE(mPdc.requestValidation(kNetId, server, kMark).ok());
+            EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark).ok());
         }
 
         // Resending the same request or requesting nonexistent servers are denied.
-        EXPECT_FALSE(mPdc.requestValidation(kNetId, server, kMark).ok());
-        EXPECT_FALSE(mPdc.requestValidation(kNetId, server, kMark + 1).ok());
-        EXPECT_FALSE(mPdc.requestValidation(kNetId + 1, server, kMark).ok());
+        EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark).ok());
+        EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark + 1).ok());
+        EXPECT_FALSE(mPdc.requestValidation(kNetId + 1, identity, kMark).ok());
 
         // Reset the test state.
         backend.setDeferredResp(false);
@@ -304,6 +309,26 @@ TEST_F(PrivateDnsConfigurationTest, RequestValidation) {
         ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
         mPdc.clear(kNetId);
     }
+}
+
+TEST_F(PrivateDnsConfigurationTest, GetPrivateDns) {
+    const DnsTlsServer server1(netdutils::IPSockAddr::toIPSockAddr(kServer1, 853));
+    const DnsTlsServer server2(netdutils::IPSockAddr::toIPSockAddr(kServer2, 853));
+
+    EXPECT_FALSE(hasPrivateDnsServer(ServerIdentity(server1), kNetId));
+    EXPECT_FALSE(hasPrivateDnsServer(ServerIdentity(server2), kNetId));
+
+    // Suppress the warning.
+    EXPECT_CALL(mObserver, onValidationStateUpdate).Times(2);
+
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {kServer1}, {}, {}), 0);
+    expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
+
+    EXPECT_TRUE(hasPrivateDnsServer(ServerIdentity(server1), kNetId));
+    EXPECT_FALSE(hasPrivateDnsServer(ServerIdentity(server2), kNetId));
+    EXPECT_FALSE(hasPrivateDnsServer(ServerIdentity(server1), kNetId + 1));
+
+    ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
 }
 
 // TODO: add ValidationFail_Strict test.
