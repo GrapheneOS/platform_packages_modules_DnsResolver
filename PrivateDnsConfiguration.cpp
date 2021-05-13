@@ -175,7 +175,7 @@ base::Result<void> PrivateDnsConfiguration::requestValidation(unsigned netId,
     // Don't run the validation if |mark| (from android_net_context.dns_mark) is different.
     // This is to protect validation from running on unexpected marks.
     // Validation should be associated with a mark gotten by system permission.
-    if (target->mark != mark) return Errorf("Socket mark mismatched");
+    if (target->validationMark() != mark) return Errorf("Socket mark mismatched");
 
     updateServerState(identity, Validation::in_process, netId);
     startValidation(identity, netId, true);
@@ -216,8 +216,8 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
             // ::validate() is a blocking call that performs network operations.
             // It can take milliseconds to minutes, up to the SYN retry limit.
             LOG(WARNING) << "Validating DnsTlsServer " << server.toIpString() << " with mark 0x"
-                         << std::hex << server.mark;
-            const bool success = DnsTlsTransport::validate(server, server.mark);
+                         << std::hex << server.validationMark();
+            const bool success = DnsTlsTransport::validate(server, server.validationMark());
             LOG(WARNING) << "validateDnsTlsServer returned " << success << " for "
                          << server.toIpString();
 
