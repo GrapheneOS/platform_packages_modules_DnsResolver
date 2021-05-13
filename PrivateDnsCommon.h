@@ -18,6 +18,11 @@
 
 namespace android::net {
 
+enum class PrivateDnsTransport : uint8_t {
+    kDot,  // DNS over TLS.
+    kDoh,  // DNS over HTTPS.
+};
+
 // Validation status of a private DNS server on a specific netId.
 enum class Validation : uint8_t {
     in_process,
