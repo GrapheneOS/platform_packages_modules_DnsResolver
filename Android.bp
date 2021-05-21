@@ -123,6 +123,8 @@ cc_defaults {
         "libbase",
         "liblog",
     ],
+    // This field is required to make test compatible with Q devices.
+    min_sdk_version: "29",
 }
 
 cc_defaults {
