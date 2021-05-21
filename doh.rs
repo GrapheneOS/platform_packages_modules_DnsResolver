@@ -101,13 +101,22 @@ impl DohDispatcher {
         mark: u32,
         cert_path: Option<&str>,
     ) -> Result<Box<DohDispatcher>> {
+        // Setup socket
+        let udp_sk = make_doh_udp_socket(&ip_addr, mark)?;
+        DohDispatcher::new_with_socket(url, ip_addr, mark, cert_path, udp_sk)
+    }
+
+    fn new_with_socket(
+        url: &str,
+        ip_addr: &str,
+        mark: u32,
+        cert_path: Option<&str>,
+        udp_sk: std::net::UdpSocket,
+    ) -> Result<Box<DohDispatcher>> {
         let url = Url::parse(&url.to_string())?;
         if url.domain().is_none() {
             return Err(anyhow!("no domain"));
         }
-        // Setup socket
-        let udp_sk = make_doh_udp_socket(&ip_addr, mark)?;
-
         // Setup quiche config
         let config = create_quiche_config(cert_path)?;
         let h3_config = h3::Config::new()?;
@@ -559,7 +568,9 @@ mod tests {
     const SAMPLE_QUERY: &str = "q80BAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB";
     #[test]
     fn close_doh() {
-        let doh = DohDispatcher::new(GOOGLE_DNS_URL, GOOGLE_DNS_IP, 0, None).unwrap();
+        let udp_sk = super::make_doh_udp_socket(LOOPBACK_ADDR, TEST_MARK).unwrap();
+        let doh =
+            DohDispatcher::new_with_socket(GOOGLE_DNS_URL, GOOGLE_DNS_IP, 0, None, udp_sk).unwrap();
         let (resp_tx, resp_rx) = oneshot::channel();
         let cmd = Command::DohQuery { query: SAMPLE_QUERY.as_bytes().to_vec(), resp: resp_tx };
         assert!(doh.query(cmd).is_ok(), "Send query failed");
