@@ -172,7 +172,7 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     {
         std::lock_guard guard(sLock);
         if (xport = getTransport(key); xport == nullptr) {
-            xport = addTransport(server, mark);
+            xport = addTransport(server, mark, netId);
         }
         ++xport->useCount;
     }
@@ -226,6 +226,11 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     return code;
 }
 
+void DnsTlsDispatcher::forceCleanup(unsigned netId) {
+    std::lock_guard guard(sLock);
+    forceCleanupLocked(netId);
+}
+
 DnsTlsTransport::Result DnsTlsDispatcher::queryInternal(Transport& xport,
                                                         const netdutils::Slice query) {
     LOG(DEBUG) << "Sending query of length " << query.size();
@@ -272,8 +277,20 @@ void DnsTlsDispatcher::cleanup(std::chrono::time_point<std::chrono::steady_clock
     mLastCleanup = now;
 }
 
+// TODO: unify forceCleanupLocked() and cleanup().
+void DnsTlsDispatcher::forceCleanupLocked(unsigned netId) {
+    for (auto it = mStore.begin(); it != mStore.end();) {
+        auto& s = it->second;
+        if (s->useCount == 0 && s->mNetId == netId) {
+            it = mStore.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& server,
-                                                            unsigned mark) {
+                                                            unsigned mark, unsigned netId) {
     const Key key = std::make_pair(mark, server);
     Transport* ret = getTransport(key);
     if (ret != nullptr) return ret;
@@ -300,8 +317,8 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& 
         queryTimeout = 1000;
     }
 
-    ret = new Transport(server, mark, mFactory.get(), revalidationEnabled, triggerThr, unusableThr,
-                        queryTimeout);
+    ret = new Transport(server, mark, netId, mFactory.get(), revalidationEnabled, triggerThr,
+                        unusableThr, queryTimeout);
     LOG(DEBUG) << "Transport is initialized with { " << triggerThr << ", " << unusableThr << ", "
                << queryTimeout << "ms }"
                << " for server { " << server.toIpString() << "/" << server.name << " }";
