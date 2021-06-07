@@ -21,18 +21,23 @@
 #include <android-base/format.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <netdutils/Stopwatch.h>
 #include <netdutils/ThreadUtil.h>
 #include <sys/socket.h>
 
 #include "DnsTlsTransport.h"
+#include "Experiments.h"
 #include "ResolverEventReporter.h"
 #include "netd_resolv/resolv.h"
+#include "resolv_cache.h"
+#include "resolv_private.h"
 #include "util.h"
 
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::StringPrintf;
 using android::netdutils::setThreadName;
+using android::netdutils::Stopwatch;
 using std::chrono::milliseconds;
 
 namespace android {
@@ -195,6 +200,23 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
     std::thread validate_thread([this, identity, server, netId, isRevalidation] {
         setThreadName(StringPrintf("TlsVerify_%u", netId).c_str());
 
+        const bool avoidBadPrivateDns =
+                Experiments::getInstance()->getFlag("avoid_bad_private_dns", 0);
+        std::optional<int64_t> latencyThreshold;
+        if (avoidBadPrivateDns) {
+            const int maxLatency = Experiments::getInstance()->getFlag(
+                    "max_private_dns_latency_threshold_ms", kMaxPrivateDnsLatencyThresholdMs);
+            const int minLatency = Experiments::getInstance()->getFlag(
+                    "min_private_dns_latency_threshold_ms", kMinPrivateDnsLatencyThresholdMs);
+            const auto do53Latency = resolv_stats_get_average_response_time(netId, PROTO_UDP);
+            const int target =
+                    do53Latency.has_value() ? (3 * do53Latency.value().count() / 1000) : 0;
+
+            // The time is limited to the range [minLatency, maxLatency].
+            latencyThreshold = std::clamp(target, minLatency, maxLatency);
+        }
+        const bool isOpportunisticMode = server.name.empty();
+
         // cat /proc/sys/net/ipv4/tcp_syn_retries yields "6".
         //
         // Start with a 1 minute delay and backoff to once per hour.
@@ -215,12 +237,24 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
             // It can take milliseconds to minutes, up to the SYN retry limit.
             LOG(WARNING) << "Validating DnsTlsServer " << server.toIpString() << " with mark 0x"
                          << std::hex << server.validationMark();
-            const bool success = DnsTlsTransport::validate(server, server.validationMark());
-            LOG(WARNING) << "validateDnsTlsServer returned " << success << " for "
-                         << server.toIpString();
 
-            const bool needs_reeval =
-                    this->recordPrivateDnsValidation(identity, netId, success, isRevalidation);
+            Stopwatch stopwatch;
+            const bool gotAnswer = DnsTlsTransport::validate(server, server.validationMark());
+            const int32_t timeTaken = saturate_cast<int32_t>(stopwatch.timeTakenUs() / 1000);
+            LOG(WARNING) << fmt::format("validateDnsTlsServer returned {} for {}, took {}ms",
+                                        gotAnswer, server.toIpString(), timeTaken);
+
+            const int64_t targetTime = latencyThreshold.value_or(INT64_MAX);
+            bool latencyTooHigh = false;
+            if (isOpportunisticMode && timeTaken > targetTime) {
+                latencyTooHigh = true;
+                LOG(WARNING) << "validateDnsTlsServer took too long: threshold is " << targetTime
+                             << "ms";
+            }
+
+            // TODO: combine these boolean variables into a bitwise variable.
+            const bool needs_reeval = this->recordPrivateDnsValidation(
+                    identity, netId, gotAnswer, isRevalidation, latencyTooHigh);
 
             if (!needs_reeval) {
                 break;
@@ -233,6 +267,8 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
                 break;
             }
         }
+
+        this->updateServerLatencyThreshold(identity, latencyThreshold, netId);
     });
     validate_thread.detach();
 }
@@ -268,8 +304,8 @@ void PrivateDnsConfiguration::sendPrivateDnsValidationEvent(const ServerIdentity
 }
 
 bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& identity,
-                                                         unsigned netId, bool success,
-                                                         bool isRevalidation) {
+                                                         unsigned netId, bool gotAnswer,
+                                                         bool isRevalidation, bool latencyTooHigh) {
     constexpr bool NEEDS_REEVALUATION = true;
     constexpr bool DONT_REEVALUATE = false;
 
@@ -290,14 +326,17 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& i
     }
 
     bool reevaluationStatus = NEEDS_REEVALUATION;
-    if (success) {
-        reevaluationStatus = DONT_REEVALUATE;
+    if (gotAnswer) {
+        if (!latencyTooHigh) {
+            reevaluationStatus = DONT_REEVALUATE;
+        }
     } else if (mode->second == PrivateDnsMode::OFF) {
         reevaluationStatus = DONT_REEVALUATE;
     } else if (mode->second == PrivateDnsMode::OPPORTUNISTIC && !isRevalidation) {
         reevaluationStatus = DONT_REEVALUATE;
     }
 
+    bool success = gotAnswer;
     auto& tracker = netPair->second;
     auto serverPair = tracker.find(identity);
     if (serverPair == tracker.end()) {
@@ -312,10 +351,12 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& i
         reevaluationStatus = DONT_REEVALUATE;
     }
 
-    // Send private dns validation result to listeners.
-    sendPrivateDnsValidationEvent(identity, netId, success);
+    const bool succeededQuickly = success && !latencyTooHigh;
 
-    if (success) {
+    // Send private dns validation result to listeners.
+    sendPrivateDnsValidationEvent(identity, netId, succeededQuickly);
+
+    if (succeededQuickly) {
         updateServerState(identity, Validation::success, netId);
     } else {
         // Validation failure is expected if a user is on a captive portal.
@@ -325,7 +366,7 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& i
                                                                        : Validation::fail;
         updateServerState(identity, result, netId);
     }
-    LOG(WARNING) << "Validation " << (success ? "success" : "failed");
+    LOG(WARNING) << "Validation " << (succeededQuickly ? "success" : "failed");
 
     return reevaluationStatus;
 }
@@ -383,6 +424,24 @@ base::Result<IPrivateDnsServer*> PrivateDnsConfiguration::getPrivateDnsLocked(
     }
 
     return iter->second.get();
+}
+
+void PrivateDnsConfiguration::updateServerLatencyThreshold(const ServerIdentity& identity,
+                                                           std::optional<int64_t> latencyThreshold,
+                                                           uint32_t netId) {
+    std::lock_guard guard(mPrivateDnsLock);
+
+    const auto result = getPrivateDnsLocked(identity, netId);
+    if (!result.ok()) return;
+
+    if (result.value()->isDot()) {
+        DnsTlsServer& server = *static_cast<DnsTlsServer*>(result.value());
+        server.setLatencyThreshold(latencyThreshold);
+        LOG(INFO) << "Set latencyThreshold "
+                  << (latencyThreshold ? std::to_string(latencyThreshold.value()) + "ms"
+                                       : "nullopt")
+                  << " to " << server.toIpString();
+    }
 }
 
 void PrivateDnsConfiguration::setObserver(PrivateDnsValidationObserver* observer) {
