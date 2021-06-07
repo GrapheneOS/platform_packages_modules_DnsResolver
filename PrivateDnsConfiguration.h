@@ -95,6 +95,9 @@ class PrivateDnsConfiguration {
   private:
     typedef std::map<ServerIdentity, std::unique_ptr<IPrivateDnsServer>> PrivateDnsTracker;
 
+    static constexpr int kMaxPrivateDnsLatencyThresholdMs = 2000;
+    static constexpr int kMinPrivateDnsLatencyThresholdMs = 500;
+
     PrivateDnsConfiguration() = default;
 
     // Launchs a thread to run the validation for |server| on the network |netId|.
@@ -103,7 +106,8 @@ class PrivateDnsConfiguration {
             REQUIRES(mPrivateDnsLock);
 
     bool recordPrivateDnsValidation(const ServerIdentity& identity, unsigned netId, bool success,
-                                    bool isRevalidation) EXCLUDES(mPrivateDnsLock);
+                                    bool isRevalidation, bool latencyTooHigh)
+            EXCLUDES(mPrivateDnsLock);
 
     void sendPrivateDnsValidationEvent(const ServerIdentity& identity, unsigned netId, bool success)
             REQUIRES(mPrivateDnsLock);
@@ -122,6 +126,10 @@ class PrivateDnsConfiguration {
 
     base::Result<IPrivateDnsServer*> getPrivateDnsLocked(const ServerIdentity& identity,
                                                          unsigned netId) REQUIRES(mPrivateDnsLock);
+
+    void updateServerLatencyThreshold(const ServerIdentity& identity,
+                                      std::optional<int64_t> latencyThreshold, uint32_t netId)
+            EXCLUDES(mPrivateDnsLock);
 
     mutable std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);
