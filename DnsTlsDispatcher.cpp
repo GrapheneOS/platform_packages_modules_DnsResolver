@@ -331,15 +331,15 @@ bool DnsTlsDispatcher::Transport::checkRevalidationNecessary(DnsTlsTransport::Re
 
     if (code == DnsTlsTransport::Response::network_error) {
         continuousfailureCount++;
-        LOG(WARNING) << "continuousfailureCount incremented: network_error, count = "
-                     << continuousfailureCount;
+        LOG(DEBUG) << "continuousfailureCount incremented: network_error, count = "
+                   << continuousfailureCount;
     } else if (latencyTooHigh) {
         continuousfailureCount++;
-        LOG(WARNING) << "continuousfailureCount incremented: latency too High, count = "
-                     << continuousfailureCount;
-    } else {
+        LOG(DEBUG) << "continuousfailureCount incremented: latency too High, count = "
+                   << continuousfailureCount;
+    } else if (continuousfailureCount > 0) {
         continuousfailureCount = 0;
-        LOG(WARNING) << "continuousfailureCount reset";
+        LOG(DEBUG) << "continuousfailureCount reset";
     }
 
     // triggerThreshold must be greater than 0 because the value of revalidationEnabled is true.
