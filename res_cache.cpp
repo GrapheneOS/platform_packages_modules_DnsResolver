@@ -1929,6 +1929,18 @@ bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& serv
     return false;
 }
 
+std::optional<std::chrono::microseconds> resolv_stats_get_average_response_time(
+        unsigned netid, android::net::Protocol protocol) {
+    if (protocol == android::net::PROTO_UNKNOWN) return std::nullopt;
+
+    std::lock_guard guard(cache_mutex);
+    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
+        return info->dnsStats.getAverageLatencyUs(protocol);
+    }
+
+    return std::nullopt;
+}
+
 static const char* tc_mode_to_str(const int mode) {
     switch (mode) {
         case aidl::android::net::IDnsResolver::TC_MODE_DEFAULT:
