@@ -345,8 +345,13 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
                        static_cast<uint32_t>(privateDnsStatus.serversMap.size()));
             dw.incIndent();
             for (const auto& [server, validation] : privateDnsStatus.serversMap) {
-                dw.println("%s name{%s} status{%s}", server.toIpString().c_str(),
-                           server.name.c_str(), validationStatusToString(validation));
+                const std::string latencyThreshold =
+                        server.latencyThreshold()
+                                ? std::to_string(server.latencyThreshold().value()) + "ms"
+                                : "nullopt";
+                dw.println("%s name{%s} status{%s} latencyThreshold{%s}",
+                           server.toIpString().c_str(), server.name.c_str(),
+                           validationStatusToString(validation), latencyThreshold.c_str());
             }
             dw.decIndent();
         }
