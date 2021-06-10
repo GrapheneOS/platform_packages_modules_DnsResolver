@@ -107,8 +107,7 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
         // whether or not this Transport is usable.
         bool usable() const REQUIRES(sLock);
 
-        bool checkRevalidationNecessary(DnsTlsTransport::Response code, bool latencyTooHigh)
-                REQUIRES(sLock);
+        bool checkRevalidationNecessary(DnsTlsTransport::Response code) REQUIRES(sLock);
 
         std::chrono::milliseconds timeout() const { return mTimeout; }
 
