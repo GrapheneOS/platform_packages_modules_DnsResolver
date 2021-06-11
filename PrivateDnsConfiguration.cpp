@@ -61,11 +61,6 @@ bool parseServer(const char* server, sockaddr_storage* parsed) {
     return true;
 }
 
-// Returns true if the IPrivateDnsServer was created when the mode was opportunistic.
-bool isForOpportunisticMode(const PrivateDnsConfiguration::ServerIdentity& identity) {
-    return identity.provider.empty();
-}
-
 int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
                                  const std::vector<std::string>& servers, const std::string& name,
                                  const std::string& caCert) {
@@ -207,11 +202,20 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
 
         const bool avoidBadPrivateDns =
                 Experiments::getInstance()->getFlag("avoid_bad_private_dns", 0);
-        const int maxLatency = Experiments::getInstance()->getFlag(
-                "max_private_dns_latency_threshold_ms", kMaxPrivateDnsLatencyThresholdMs);
-        const int minLatency = Experiments::getInstance()->getFlag(
-                "min_private_dns_latency_threshold_ms", kMinPrivateDnsLatencyThresholdMs);
         std::optional<int64_t> latencyThreshold;
+        if (avoidBadPrivateDns) {
+            const int maxLatency = Experiments::getInstance()->getFlag(
+                    "max_private_dns_latency_threshold_ms", kMaxPrivateDnsLatencyThresholdMs);
+            const int minLatency = Experiments::getInstance()->getFlag(
+                    "min_private_dns_latency_threshold_ms", kMinPrivateDnsLatencyThresholdMs);
+            const auto do53Latency = resolv_stats_get_average_response_time(netId, PROTO_UDP);
+            const int target =
+                    do53Latency.has_value() ? (3 * do53Latency.value().count() / 1000) : 0;
+
+            // The time is limited to the range [minLatency, maxLatency].
+            latencyThreshold = std::clamp(target, minLatency, maxLatency);
+        }
+        const bool isOpportunisticMode = server.name.empty();
 
         // cat /proc/sys/net/ipv4/tcp_syn_retries yields "6".
         //
@@ -228,20 +232,7 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
         // (6 SYNs per ip, 4 ips per validation pass, 24 passes per day).
         auto backoff = mBackoffBuilder.build();
 
-        for (int attempt = 1; /**/; ++attempt) {
-            // Because the time between two probes is at least one minute, there might already be
-            // some traffic sent to Do53 servers during the time. Update latencyThreshold every
-            // time before the probe.
-            if (avoidBadPrivateDns && isForOpportunisticMode(identity)) {
-                const auto do53Latency = resolv_stats_get_average_response_time(netId, PROTO_UDP);
-                const int target = do53Latency.has_value()
-                                           ? (3 * do53Latency.value().count() / 1000)
-                                           : minLatency;
-
-                // The threshold is limited to the range [minLatency, maxLatency].
-                latencyThreshold = std::clamp(target, minLatency, maxLatency);
-            }
-
+        while (true) {
             // ::validate() is a blocking call that performs network operations.
             // It can take milliseconds to minutes, up to the SYN retry limit.
             LOG(WARNING) << "Validating DnsTlsServer " << server.toIpString() << " with mark 0x"
@@ -250,28 +241,20 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
             Stopwatch stopwatch;
             const bool gotAnswer = DnsTlsTransport::validate(server, server.validationMark());
             const int32_t timeTaken = saturate_cast<int32_t>(stopwatch.timeTakenUs() / 1000);
-            LOG(WARNING) << fmt::format(
-                    "validateDnsTlsServer returned {} for {}, took {}ms, attempt {}", gotAnswer,
-                    server.toIpString(), timeTaken, attempt);
-
-            // Prevent from endlessly sending traffic on the network in opportunistic mode.
-            bool maxAttemptsReached = false;
-            if (avoidBadPrivateDns && attempt >= kOpportunisticModeMaxAttempts &&
-                isForOpportunisticMode(identity)) {
-                maxAttemptsReached = true;
-                LOG(WARNING) << "Max attempts reached: " << kOpportunisticModeMaxAttempts;
-            }
+            LOG(WARNING) << fmt::format("validateDnsTlsServer returned {} for {}, took {}ms",
+                                        gotAnswer, server.toIpString(), timeTaken);
 
             const int64_t targetTime = latencyThreshold.value_or(INT64_MAX);
-            const bool latencyTooHigh = timeTaken > targetTime;
-            if (latencyTooHigh) {
+            bool latencyTooHigh = false;
+            if (isOpportunisticMode && timeTaken > targetTime) {
+                latencyTooHigh = true;
                 LOG(WARNING) << "validateDnsTlsServer took too long: threshold is " << targetTime
                              << "ms";
             }
 
             // TODO: combine these boolean variables into a bitwise variable.
             const bool needs_reeval = this->recordPrivateDnsValidation(
-                    identity, netId, gotAnswer, isRevalidation, latencyTooHigh, maxAttemptsReached);
+                    identity, netId, gotAnswer, isRevalidation, latencyTooHigh);
 
             if (!needs_reeval) {
                 break;
@@ -322,8 +305,7 @@ void PrivateDnsConfiguration::sendPrivateDnsValidationEvent(const ServerIdentity
 
 bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& identity,
                                                          unsigned netId, bool gotAnswer,
-                                                         bool isRevalidation, bool latencyTooHigh,
-                                                         bool maxAttemptsReached) {
+                                                         bool isRevalidation, bool latencyTooHigh) {
     constexpr bool NEEDS_REEVALUATION = true;
     constexpr bool DONT_REEVALUATE = false;
 
@@ -351,10 +333,6 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& i
     } else if (mode->second == PrivateDnsMode::OFF) {
         reevaluationStatus = DONT_REEVALUATE;
     } else if (mode->second == PrivateDnsMode::OPPORTUNISTIC && !isRevalidation) {
-        reevaluationStatus = DONT_REEVALUATE;
-    }
-
-    if (maxAttemptsReached) {
         reevaluationStatus = DONT_REEVALUATE;
     }
 
