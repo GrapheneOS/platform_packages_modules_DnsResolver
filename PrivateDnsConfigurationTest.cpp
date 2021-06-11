@@ -156,8 +156,6 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
     static constexpr char kBackend[] = "127.0.2.1";
     static constexpr char kServer1[] = "127.0.2.2";
     static constexpr char kServer2[] = "127.0.2.3";
-    static constexpr int kOpportunisticModeMaxAttempts =
-            PrivateDnsConfiguration::kOpportunisticModeMaxAttempts;
 
     MockObserver mObserver;
     PrivateDnsConfiguration mPdc;
@@ -277,56 +275,6 @@ TEST_F(PrivateDnsConfigurationTest, ValidationProbingTime) {
         // The thread is expected to be joined before the second probe begins.
         t.join();
         ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
-
-        // Reset the state for the next round.
-        mPdc.clear(kNetId);
-        testing::Mock::VerifyAndClearExpectations(&mObserver);
-    }
-
-    backend.setResponseDelayMs(0);
-}
-
-// Tests that Private DNS validation won't be endless if the server works and it's slow.
-TEST_F(PrivateDnsConfigurationTest, ValidationMaxProbes) {
-    ScopedSystemProperty sp1(kMinPrivateDnsLatencyThresholdMsFlag, "100");
-    ScopedSystemProperty sp2(kMaxPrivateDnsLatencyThresholdMsFlag, "200");
-    const int serverLatencyMs = 300;
-
-    // TODO: Complete STRICT test after the dependency of DnsTlsFrontend is removed.
-    static const struct TestConfig {
-        std::string dnsMode;
-        bool avoidBadPrivateDns;
-        Validation expectedValidationResult;
-        int expectedProbes;
-    } testConfigs[] = {
-            // clang-format off
-            {"OPPORTUNISTIC", false, Validation::success, 1},
-            {"OPPORTUNISTIC", true,  Validation::fail,    kOpportunisticModeMaxAttempts},
-            // clang-format on
-    };
-
-    for (const auto& config : testConfigs) {
-        SCOPED_TRACE(
-                fmt::format("testConfig: [{}, {}]", config.dnsMode, config.avoidBadPrivateDns));
-
-        ScopedSystemProperty sp3(kAvoidBadPrivateDnsFlag, (config.avoidBadPrivateDns ? "1" : "0"));
-        forceExperimentsInstanceUpdate();
-        backend.setResponseDelayMs(serverLatencyMs);
-
-        testing::InSequence seq;
-        EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId))
-                .Times(config.expectedProbes);
-        EXPECT_CALL(mObserver,
-                    onValidationStateUpdate(kServer1, config.expectedValidationResult, kNetId));
-
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {kServer1}, {}, {}), 0);
-        expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
-
-        // probing time + backoff delay
-        const int expectedValidationTimeMs =
-                config.expectedProbes * serverLatencyMs + (config.expectedProbes - 1) * 1000;
-        ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; },
-                                     std::chrono::milliseconds(expectedValidationTimeMs + 1000)));
 
         // Reset the state for the next round.
         mPdc.clear(kNetId);
