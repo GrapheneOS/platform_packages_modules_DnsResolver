@@ -98,9 +98,6 @@ class PrivateDnsConfiguration {
     static constexpr int kMaxPrivateDnsLatencyThresholdMs = 2000;
     static constexpr int kMinPrivateDnsLatencyThresholdMs = 500;
 
-    // (Opportunistic mode only) The maximum attempts to send a probe to a private DNS server.
-    static constexpr int kOpportunisticModeMaxAttempts = 3;
-
     PrivateDnsConfiguration() = default;
 
     // Launchs a thread to run the validation for |server| on the network |netId|.
@@ -109,8 +106,8 @@ class PrivateDnsConfiguration {
             REQUIRES(mPrivateDnsLock);
 
     bool recordPrivateDnsValidation(const ServerIdentity& identity, unsigned netId, bool success,
-                                    bool isRevalidation, bool latencyTooHigh,
-                                    bool maxAttemptsReached) EXCLUDES(mPrivateDnsLock);
+                                    bool isRevalidation, bool latencyTooHigh)
+            EXCLUDES(mPrivateDnsLock);
 
     void sendPrivateDnsValidationEvent(const ServerIdentity& identity, unsigned netId, bool success)
             REQUIRES(mPrivateDnsLock);
