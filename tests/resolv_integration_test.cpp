@@ -88,12 +88,6 @@ const std::string kDotRevalidationThresholdFlag(
 const std::string kDotXportUnusableThresholdFlag(
         "persist.device_config.netd_native.dot_xport_unusable_threshold");
 const std::string kDotQueryTimeoutMsFlag("persist.device_config.netd_native.dot_query_timeout_ms");
-const std::string kAvoidBadPrivateDnsFlag(
-        "persist.device_config.netd_native.avoid_bad_private_dns");
-const std::string kMinPrivateDnsLatencyThresholdMsFlag(
-        "persist.device_config.netd_native.min_private_dns_latency_threshold_ms");
-const std::string kMaxPrivateDnsLatencyThresholdMsFlag(
-        "persist.device_config.netd_native.max_private_dns_latency_threshold_ms");
 
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
@@ -4682,12 +4676,7 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         SCOPED_TRACE(fmt::format("testConfig: [{}, {}, {}]", config.dnsMode,
                                  config.validationThreshold, config.queries));
         const int queries = config.queries;
-
-        // In order make DoT queries timedout and revalidation not timed out, add a bit longer
-        // timeout for the DoT server. Note that min_private_dns_latency_threshold_ms must be
-        // lower than the 200 ms, because this test might be run when avoid_bad_private_dns is
-        // enabled.
-        const int delayQueriesTimeout = dotQueryTimeoutMs + 200;
+        const int delayQueriesTimeout = dotQueryTimeoutMs + 1000;
 
         ScopedSystemProperties sp1(kDotRevalidationThresholdFlag,
                                    std::to_string(config.validationThreshold));
@@ -4715,12 +4704,13 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         // Expect the things happening in order:
         // 1. Configure the DoT server to postpone |queries + 1| DNS queries.
         // 2. Send |queries| DNS queries, they will time out in 1 second.
-        // 3. 1 second later, the DoT server still waits for one more DNS query.
+        // 3. 1 second later, the DoT server still waits for one more DNS query until
+        //    |delayQueriesTimeout| times out.
         // 4. (opportunistic mode only) Meanwhile, DoT revalidation happens. The DnsResolver
         //    creates a new connection and sends a query to the DoT server.
-        // 5. 200 milliseconds later, |delayQueriesTimeout| times out. The DoT server flushes
-        //    all of the postponed DNS queries.
-        // 6. (opportunistic mode only) The revalidation starts and then succeeds.
+        // 5. 1 second later, |delayQueriesTimeout| times out. The DoT server flushes all of the
+        //    postponed DNS queries, and handles the query which comes from the revalidation.
+        // 6. (opportunistic mode only) The revalidation succeeds.
         // 7. Send another DNS query, and expect it will succeed.
         // 8. (opportunistic mode only) If the DoT server has been deemed as unusable, the
         //    DnsResolver skips trying the DoT server.
@@ -4769,118 +4759,6 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         }
         EXPECT_EQ(dns.queries().size(), static_cast<unsigned>(expectedDo53Queries));
         EXPECT_EQ(tls.queries(), expectedDotQueries);
-    }
-}
-
-// Verifies that the DnsResolver re-validates the DoT server when Avoid Bad Private DNS feature
-// is enabled.
-TEST_F(ResolverTest, TlsServerRevalidation_AvoidBadPrivateDns) {
-    constexpr uint32_t cacheFlag = ANDROID_RESOLV_NO_CACHE_LOOKUP;
-    constexpr int kMinPrivateDnsLatencyThresholdMs = 500;
-    constexpr int kMaxPrivateDnsLatencyThresholdMs = 2000;
-    constexpr int kDotRevalidationThreshold = 5;
-    constexpr int TIMING_TOLERANCE_MS = 200;
-    constexpr char hostname[] = "hello.example.com.";
-    const std::vector<DnsRecord> records = {
-            {hostname, ns_type::ns_t_a, "1.2.3.4"},
-    };
-
-    for (const bool featureEnabled : {true, false}) {
-        SCOPED_TRACE(fmt::format("testConfig: [{}]", featureEnabled));
-        const std::string addr = getUniqueIPv4Address();
-        test::DNSResponder dns(addr);
-        test::DnsTlsFrontend tls(addr, "853", addr, "53");
-        StartDns(dns, records);
-        ASSERT_TRUE(tls.startServer());
-
-        ScopedSystemProperties sp1(kAvoidBadPrivateDnsFlag, (featureEnabled ? "1" : "0"));
-        ScopedSystemProperties sp2(kMinPrivateDnsLatencyThresholdMsFlag,
-                                   std::to_string(kMinPrivateDnsLatencyThresholdMs));
-        ScopedSystemProperties sp3(kMaxPrivateDnsLatencyThresholdMsFlag,
-                                   std::to_string(kMaxPrivateDnsLatencyThresholdMs));
-        ScopedSystemProperties sp4(kDotRevalidationThresholdFlag,
-                                   std::to_string(kDotRevalidationThreshold));
-        ScopedSystemProperties sp5(kDotXportUnusableThresholdFlag, "20");
-        ScopedSystemProperties sp6(kDotQueryTimeoutMsFlag, "10000");
-        resetNetwork();
-
-        const auto setLatencyAndSendQueriesAndWait = [&](int queries,
-                                                         std::chrono::milliseconds latency,
-                                                         bool bypassPrivateDns = false) {
-            std::thread worker([&]() {
-                dns.setDeferredResp(true);
-                std::this_thread::sleep_for(latency);
-                dns.setDeferredResp(false);
-            });
-
-            const unsigned netId =
-                    TEST_NETID | (bypassPrivateDns ? NETID_USE_LOCAL_NAMESERVERS : 0);
-            std::vector<std::thread> threads(queries);
-            Stopwatch stopwatch;
-            for (std::thread& thread : threads) {
-                thread = std::thread([&]() {
-                    int fd = resNetworkQuery(netId, hostname, ns_c_in, ns_t_a, cacheFlag);
-                    expectAnswersValid(fd, AF_INET, "1.2.3.4");
-                });
-            }
-            for (std::thread& thread : threads) {
-                thread.join();
-            }
-            EXPECT_NEAR(latency.count(), stopwatch.getTimeAndResetUs() / 1000, TIMING_TOLERANCE_MS)
-                    << "took time should approximate equal timeout";
-
-            worker.join();
-        };
-
-        const auto expectQueryCount = [&](int frontendQueries, size_t backendQueries) {
-            EXPECT_TRUE(tls.waitForQueries(frontendQueries));
-            EXPECT_EQ(backendQueries, dns.queries().size());
-        };
-
-        // Set up opportunistic mode, and wait for the validation complete.
-        auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
-        parcel.servers = {addr};
-        parcel.tlsServers = {addr};
-        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-        EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
-        tls.clearQueries();
-        dns.clearQueries();
-
-        // Set the server can handle |kDotRevalidationThreshold| queries in one connection.
-        // The 250 ms timeout is to ensure Private DNS Validation can always pass because the
-        // probing time is shorter than kMinPrivateDnsLatencyThresholdMs.
-        tls.setDelayQueries(kDotRevalidationThreshold);
-        tls.setDelayQueriesTimeout(kMinPrivateDnsLatencyThresholdMs / 2);
-        int expectedDotQueries = 0;
-
-        // Simulate that DoT latency is 200 ms. As there is no Do53 latency stats,
-        // kMinPrivateDnsLatencyThresholdMs will be chosen as the threshold. No revalidation will be
-        // triggered because 200 ms < kMinPrivateDnsLatencyThresholdMs.
-        setLatencyAndSendQueriesAndWait(5, 200ms);
-        expectedDotQueries += 5;
-        EXPECT_TRUE(tls.waitForQueries(expectedDotQueries));
-        expectQueryCount(expectedDotQueries, expectedDotQueries);
-
-        // Simulate that DoT latency is 800 ms. A revalidation will be triggered (if the feature is
-        // enabled) because 800 ms > kMinPrivateDnsLatencyThresholdMs.
-        setLatencyAndSendQueriesAndWait(5, 800ms);
-        expectedDotQueries += 5;
-        if (featureEnabled) {
-            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
-            expectedDotQueries += 1;
-        }
-        expectQueryCount(expectedDotQueries, expectedDotQueries);
-
-        // Add some Do53 stats with latency 400 ms.
-        setLatencyAndSendQueriesAndWait(1, 400ms, true);
-        expectQueryCount(expectedDotQueries, expectedDotQueries + 1);
-
-        // Simulate that DoT latency is 800 ms again. No revalidation will be triggered because
-        // 800 ms < 3 * 400 ms.
-        setLatencyAndSendQueriesAndWait(5, 800ms);
-        expectedDotQueries += 5;
-        expectQueryCount(expectedDotQueries, expectedDotQueries + 1);
-        EXPECT_FALSE(hasUncaughtPrivateDnsValidation(addr));
     }
 }
 
