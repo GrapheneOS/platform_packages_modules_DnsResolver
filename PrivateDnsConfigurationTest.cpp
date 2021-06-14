@@ -17,43 +17,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <android-base/properties.h>
-
-#include "Experiments.h"
 #include "PrivateDnsConfiguration.h"
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
 #include "tests/resolv_test_utils.h"
 
-#include <android-base/logging.h>
-
 namespace android::net {
 
 using namespace std::chrono_literals;
-
-const std::string kAvoidBadPrivateDnsFlag(
-        "persist.device_config.netd_native.avoid_bad_private_dns");
-const std::string kMinPrivateDnsLatencyThresholdMsFlag(
-        "persist.device_config.netd_native.min_private_dns_latency_threshold_ms");
-const std::string kMaxPrivateDnsLatencyThresholdMsFlag(
-        "persist.device_config.netd_native.max_private_dns_latency_threshold_ms");
-
-namespace {
-
-class ScopedSystemProperty {
-  public:
-    ScopedSystemProperty(const std::string& key, const std::string& value) : mStoredKey(key) {
-        mStoredValue = android::base::GetProperty(key, "");
-        android::base::SetProperty(key, value);
-    }
-    ~ScopedSystemProperty() { android::base::SetProperty(mStoredKey, mStoredValue); }
-
-  private:
-    std::string mStoredKey;
-    std::string mStoredValue;
-};
-
-}  // namespace
 
 class PrivateDnsConfigurationTest : public ::testing::Test {
   public:
@@ -100,8 +71,6 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
                     std::lock_guard guard(mObserver.lock);
                     mObserver.serverStateMap[server] = validation;
                 });
-
-        forceExperimentsInstanceUpdate();
     }
 
   protected:
@@ -148,8 +117,6 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
     bool hasPrivateDnsServer(const ServerIdentity& identity, unsigned netId) {
         return mPdc.getPrivateDns(identity, netId).ok();
     }
-
-    void forceExperimentsInstanceUpdate() { Experiments::getInstance()->update(); }
 
     static constexpr uint32_t kNetId = 30;
     static constexpr uint32_t kMark = 30;
@@ -225,63 +192,6 @@ TEST_F(PrivateDnsConfigurationTest, Revalidation_Opportunistic) {
     t.join();
     expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
     ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
-}
-
-TEST_F(PrivateDnsConfigurationTest, ValidationProbingTime) {
-    // The probing time threshold is 500 milliseconds.
-    ScopedSystemProperty sp1(kMinPrivateDnsLatencyThresholdMsFlag, "500");
-    ScopedSystemProperty sp2(kMaxPrivateDnsLatencyThresholdMsFlag, "1000");
-
-    // TODO: Complete STRICT test after the dependency of DnsTlsFrontend is removed.
-    static const struct TestConfig {
-        std::string dnsMode;
-        bool avoidBadPrivateDns;
-        int probingTime;
-        int expectProbeCount;
-    } testConfigs[] = {
-            // clang-format off
-            {"OPPORTUNISTIC", false,   50, 1},
-            {"OPPORTUNISTIC", false,  750, 1},
-            {"OPPORTUNISTIC", false, 1500, 1},
-            {"OPPORTUNISTIC",  true,   50, 1},
-            {"OPPORTUNISTIC",  true,  750, 2},
-            {"OPPORTUNISTIC",  true, 1500, 2},
-            // clang-format on
-    };
-
-    for (const auto& config : testConfigs) {
-        SCOPED_TRACE(fmt::format("testConfig: [{}, {}, {}, {}]", config.dnsMode,
-                                 config.avoidBadPrivateDns, config.probingTime,
-                                 config.expectProbeCount));
-
-        ScopedSystemProperty sp3(kAvoidBadPrivateDnsFlag, (config.avoidBadPrivateDns ? "1" : "0"));
-        forceExperimentsInstanceUpdate();
-
-        // Simulate that validation takes the certain time to complete the first probe.
-        std::thread t([&] {
-            backend.setResponseDelayMs(config.probingTime);
-            std::this_thread::sleep_for(std::chrono::milliseconds(config.probingTime + 500));
-            backend.setResponseDelayMs(0);
-        });
-
-        testing::InSequence seq;
-        EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId))
-                .Times(config.expectProbeCount);
-        EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
-
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {kServer1}, {}, {}), 0);
-        expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
-
-        // The thread is expected to be joined before the second probe begins.
-        t.join();
-        ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
-
-        // Reset the state for the next round.
-        mPdc.clear(kNetId);
-        testing::Mock::VerifyAndClearExpectations(&mObserver);
-    }
-
-    backend.setResponseDelayMs(0);
 }
 
 TEST_F(PrivateDnsConfigurationTest, ValidationBlock) {

@@ -86,19 +86,10 @@ struct DnsTlsServer : public IPrivateDnsServer {
     bool active() const override { return mActive; }
     void setActive(bool val) override { mActive = val; }
 
-    // Setter and getter for the latency constraint.
-    void setLatencyThreshold(std::optional<int64_t> val) { mLatencyThresholdMs = val; }
-    std::optional<int64_t> latencyThreshold() const { return mLatencyThresholdMs; }
-
   private:
     // State, unrelated to the comparison of DnsTlsServer objects.
     Validation mValidation = Validation::unknown_server;
     bool mActive = false;
-
-    // The DNS response time threshold. If it is set, the latency of this server will be
-    // considered when evaluating the server. It is used for the DoT engine to evaluate whether
-    // this server, compared to cleartext DNS servers, has relatively high latency or not.
-    std::optional<int64_t> mLatencyThresholdMs = std::nullopt;
 };
 
 // This comparison only checks the IP address.  It ignores ports, names, and fingerprints.

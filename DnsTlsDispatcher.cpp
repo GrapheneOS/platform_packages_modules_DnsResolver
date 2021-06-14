@@ -182,17 +182,8 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
     // stuck, this function also gets blocked.
     const int connectCounter = xport->transport.getConnectCounter();
 
-    Stopwatch stopwatch;
     const auto& result = queryInternal(*xport, query);
-    const int64_t timeTaken = saturate_cast<int64_t>(stopwatch.timeTakenUs() / 1000);
     *connectTriggered = (xport->transport.getConnectCounter() > connectCounter);
-
-    const int64_t targetTime = server.latencyThreshold().value_or(INT64_MAX);
-    const bool latencyTooHigh = timeTaken > targetTime;
-    if (latencyTooHigh) {
-        LOG(WARNING) << "DoT query took too long: " << timeTaken << " ms (threshold: " << targetTime
-                     << "ms)";
-    }
 
     DnsTlsTransport::Response code = result.code;
     if (code == DnsTlsTransport::Response::success) {
@@ -215,7 +206,7 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
         xport->lastUsed = now;
 
         // DoT revalidation specific feature.
-        if (xport->checkRevalidationNecessary(code, latencyTooHigh)) {
+        if (xport->checkRevalidationNecessary(code)) {
             // Even if the revalidation passes, it doesn't guarantee that DoT queries
             // to the xport can stop failing because revalidation creates a new connection
             // to probe while the xport still uses an existing connection. So far, there isn't
@@ -342,21 +333,13 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::getTransport(const Key& key) {
     return (it == mStore.end() ? nullptr : it->second.get());
 }
 
-bool DnsTlsDispatcher::Transport::checkRevalidationNecessary(DnsTlsTransport::Response code,
-                                                             bool latencyTooHigh) {
+bool DnsTlsDispatcher::Transport::checkRevalidationNecessary(DnsTlsTransport::Response code) {
     if (!revalidationEnabled) return false;
 
     if (code == DnsTlsTransport::Response::network_error) {
         continuousfailureCount++;
-        LOG(WARNING) << "continuousfailureCount incremented: network_error, count = "
-                     << continuousfailureCount;
-    } else if (latencyTooHigh) {
-        continuousfailureCount++;
-        LOG(WARNING) << "continuousfailureCount incremented: latency too High, count = "
-                     << continuousfailureCount;
     } else {
         continuousfailureCount = 0;
-        LOG(WARNING) << "continuousfailureCount reset";
     }
 
     // triggerThreshold must be greater than 0 because the value of revalidationEnabled is true.
