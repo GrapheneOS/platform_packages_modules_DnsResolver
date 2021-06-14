@@ -112,12 +112,6 @@ int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::stri
 bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& server,
                       const android::net::DnsQueryEvent* record);
 
-// Get the average DNS response time per |protocol| on a network.
-// Return -1 if no such average DNS response time available at the time. However, this is unlikely
-// to happen because of DNS probe in NetworkMonitor, except when a network is just created.
-std::optional<std::chrono::microseconds> resolv_stats_get_average_response_time(
-        unsigned netid, android::net::Protocol protocol);
-
 /* Retrieve a local copy of the stats for the given netid. The buffer must have space for
  * MAXNS __resolver_stats. Returns the revision id of the resolvers used.
  */
