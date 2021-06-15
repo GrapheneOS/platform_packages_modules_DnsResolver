@@ -150,7 +150,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
                    uint8_t* ans, int anssiz, int* terrno, size_t* ns, int* v_circuit,
                    int* gotsomewhere, time_t* at, int* rcode, int* delay);
 
-static void dump_error(const char*, const struct sockaddr*, int);
+static void dump_error(const char*, const struct sockaddr*);
 
 static int sock_eq(struct sockaddr*, struct sockaddr*);
 static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t salen,
@@ -726,14 +726,14 @@ same_ns:
         errno = 0;
         if (random_bind(statp->tcp_nssock, nsap->sa_family) < 0) {
             *terrno = errno;
-            dump_error("bind/vc", nsap, nsaplen);
+            dump_error("bind/vc", nsap);
             statp->closeSockets();
             return (0);
         }
         if (connect_with_timeout(statp->tcp_nssock, nsap, (socklen_t)nsaplen,
                                  get_timeout(statp, params, ns)) < 0) {
             *terrno = errno;
-            dump_error("connect/vc", nsap, nsaplen);
+            dump_error("connect/vc", nsap);
             statp->closeSockets();
             /*
              * The way connect_with_timeout() is implemented prevents us from reliably
@@ -1044,13 +1044,13 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         // a nameserver without timing out.
         if (random_bind(statp->udpsocks[*ns], nsap->sa_family) < 0) {
             *terrno = errno;
-            dump_error("bind(dg)", nsap, nsaplen);
+            dump_error("bind(dg)", nsap);
             statp->closeSockets();
             return (0);
         }
         if (connect(statp->udpsocks[*ns], nsap, (socklen_t)nsaplen) < 0) {
             *terrno = errno;
-            dump_error("connect(dg)", nsap, nsaplen);
+            dump_error("connect(dg)", nsap);
             statp->closeSockets();
             return (0);
         }
@@ -1150,7 +1150,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
     }
 }
 
-static void dump_error(const char* str, const struct sockaddr* address, int alen) {
+static void dump_error(const char* str, const struct sockaddr* address) {
     char hbuf[NI_MAXHOST];
     char sbuf[NI_MAXSERV];
     constexpr int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
@@ -1158,7 +1158,8 @@ static void dump_error(const char* str, const struct sockaddr* address, int alen
 
     if (!WOULD_LOG(DEBUG)) return;
 
-    if (getnameinfo(address, (socklen_t)alen, hbuf, sizeof(hbuf), sbuf, sizeof(sbuf), niflags)) {
+    if (getnameinfo(address, sockaddrSize(address), hbuf, sizeof(hbuf), sbuf, sizeof(sbuf),
+                    niflags)) {
         strncpy(hbuf, "?", sizeof(hbuf) - 1);
         hbuf[sizeof(hbuf) - 1] = '\0';
         strncpy(sbuf, "?", sizeof(sbuf) - 1);
