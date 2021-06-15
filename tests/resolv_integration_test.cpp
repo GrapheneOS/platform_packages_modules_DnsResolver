@@ -88,10 +88,7 @@ const std::string kDotRevalidationThresholdFlag(
 const std::string kDotXportUnusableThresholdFlag(
         "persist.device_config.netd_native.dot_xport_unusable_threshold");
 const std::string kDotQueryTimeoutMsFlag("persist.device_config.netd_native.dot_query_timeout_ms");
-const std::string kDotValidationLatencyFactorFlag(
-        "persist.device_config.netd_native.dot_validation_latency_factor");
-const std::string kDotValidationLatencyOffsetMsFlag(
-        "persist.device_config.netd_native.dot_validation_latency_offset_ms");
+
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
 extern "C" int android_getaddrinfofornet(const char* hostname, const char* servname,
@@ -4700,6 +4697,7 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         if (config.dnsMode == "STRICT") parcel.tlsName = kDefaultPrivateDnsHostName;
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
         EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+        EXPECT_TRUE(tls.waitForQueries(1));
         tls.clearQueries();
         dns.clearQueries();
 
@@ -4741,22 +4739,9 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
 
         // Step 5 and 6.
         int expectedDotQueries = queries;
-        int extraDnsProbe = 0;
         if (config.expectRevalidationHappen) {
             EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
             expectedDotQueries++;
-
-            // This test is sensitive to the number of queries sent in DoT validation.
-            const std::string latencyFactor =
-                    android::base::GetProperty(kDotValidationLatencyFactorFlag, "-1");
-            const std::string latencyOffsetMs =
-                    android::base::GetProperty(kDotValidationLatencyOffsetMsFlag, "-1");
-            const bool dotValidationExtraProbes =
-                    (latencyFactor != "-1" && latencyOffsetMs != "-1");
-            if (dotValidationExtraProbes) {
-                expectedDotQueries++;
-                extraDnsProbe = 1;
-            }
         }
 
         // Step 7 and 8.
@@ -4765,8 +4750,7 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         expectedDotQueries++;
 
         const int expectedDo53Queries =
-                expectedDotQueries +
-                (config.dnsMode == "OPPORTUNISTIC" ? (queries + extraDnsProbe) : 0);
+                expectedDotQueries + (config.dnsMode == "OPPORTUNISTIC" ? queries : 0);
 
         if (config.expectDotUnusable) {
             // A DoT server can be deemed as unusable only in opportunistic mode. When it happens,
@@ -4775,83 +4759,6 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         }
         EXPECT_EQ(dns.queries().size(), static_cast<unsigned>(expectedDo53Queries));
         EXPECT_EQ(tls.queries(), expectedDotQueries);
-    }
-}
-
-// Verifies that private DNS validation fails if DoT server is much slower than cleartext server.
-TEST_F(ResolverTest, TlsServerValidation_UdpProbe) {
-    constexpr char backend_addr[] = "127.0.0.3";
-    test::DNSResponder backend(backend_addr);
-    backend.setResponseDelayMs(200);
-    ASSERT_TRUE(backend.startServer());
-
-    static const struct TestConfig {
-        int latencyFactor;
-        int latencyOffsetMs;
-        bool udpProbeLost;
-        size_t expectedUdpProbes;
-        bool expectedValidationPass;
-    } testConfigs[] = {
-            // clang-format off
-            {-1, -1,  false, 0, true},
-            {0,  0,   false, 0, true},
-            {1,  10,  false, 1, false},
-            {1,  10,  true,  2, false},
-            {5,  300, false, 1, true},
-            {5,  300, true,  2, true},
-            // clang-format on
-    };
-
-    for (const auto& config : testConfigs) {
-        SCOPED_TRACE(fmt::format("testConfig: [{}, {}, {}]", config.latencyFactor,
-                                 config.latencyOffsetMs, config.udpProbeLost));
-
-        const std::string addr = getUniqueIPv4Address();
-        test::DNSResponder dns(addr, "53", static_cast<ns_rcode>(-1));
-        test::DnsTlsFrontend tls(addr, "853", backend_addr, "53");
-        dns.setResponseDelayMs(10);
-        ASSERT_TRUE(dns.startServer());
-        ASSERT_TRUE(tls.startServer());
-
-        ScopedSystemProperties sp1(kDotValidationLatencyFactorFlag,
-                                   std::to_string(config.latencyFactor));
-        ScopedSystemProperties sp2(kDotValidationLatencyOffsetMsFlag,
-                                   std::to_string(config.latencyOffsetMs));
-        resetNetwork();
-
-        std::unique_ptr<std::thread> thread;
-        if (config.udpProbeLost) {
-            thread.reset(new std::thread([&dns]() {
-                // Simulate that the first UDP probe is lost and the second UDP probe succeeds.
-                dns.setResponseProbability(0.0);
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                dns.setResponseProbability(1.0);
-            }));
-        }
-
-        // Set up opportunistic mode, and wait for the validation complete.
-        auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
-        parcel.servers = {addr};
-        parcel.tlsServers = {addr};
-        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-
-        // The timeout of WaitForPrivateDnsValidation is 5 seconds which is still enough for
-        // the testcase of UDP probe lost because the retry of UDP probe happens after 3 seconds.
-        EXPECT_TRUE(
-                WaitForPrivateDnsValidation(tls.listen_address(), config.expectedValidationPass));
-        EXPECT_EQ(dns.queries().size(), config.expectedUdpProbes);
-        dns.clearQueries();
-
-        // Test that Private DNS validation always pass in strict mode.
-        parcel.tlsName = kDefaultPrivateDnsHostName;
-        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-        EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
-        EXPECT_EQ(dns.queries().size(), 0U);
-
-        if (thread) {
-            thread->join();
-            thread.reset();
-        }
     }
 }
 
