@@ -35,6 +35,8 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
         ASSERT_TRUE(tls1.startServer());
         ASSERT_TRUE(tls2.startServer());
         ASSERT_TRUE(backend.startServer());
+        ASSERT_TRUE(backend1ForUdpProbe.startServer());
+        ASSERT_TRUE(backend2ForUdpProbe.startServer());
     }
 
     void SetUp() {
@@ -132,6 +134,8 @@ class PrivateDnsConfigurationTest : public ::testing::Test {
     inline static test::DnsTlsFrontend tls1{kServer1, "853", kBackend, "53"};
     inline static test::DnsTlsFrontend tls2{kServer2, "853", kBackend, "53"};
     inline static test::DNSResponder backend{kBackend, "53"};
+    inline static test::DNSResponder backend1ForUdpProbe{kServer1, "53"};
+    inline static test::DNSResponder backend2ForUdpProbe{kServer2, "53"};
 };
 
 TEST_F(PrivateDnsConfigurationTest, ValidationSuccess) {
