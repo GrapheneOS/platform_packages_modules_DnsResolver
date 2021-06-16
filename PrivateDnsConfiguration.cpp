@@ -27,7 +27,6 @@
 #include "DnsTlsTransport.h"
 #include "ResolverEventReporter.h"
 #include "netd_resolv/resolv.h"
-#include "netdutils/BackoffSequence.h"
 #include "util.h"
 
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
@@ -209,10 +208,7 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
         // such validation passes per day is about ~30MB per month, in the
         // worst case. Otherwise, this will cost ~600 SYNs per month
         // (6 SYNs per ip, 4 ips per validation pass, 24 passes per day).
-        auto backoff = netdutils::BackoffSequence<>::Builder()
-                               .withInitialRetransmissionTime(std::chrono::seconds(60))
-                               .withMaximumRetransmissionTime(std::chrono::seconds(3600))
-                               .build();
+        auto backoff = mBackoffBuilder.build();
 
         while (true) {
             // ::validate() is a blocking call that performs network operations.
