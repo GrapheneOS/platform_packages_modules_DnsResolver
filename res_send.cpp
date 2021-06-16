@@ -146,11 +146,12 @@ using android::netdutils::Stopwatch;
 static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
                    int* delay);
+static int setupUdpSocket(ResState* statp, const sockaddr* sockap, size_t addrIndex, int* terrno);
 static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t* ns, int* v_circuit,
                    int* gotsomewhere, time_t* at, int* rcode, int* delay);
 
-static void dump_error(const char*, const struct sockaddr*, int);
+static void dump_error(const char*, const struct sockaddr*);
 
 static int sock_eq(struct sockaddr*, struct sockaddr*);
 static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t salen,
@@ -726,14 +727,14 @@ same_ns:
         errno = 0;
         if (random_bind(statp->tcp_nssock, nsap->sa_family) < 0) {
             *terrno = errno;
-            dump_error("bind/vc", nsap, nsaplen);
+            dump_error("bind/vc", nsap);
             statp->closeSockets();
             return (0);
         }
         if (connect_with_timeout(statp->tcp_nssock, nsap, (socklen_t)nsaplen,
                                  get_timeout(statp, params, ns)) < 0) {
             *terrno = errno;
-            dump_error("connect/vc", nsap, nsaplen);
+            dump_error("connect/vc", nsap);
             statp->closeSockets();
             /*
              * The way connect_with_timeout() is implemented prevents us from reliably
@@ -997,6 +998,44 @@ bool ignoreInvalidAnswer(res_state statp, const sockaddr_storage& from, const ui
     return false;
 }
 
+// return 1 when setup udp socket success.
+// return 0 when timeout , bind error, network error(ex: Protocol not supported ...).
+// return -1 when create socket fail, set socket option fail.
+static int setupUdpSocket(ResState* statp, const sockaddr* sockap, size_t addrIndex, int* terrno) {
+    statp->udpsocks[addrIndex].reset(socket(sockap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0));
+
+    if (statp->udpsocks[addrIndex] < 0) {
+        *terrno = errno;
+        PLOG(ERROR) << __func__ << ": socket: ";
+        switch (errno) {
+            case EPROTONOSUPPORT:
+            case EPFNOSUPPORT:
+            case EAFNOSUPPORT:
+                return 0;
+            default:
+                return -1;
+        }
+    }
+    const uid_t uid = statp->enforce_dns_uid ? AID_DNS : statp->uid;
+    resolv_tag_socket(statp->udpsocks[addrIndex], uid, statp->pid);
+    if (statp->_mark != MARK_UNSET) {
+        if (setsockopt(statp->udpsocks[addrIndex], SOL_SOCKET, SO_MARK, &(statp->_mark),
+                       sizeof(statp->_mark)) < 0) {
+            *terrno = errno;
+            statp->closeSockets();
+            return -1;
+        }
+    }
+
+    if (random_bind(statp->udpsocks[addrIndex], sockap->sa_family) < 0) {
+        *terrno = errno;
+        dump_error("bind", sockap);
+        statp->closeSockets();
+        return 0;
+    }
+    return 1;
+}
+
 static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t* ns, int* v_circuit,
                    int* gotsomewhere, time_t* at, int* rcode, int* delay) {
@@ -1011,46 +1050,18 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
     *delay = 0;
     const sockaddr_storage ss = statp->nsaddrs[*ns];
     const sockaddr* nsap = reinterpret_cast<const sockaddr*>(&ss);
-    const int nsaplen = sockaddrSize(nsap);
 
     if (statp->udpsocks[*ns] == -1) {
-        statp->udpsocks[*ns].reset(socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0));
-        if (statp->udpsocks[*ns] < 0) {
-            *terrno = errno;
-            PLOG(DEBUG) << __func__ << ": socket(dg): ";
-            switch (errno) {
-                case EPROTONOSUPPORT:
-                case EPFNOSUPPORT:
-                case EAFNOSUPPORT:
-                    return (0);
-                default:
-                    return (-1);
-            }
-        }
+        int result = setupUdpSocket(statp, nsap, *ns, terrno);
+        if (result <= 0) return result;
 
-        const uid_t uid = statp->enforce_dns_uid ? AID_DNS : statp->uid;
-        resolv_tag_socket(statp->udpsocks[*ns], uid, statp->pid);
-        if (statp->_mark != MARK_UNSET) {
-            if (setsockopt(statp->udpsocks[*ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
-                           sizeof(statp->_mark)) < 0) {
-                *terrno = errno;
-                statp->closeSockets();
-                return -1;
-            }
-        }
         // Use a "connected" datagram socket to receive an ECONNREFUSED error
         // on the next socket operation when the server responds with an
         // ICMP port-unreachable error. This way we can detect the absence of
         // a nameserver without timing out.
-        if (random_bind(statp->udpsocks[*ns], nsap->sa_family) < 0) {
+        if (connect(statp->udpsocks[*ns], nsap, sockaddrSize(nsap)) < 0) {
             *terrno = errno;
-            dump_error("bind(dg)", nsap, nsaplen);
-            statp->closeSockets();
-            return (0);
-        }
-        if (connect(statp->udpsocks[*ns], nsap, (socklen_t)nsaplen) < 0) {
-            *terrno = errno;
-            dump_error("connect(dg)", nsap, nsaplen);
+            dump_error("connect(dg)", nsap);
             statp->closeSockets();
             return (0);
         }
@@ -1150,7 +1161,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
     }
 }
 
-static void dump_error(const char* str, const struct sockaddr* address, int alen) {
+static void dump_error(const char* str, const struct sockaddr* address) {
     char hbuf[NI_MAXHOST];
     char sbuf[NI_MAXSERV];
     constexpr int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
@@ -1158,7 +1169,8 @@ static void dump_error(const char* str, const struct sockaddr* address, int alen
 
     if (!WOULD_LOG(DEBUG)) return;
 
-    if (getnameinfo(address, (socklen_t)alen, hbuf, sizeof(hbuf), sbuf, sizeof(sbuf), niflags)) {
+    if (getnameinfo(address, sockaddrSize(address), hbuf, sizeof(hbuf), sbuf, sizeof(sbuf),
+                    niflags)) {
         strncpy(hbuf, "?", sizeof(hbuf) - 1);
         hbuf[sizeof(hbuf) - 1] = '\0';
         strncpy(sbuf, "?", sizeof(sbuf) - 1);
