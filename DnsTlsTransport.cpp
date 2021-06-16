@@ -289,8 +289,7 @@ bool DnsTlsTransport::validate(const DnsTlsServer& server, uint32_t mark) {
         return false;
     }
 
-    const std::vector<uint8_t>& recvbuf = r.response;
-    if (auto result = checkDnsResponse(recvbuf); !result.ok()) {
+    if (auto result = checkDnsResponse(r.response); !result.ok()) {
         LOG(WARNING) << "checkDnsResponse failed: " << result.error().message();
         return false;
     }
@@ -298,7 +297,7 @@ bool DnsTlsTransport::validate(const DnsTlsServer& server, uint32_t mark) {
     // If this validation is not for opportunistic mode, or the flags are not properly set,
     // the validation is done. If not, the validation will compare DoT probe latency and
     // UDP probe latency, and it will pass if:
-    //   dot_probe_latency < latencyFactor * udp_probe_latency * latencyOffsetMs
+    //   dot_probe_latency < latencyFactor * udp_probe_latency + latencyOffsetMs
     //
     // For instance, with latencyFactor = 3 and latencyOffsetMs = 10, if UDP probe latency is 5 ms,
     // DoT probe latency must less than 25 ms.
@@ -345,7 +344,7 @@ bool DnsTlsTransport::validate(const DnsTlsServer& server, uint32_t mark) {
         if (r.code != Response::success) {
             LOG(WARNING) << "query failed";
         } else {
-            if (auto result = checkDnsResponse(recvbuf); !result.ok()) {
+            if (auto result = checkDnsResponse(r.response); !result.ok()) {
                 LOG(WARNING) << "checkDnsResponse failed: " << result.error().message();
             } else {
                 dotProbeGotAnswer = true;
