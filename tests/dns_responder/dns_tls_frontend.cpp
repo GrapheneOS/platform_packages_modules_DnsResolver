@@ -32,6 +32,7 @@
 #include <android-base/logging.h>
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/SocketOption.h>
+#include "dns_responder.h"
 #include "dns_tls_certificate.h"
 
 using android::netdutils::enableSockopt;
@@ -235,7 +236,9 @@ void DnsTlsFrontend::requestHandler() {
 int DnsTlsFrontend::handleRequests(SSL* ssl, int clientFd) {
     int queryCounts = 0;
     std::vector<uint8_t> reply;
+    bool isDotProbe = false;
     pollfd fds = {.fd = clientFd, .events = POLLIN};
+again:
     do {
         uint8_t queryHeader[2];
         if (SSL_read(ssl, &queryHeader, 2) != 2) {
@@ -258,6 +261,19 @@ int DnsTlsFrontend::handleRequests(SSL* ssl, int clientFd) {
             LOG(INFO) << "Failed to send query";
             return queryCounts;
         }
+
+        if (!isDotProbe) {
+            DNSHeader dnsHdr;
+            dnsHdr.read((char*)query, (char*)query + qlen);
+            for (const auto& question : dnsHdr.questions) {
+                if (question.qname.name.find("dnsotls-ds.metric.gstatic.com") !=
+                    std::string::npos) {
+                    isDotProbe = true;
+                    break;
+                }
+            }
+        }
+
         const int max_size = 4096;
         uint8_t recv_buffer[max_size];
         int rlen = recv(backend_socket_.get(), recv_buffer, max_size, 0);
@@ -286,6 +302,14 @@ int DnsTlsFrontend::handleRequests(SSL* ssl, int clientFd) {
     LOG(DEBUG) << "Sending " << queryCounts << "queries at once, byte = " << replyLen;
     if (SSL_write(ssl, reply.data(), replyLen) != replyLen) {
         LOG(WARNING) << "Failed to write response body";
+    }
+
+    // Poll again because the same DoT probe might be sent again.
+    if (isDotProbe && queryCounts == 1) {
+        int n = poll(&fds, 1, 50);
+        if (n > 0 && fds.revents & POLLIN) {
+            goto again;
+        }
     }
 
     LOG(DEBUG) << __func__ << " return: " << queryCounts;
