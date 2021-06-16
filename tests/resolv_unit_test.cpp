@@ -924,6 +924,80 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
     constexpr char v4addr[] = "127.0.0.3";
     constexpr char v6addr[] = "::127.0.0.3";
     constexpr char host_name[] = "hello.local.";
+    // Following fields will not be verified during the test in proto NetworkDnsEventReported.
+    // So don't need to config those values: event_type, return_code, latency_micros,
+    // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+
+    constexpr char event_ipv4[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 5,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 linux_errno: 0,
+                },
+               ]
+             }
+        })Event";
+
+    constexpr char event_ipv6[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 2,
+                 protocol: 5,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 linux_errno: 0,
+                },
+               ]
+             }
+        })Event";
+
+    constexpr char event_ipv4v6[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 2,
+                 protocol: 5,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 linux_errno: 0,
+                },
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 5,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 linux_errno: 0,
+                }
+               ]
+             }
+        })Event";
 
     test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
     test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
@@ -936,10 +1010,11 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
     static const struct TestConfig {
         int ai_family;
         const std::vector<std::string> expected_addr;
+        const std::string expected_event;
     } testConfigs[]{
-            {AF_UNSPEC, {v4addr, v6addr}},
-            {AF_INET, {v4addr}},
-            {AF_INET6, {v6addr}},
+            {AF_UNSPEC, {v4addr, v6addr}, event_ipv4v6},
+            {AF_INET, {v4addr}, event_ipv4},
+            {AF_INET6, {v6addr}, event_ipv6},
     };
 
     for (const auto& config : testConfigs) {
@@ -951,6 +1026,8 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
         const addrinfo hints = {.ai_family = config.ai_family, .ai_socktype = SOCK_DGRAM};
         NetworkDnsEventReported event;
         int rv = resolv_getaddrinfo("hello.local", nullptr, &hints, &mNetcontext, &result, &event);
+        EXPECT_THAT(event,
+                    NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         ScopedAddrinfo result_cleanup(result);
 
         if (config.ai_family == AF_UNSPEC) {
@@ -1671,6 +1748,51 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
     constexpr char v6addr[] = "::127.0.0.3";
     constexpr char host_name[] = "hello.local.";
 
+    // Following fields will not be verified during the test in proto NetworkDnsEventReported.
+    // So don't need to config those values: event_type, return_code, latency_micros,
+    // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+    constexpr char event_ipv4[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 1,
+                 cache_hit: 1,
+                 ip_version: 1,
+                 protocol: 5,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                 linux_errno: 0,
+                }
+               ]
+             }
+        })Event";
+
+    constexpr char event_ipv6[] = R"Event(
+             NetworkDnsEventReported {
+             dns_query_events:
+             {
+               dns_query_event:[
+                {
+                 rcode: 0,
+                 type: 28,
+                 cache_hit: 1,
+                 ip_version: 2,
+                 protocol: 5,
+                 retry_times: 0,
+                 dns_server_index: 0,
+                 connected: 0,
+                 latency_micros: 0,
+                 linux_errno: 0,
+                }
+               ]
+             }
+        })Event";
+
     test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
     test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
 
@@ -1684,9 +1806,10 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
     static const struct TestConfig {
         int ai_family;
         const std::vector<std::string> expected_addr;
+        const std::string expected_event;
     } testConfigs[]{
-            {AF_INET, {v4addr}},
-            {AF_INET6, {v6addr}},
+            {AF_INET, {v4addr}, event_ipv4},
+            {AF_INET6, {v6addr}, event_ipv6},
     };
 
     for (const auto& config : testConfigs) {
@@ -1697,6 +1820,8 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
         NetworkDnsEventReported event;
         int rv = resolv_gethostbyname("hello.local", config.ai_family, &hbuf, tmpbuf,
                                       sizeof(tmpbuf), &mNetcontext, &result, &event);
+        EXPECT_THAT(event,
+                    NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         EXPECT_EQ(0, rv);
         test::DNSResponder& mdns = config.ai_family == AF_INET ? mdnsv4 : mdnsv6;
         EXPECT_EQ(1U, GetNumQueries(mdns, host_name));

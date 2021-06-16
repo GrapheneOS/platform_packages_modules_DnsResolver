@@ -139,6 +139,7 @@ using android::net::PrivateDnsConfiguration;
 using android::net::PrivateDnsMode;
 using android::net::PrivateDnsModes;
 using android::net::PrivateDnsStatus;
+using android::net::PROTO_MDNS;
 using android::net::PROTO_TCP;
 using android::net::PROTO_UDP;
 using android::netdutils::IPSockAddr;
@@ -462,7 +463,19 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         int resplen = 0;
         *rcode = RCODE_INTERNAL_ERROR;
         std::span<const uint8_t> buffer(buf, buflen);
+        Stopwatch queryStopwatch;
         resplen = send_mdns(statp, buffer, ans, anssiz, &terrno, rcode);
+        const IPSockAddr& receivedMdnsAddr =
+                (getQueryType(buf, buflen) == T_AAAA) ? mdns_addrs[0] : mdns_addrs[1];
+        DnsQueryEvent* mDnsQueryEvent = addDnsQueryEvent(statp->event);
+        mDnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(cache_status));
+        mDnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
+        mDnsQueryEvent->set_ip_version(ipFamilyToIPVersion(receivedMdnsAddr.family()));
+        mDnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
+        mDnsQueryEvent->set_protocol(PROTO_MDNS);
+        mDnsQueryEvent->set_type(getQueryType(buf, buflen));
+        mDnsQueryEvent->set_linux_errno(static_cast<LinuxErrno>(terrno));
+        resolv_stats_add(statp->netid, receivedMdnsAddr, mDnsQueryEvent);
 
         if (resplen <= 0) {
             _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
