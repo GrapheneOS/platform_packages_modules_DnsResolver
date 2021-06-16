@@ -239,6 +239,20 @@ std::vector<IPSockAddr> DnsStats::getSortedServers(Protocol protocol) const {
     return ret;
 }
 
+std::optional<microseconds> DnsStats::getAverageLatencyUs(Protocol protocol) const {
+    const auto stats = getStats(protocol);
+
+    int count = 0;
+    microseconds sum;
+    for (const auto& v : stats) {
+        count += v.total;
+        sum += v.latencyUs;
+    }
+
+    if (count == 0) return std::nullopt;
+    return sum / count;
+}
+
 std::vector<StatsData> DnsStats::getStats(Protocol protocol) const {
     std::vector<StatsData> ret;
 
