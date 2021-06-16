@@ -109,6 +109,7 @@ using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::Error;
+using android::base::GetProperty;
 using android::base::ParseInt;
 using android::base::Result;
 using android::base::StringPrintf;
@@ -4688,6 +4689,13 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         ScopedSystemProperties sp3(kDotQueryTimeoutMsFlag, std::to_string(dotQueryTimeoutMs));
         resetNetwork();
 
+        // This test is sensitive to the number of queries sent in DoT validation.
+        const int latencyFactor = std::stoi(GetProperty(kDotValidationLatencyFactorFlag, "-1"));
+        const int latencyOffsetMs = std::stoi(GetProperty(kDotValidationLatencyOffsetMsFlag, "-1"));
+        const bool dotValidationExtraProbes = (config.dnsMode == "OPPORTUNISTIC") &&
+                                              (latencyFactor >= 0 && latencyOffsetMs >= 0 &&
+                                               latencyFactor + latencyOffsetMs != 0);
+
         const std::string addr = getUniqueIPv4Address();
         test::DNSResponder dns(addr);
         StartDns(dns, records);
@@ -4700,6 +4708,11 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         if (config.dnsMode == "STRICT") parcel.tlsName = kDefaultPrivateDnsHostName;
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
         EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+        if (dotValidationExtraProbes) {
+            EXPECT_TRUE(tls.waitForQueries(2));
+        } else {
+            EXPECT_TRUE(tls.waitForQueries(1));
+        }
         tls.clearQueries();
         dns.clearQueries();
 
@@ -4746,13 +4759,6 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
             EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
             expectedDotQueries++;
 
-            // This test is sensitive to the number of queries sent in DoT validation.
-            const std::string latencyFactor =
-                    android::base::GetProperty(kDotValidationLatencyFactorFlag, "-1");
-            const std::string latencyOffsetMs =
-                    android::base::GetProperty(kDotValidationLatencyOffsetMsFlag, "-1");
-            const bool dotValidationExtraProbes =
-                    (latencyFactor != "-1" && latencyOffsetMs != "-1");
             if (dotValidationExtraProbes) {
                 expectedDotQueries++;
                 extraDnsProbe = 1;
@@ -4773,6 +4779,10 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
             // the DnsResolver doesn't use the DoT server for a certain period of time.
             expectedDotQueries--;
         }
+
+        // This code makes the test more robust to race condition.
+        EXPECT_TRUE(tls.waitForQueries(expectedDotQueries));
+
         EXPECT_EQ(dns.queries().size(), static_cast<unsigned>(expectedDo53Queries));
         EXPECT_EQ(tls.queries(), expectedDotQueries);
     }
