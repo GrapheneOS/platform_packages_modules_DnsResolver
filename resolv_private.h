@@ -119,7 +119,7 @@ struct ResState {
         tcp_nssock.reset();
         _flags &= ~RES_F_VC;
 
-        for (auto& sock : nssocks) {
+        for (auto& sock : udpsocks) {
             sock.reset();
         }
     }
@@ -132,7 +132,7 @@ struct ResState {
     pid_t pid;                                  // pid of the app that sent the DNS lookup
     std::vector<std::string> search_domains{};  // domains to search
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
-    android::base::unique_fd nssocks[MAXNS];    // UDP sockets to nameservers
+    android::base::unique_fd udpsocks[MAXNS];    // UDP sockets to nameservers and mdns responsder
     unsigned ndots : 4 = 1;                     // threshold for initial abs. query
     unsigned _mark;                             // If non-0 SET_MARK to _mark on all request sockets
     android::base::unique_fd tcp_nssock;        // TCP socket (but why not one per nameserver?)

@@ -932,7 +932,7 @@ retry:
 static std::vector<pollfd> extractUdpFdset(res_state statp, const short events = POLLIN) {
     std::vector<pollfd> fdset(statp->nsaddrs.size());
     for (size_t i = 0; i < statp->nsaddrs.size(); ++i) {
-        fdset[i] = {.fd = statp->nssocks[i], .events = events};
+        fdset[i] = {.fd = statp->udpsocks[i], .events = events};
     }
     return fdset;
 }
@@ -969,10 +969,10 @@ static Result<std::vector<int>> udpRetryingPollWrapper(res_state statp, int ns,
             android::net::Experiments::getInstance()->getFlag("keep_listening_udp", 0);
     if (keepListeningUdp) return udpRetryingPoll(statp, finish);
 
-    if (int n = retrying_poll(statp->nssocks[ns], POLLIN, finish); n <= 0) {
+    if (int n = retrying_poll(statp->udpsocks[ns], POLLIN, finish); n <= 0) {
         return ErrnoError();
     }
-    return std::vector<int>{statp->nssocks[ns]};
+    return std::vector<int>{statp->udpsocks[ns]};
 }
 
 bool ignoreInvalidAnswer(res_state statp, const sockaddr_storage& from, const uint8_t* buf,
@@ -1013,9 +1013,9 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
     const sockaddr* nsap = reinterpret_cast<const sockaddr*>(&ss);
     const int nsaplen = sockaddrSize(nsap);
 
-    if (statp->nssocks[*ns] == -1) {
-        statp->nssocks[*ns].reset(socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0));
-        if (statp->nssocks[*ns] < 0) {
+    if (statp->udpsocks[*ns] == -1) {
+        statp->udpsocks[*ns].reset(socket(nsap->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, 0));
+        if (statp->udpsocks[*ns] < 0) {
             *terrno = errno;
             PLOG(DEBUG) << __func__ << ": socket(dg): ";
             switch (errno) {
@@ -1029,9 +1029,9 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         }
 
         const uid_t uid = statp->enforce_dns_uid ? AID_DNS : statp->uid;
-        resolv_tag_socket(statp->nssocks[*ns], uid, statp->pid);
+        resolv_tag_socket(statp->udpsocks[*ns], uid, statp->pid);
         if (statp->_mark != MARK_UNSET) {
-            if (setsockopt(statp->nssocks[*ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
+            if (setsockopt(statp->udpsocks[*ns], SOL_SOCKET, SO_MARK, &(statp->_mark),
                            sizeof(statp->_mark)) < 0) {
                 *terrno = errno;
                 statp->closeSockets();
@@ -1042,13 +1042,13 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         // on the next socket operation when the server responds with an
         // ICMP port-unreachable error. This way we can detect the absence of
         // a nameserver without timing out.
-        if (random_bind(statp->nssocks[*ns], nsap->sa_family) < 0) {
+        if (random_bind(statp->udpsocks[*ns], nsap->sa_family) < 0) {
             *terrno = errno;
             dump_error("bind(dg)", nsap, nsaplen);
             statp->closeSockets();
             return (0);
         }
-        if (connect(statp->nssocks[*ns], nsap, (socklen_t)nsaplen) < 0) {
+        if (connect(statp->udpsocks[*ns], nsap, (socklen_t)nsaplen) < 0) {
             *terrno = errno;
             dump_error("connect(dg)", nsap, nsaplen);
             statp->closeSockets();
@@ -1056,7 +1056,7 @@ static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int 
         }
         LOG(DEBUG) << __func__ << ": new DG socket";
     }
-    if (send(statp->nssocks[*ns], (const char*)buf, (size_t)buflen, 0) != buflen) {
+    if (send(statp->udpsocks[*ns], (const char*)buf, (size_t)buflen, 0) != buflen) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": send: ";
         statp->closeSockets();
