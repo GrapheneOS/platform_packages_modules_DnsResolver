@@ -114,6 +114,10 @@ aidl_interface {
 
 cc_defaults {
     name: "resolv_test_defaults",
+    cflags: [
+        // networkCreatePhysical and networkCreateVpn were deprecated from netd_aidl_interface v6.
+        "-Wno-error=deprecated-declarations",
+    ],
     // Note that, static link liblog and libbase is a hard requirement for resolv related tests
     // because libbase is not compatible between Q and R for general platform build due
     // to its log revelant functions changing. And most of resolv related tests must be able to run
