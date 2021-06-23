@@ -330,7 +330,8 @@ rust_ffi_static {
     rlibs: [
         "libandroid_logger",
         "libanyhow",
-        "liblazy_static",
+        "libbase64_rust",
+        "libfutures",
         "liblibc",
         "liblog_rust",
         "libquiche",
@@ -365,7 +366,8 @@ rust_test {
     rustlibs: [
         "libandroid_logger",
         "libanyhow",
-        "liblazy_static",
+        "libbase64_rust",
+        "libfutures",
         "liblibc",
         "liblog_rust",
         "libquiche_static",
@@ -386,7 +388,8 @@ rust_ffi_static {
     rlibs: [
         "libandroid_logger",
         "libanyhow",
-        "liblazy_static",
+        "libbase64_rust",
+        "libfutures",
         "liblibc",
         "liblog_rust",
         "libquiche_static",

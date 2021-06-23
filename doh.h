@@ -20,28 +20,63 @@
 
 #pragma once
 
-/* Generated with cbindgen:0.15.0 */
+/* Generated with cbindgen:0.17.0 */
 
 #include <stdint.h>
 #include <sys/types.h>
 
-/// Context for a running DoH engine and associated thread.
-struct DohServer;
+/// The return code of doh_query means that there is no answer.
+static const ssize_t RESULT_INTERNAL_ERROR = -1;
+
+/// The return code of doh_query means that query can't be sent.
+static const ssize_t RESULT_CAN_NOT_SEND = -2;
+
+/// The return code of doh_query to indicate that the query timed out.
+static const ssize_t RESULT_TIMEOUT = -255;
+
+/// Context for a running DoH engine.
+struct DohDispatcher;
+
+using ValidationCallback = void (*)(uint32_t net_id, bool success, const char* ip_addr,
+                                    const char* host);
 
 extern "C" {
 
-/// Performs static initialization fo the DoH engine.
-const char* doh_init();
-
+/// Performs static initialization for the DoH engine.
 /// Creates and returns a DoH engine instance.
-/// The returned object must be freed with doh_delete().
-DohServer* doh_new(const char* url, const char* ip_addr, uint32_t mark, const char* cert_path);
+DohDispatcher* doh_dispatcher_new(ValidationCallback ptr);
 
-/// Deletes a DoH engine created by doh_new().
-void doh_delete(DohServer* doh);
+/// Deletes a DoH engine created by doh_dispatcher_new().
+/// # Safety
+/// `doh` must be a non-null pointer previously created by `doh_dispatcher_new()`
+/// and not yet deleted by `doh_dispatcher_delete()`.
+void doh_dispatcher_delete(DohDispatcher* doh);
 
-/// Sends a DNS query and waits for the response.
-ssize_t doh_query(DohServer* doh, uint8_t* query, size_t query_len, uint8_t* response,
-                  size_t response_len);
+/// Probes and stores the DoH server with the given configurations.
+/// Use the negative errno-style codes as the return value to represent the result.
+/// # Safety
+/// `doh` must be a non-null pointer previously created by `doh_dispatcher_new()`
+/// and not yet deleted by `doh_dispatcher_delete()`.
+/// `url`, `domain`, `ip_addr`, `cert_path` are null terminated strings.
+int32_t doh_net_new(DohDispatcher* doh, uint32_t net_id, const char* url, const char* domain,
+                    const char* ip_addr, uint32_t sk_mark, const char* cert_path,
+                    uint64_t timeout_ms);
+
+/// Sends a DNS query via the network associated to the given |net_id| and waits for the response.
+/// The return code should be either one of the public constant RESULT_* to indicate the error or
+/// the size of the answer.
+/// # Safety
+/// `doh` must be a non-null pointer previously created by `doh_dispatcher_new()`
+/// and not yet deleted by `doh_dispatcher_delete()`.
+/// `dns_query` must point to a buffer at least `dns_query_len` in size.
+/// `response` must point to a buffer at least `response_len` in size.
+ssize_t doh_query(DohDispatcher* doh, uint32_t net_id, uint8_t* dns_query, size_t dns_query_len,
+                  uint8_t* response, size_t response_len, uint64_t timeout_ms);
+
+/// Clears the DoH servers associated with the given |netid|.
+/// # Safety
+/// `doh` must be a non-null pointer previously created by `doh_dispatcher_new()`
+/// and not yet deleted by `doh_dispatcher_delete()`.
+void doh_net_delete(DohDispatcher* doh, uint32_t net_id);
 
 }  // extern "C"
