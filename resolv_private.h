@@ -194,6 +194,33 @@ Dest saturate_cast(int64_t x) {
     return static_cast<Dest>(x);
 }
 
+constexpr bool is_power_of_2(size_t n) {
+    return n != 0 && (n & (n - 1)) == 0;
+}
+
+// Rounds up a pointer to a char buffer |p| to a multiple of |Alignment| bytes.
+// Requirements:
+//   |p| must be a pointer to a byte-sized type (e.g.: uint8_t)
+//   |Alignment| must be a power of 2
+template<uintptr_t Alignment = sizeof(void*), typename T>
+        requires (sizeof(T) == 1) && (is_power_of_2(Alignment))
+constexpr T* align_ptr(T* const p) {
+    // Written this way to sidestep the performance-no-int-to-ptr clang-tidy warning.
+    constexpr uintptr_t mask = Alignment - 1;
+    const uintptr_t uintptr = reinterpret_cast<uintptr_t>(p);
+    const uintptr_t aligned = (uintptr + mask) & ~mask;
+    const uintptr_t bias = aligned - uintptr;
+    return p + bias;
+}
+
+// Testcases for align_ptr()
+// TODO: enable when libc++ has std::bit_cast - reinterpret_cast isn't allowed in consteval context
+// static_assert(align_ptr((char*)1000) == (char*)1000);
+// static_assert(align_ptr((char*)1001) == (char*)1000 + sizeof(void*));
+// static_assert(align_ptr((char*)1003) == (char*)1000 + sizeof(void*));
+// static_assert(align_ptr<sizeof(uint32_t)>((char*)1004) == (char*)1004);
+// static_assert(align_ptr<sizeof(uint64_t)>((char*)1004) == (char*)1008);
+
 android::net::NsType getQueryType(const uint8_t* msg, size_t msgLen);
 
 android::net::IpVersion ipFamilyToIPVersion(int ipFamily);
