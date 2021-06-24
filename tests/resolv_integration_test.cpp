@@ -4145,7 +4145,17 @@ void expectDnsNetIdIsDefaultNetwork(INetd* netdService) {
 }
 
 void expectDnsNetIdWithVpn(INetd* netdService, unsigned vpnNetId, unsigned expectedNetId) {
-    EXPECT_TRUE(netdService->networkCreateVpn(vpnNetId, false /* secure */).isOk());
+    if (DnsResponderClient::isRemoteVersionSupported(netdService, 6)) {
+        const auto& config = DnsResponderClient::makeNativeNetworkConfig(
+                vpnNetId, NativeNetworkType::VIRTUAL, INetd::PERMISSION_NONE, /*secure=*/false);
+        EXPECT_TRUE(netdService->networkCreate(config).isOk());
+    } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        EXPECT_TRUE(netdService->networkCreateVpn(vpnNetId, false /* secure */).isOk());
+#pragma clang diagnostic pop
+    }
+
     uid_t uid = getuid();
     // Add uid to VPN
     EXPECT_TRUE(netdService->networkAddUidRanges(vpnNetId, {makeUidRangeParcel(uid, uid)}).isOk());
@@ -6033,8 +6043,20 @@ class ResolverMultinetworkTest : public ResolverTest {
 
       protected:
         Result<void> createNetwork() const override {
-            if (auto r = mNetdSrv->networkCreatePhysical(mNetId, INetd::PERMISSION_NONE);
-                !r.isOk()) {
+            ::ndk::ScopedAStatus r;
+            if (DnsResponderClient::isRemoteVersionSupported(mNetdSrv, 6)) {
+                const auto& config = DnsResponderClient::makeNativeNetworkConfig(
+                        mNetId, NativeNetworkType::PHYSICAL, INetd::PERMISSION_NONE,
+                        /*secure=*/false);
+                r = mNetdSrv->networkCreate(config);
+            } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                r = mNetdSrv->networkCreatePhysical(mNetId, INetd::PERMISSION_NONE);
+#pragma clang diagnostic pop
+            }
+
+            if (!r.isOk()) {
                 return Error() << r.getMessage();
             }
             return {};
@@ -6079,7 +6101,19 @@ class ResolverMultinetworkTest : public ResolverTest {
 
       protected:
         Result<void> createNetwork() const override {
-            if (auto r = mNetdSrv->networkCreateVpn(mNetId, mIsSecure); !r.isOk()) {
+            ::ndk::ScopedAStatus r;
+            if (DnsResponderClient::isRemoteVersionSupported(mNetdSrv, 6)) {
+                const auto& config = DnsResponderClient::makeNativeNetworkConfig(
+                        mNetId, NativeNetworkType::VIRTUAL, INetd::PERMISSION_NONE, mIsSecure);
+                r = mNetdSrv->networkCreate(config);
+            } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                r = mNetdSrv->networkCreateVpn(mNetId, mIsSecure);
+#pragma clang diagnostic pop
+            }
+
+            if (!r.isOk()) {
                 return Error() << r.getMessage();
             }
             return {};
