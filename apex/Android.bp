@@ -37,6 +37,10 @@ apex {
     // Use a custom AndroidManifest.xml used for API targeting.
     androidManifest: "AndroidManifest.xml",
 
+    // Indicates that pre-installed version of this apex can be compressed.
+    // Whether it actually will be compressed is controlled on per-device basis.
+    compressible: true,
+
     // IMPORTANT: For the APEX to be installed on Android 10,
     // min_sdk_version should be 29. This enables the build system to make
     // sure the package compatible to Android 10 in two ways:
