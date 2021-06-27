@@ -60,6 +60,7 @@
 #include <android/binder_process.h>
 #include <bpf/BpfUtils.h>
 #include <util.h>  // getApiLevel
+#include "Experiments.h"
 #include "NetdClient.h"
 #include "ResolverStats.h"
 #include "netid_client.h"  // NETID_UNSET
@@ -237,12 +238,13 @@ class ResolverTest : public ::testing::Test {
         mDnsClient.SetUp();
         sDnsMetricsListener->reset();
         sUnsolicitedEventListener->reset();
+        SetMdnsRoute();
     }
 
     void TearDown() {
         // Ensure the dump works at the end of each test.
         DumpResolverService();
-
+        RemoveMdnsRoute();
         mDnsClient.TearDown();
     }
 
@@ -400,6 +402,66 @@ class ResolverTest : public ::testing::Test {
     static std::string getUniqueIPv4Address() {
         static int counter = 0;
         return fmt::format("127.0.100.{}", (++counter & 0xff));
+    }
+
+    int WaitChild(pid_t pid) {
+        int status;
+        const pid_t got_pid = TEMP_FAILURE_RETRY(waitpid(pid, &status, 0));
+
+        if (got_pid != pid) {
+            PLOG(WARNING) << __func__ << ": waitpid failed: wanted " << pid << ", got " << got_pid;
+            return 1;
+        }
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+            return 0;
+        } else {
+            return status;
+        }
+    }
+
+    int ForkAndRun(const std::vector<std::string>& args) {
+        std::vector<const char*> argv;
+        argv.resize(args.size() + 1, nullptr);
+        std::transform(args.begin(), args.end(), argv.begin(),
+                       [](const std::string& in) { return in.c_str(); });
+
+        pid_t pid = fork();
+        if (pid == -1) {
+            // Fork failed.
+            PLOG(ERROR) << __func__ << ": Unable to fork";
+            return -1;
+        }
+
+        if (pid == 0) {
+            execv(argv[0], const_cast<char**>(argv.data()));
+            PLOG(ERROR) << __func__ << ": execv failed";
+            _exit(1);
+        }
+
+        int rc = WaitChild(pid);
+        if (rc != 0) {
+            PLOG(ERROR) << __func__ << ": Failed run: status=" << rc;
+        }
+        return rc;
+    }
+
+    // Add routing rules for MDNS packets, or MDNS packets won't know the destination is MDNS
+    // muticast address "224.0.0.251".
+    void SetMdnsRoute() {
+        const std::vector<std::string> args = {
+                "system/bin/ip", "route",  "add",   "local", "224.0.0.251", "dev",       "lo",
+                "proto",         "static", "scope", "host",  "src",         "127.0.0.1",
+        };
+        EXPECT_EQ(0, ForkAndRun(args));
+    }
+
+    void RemoveMdnsRoute() {
+        const std::vector<std::string> args = {
+                "system/bin/ip", "route",  "del",   "local", "224.0.0.251", "dev",       "lo",
+                "proto",         "static", "scope", "host",  "src",         "127.0.0.1",
+        };
+        EXPECT_EQ(0, ForkAndRun(args));
     }
 
     DnsResponderClient mDnsClient;
@@ -5944,6 +6006,357 @@ TEST_F(ResolverTest, MultipleDotQueriesInOnePacket) {
 
     // Also check no additional queries due to DoT reconnection.
     EXPECT_EQ(tls.queries(), 2);
+}
+
+TEST_F(ResolverTest, MdnsGetHostByName) {
+    constexpr char v6addr[] = "::127.0.0.3";
+    constexpr char v4addr[] = "127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+    constexpr char nonexistent_host_name[] = "nonexistent.local.";
+
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    mdnsv4.addMapping(host_name, ns_type::ns_t_a, v4addr);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv6.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
+
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+    mdnsv4.clearQueries();
+    mdnsv6.clearQueries();
+
+    std::vector<bool> keep_listening_udp_enable = {false, true};
+    for (int value : keep_listening_udp_enable) {
+        if (value == true) {
+            // Set keep_listening_udp enable
+            ScopedSystemProperties scopedSystemProperties(
+                    "persist.device_config.netd_native.keep_listening_udp", "1");
+            // Re-setup test network to make experiment flag take effect.
+            resetNetwork();
+        }
+        ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+        static const struct TestConfig {
+            int ai_family;
+            const std::string expected_addr;
+        } testConfigs[]{
+                {AF_INET, v4addr},
+                {AF_INET6, v6addr},
+        };
+
+        for (const auto& config : testConfigs) {
+            SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+            const hostent* result = nullptr;
+
+            // No response for "nonexistent.local".
+            result = gethostbyname2("nonexistent.local", config.ai_family);
+            ASSERT_TRUE(result == nullptr);
+            test::DNSResponder& mdns = config.ai_family == AF_INET ? mdnsv4 : mdnsv6;
+            EXPECT_EQ(1U, GetNumQueries(mdns, nonexistent_host_name));
+            mdns.clearQueries();
+            EXPECT_EQ(HOST_NOT_FOUND, h_errno);
+
+            // Normal mDns query
+            result = gethostbyname2("hello.local", config.ai_family);
+            ASSERT_FALSE(result == nullptr);
+            EXPECT_EQ(1U, GetNumQueries(mdns, host_name));
+            int length = config.ai_family == AF_INET ? 4 : 16;
+            ASSERT_EQ(length, result->h_length);
+            ASSERT_FALSE(result->h_addr_list[0] == nullptr);
+            EXPECT_EQ(config.expected_addr, ToString(result));
+            EXPECT_TRUE(result->h_addr_list[1] == nullptr);
+            mdns.clearQueries();
+
+            // Ensure the query result is still cached.
+            result = gethostbyname2("hello.local", config.ai_family);
+            EXPECT_EQ(0U, GetNumQueries(mdnsv4, "hello.local."));
+            ASSERT_FALSE(result == nullptr);
+            EXPECT_EQ(config.expected_addr, ToString(result));
+            ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+        }
+    }
+}
+
+TEST_F(ResolverTest, MdnsGetHostByName_cnames) {
+    constexpr char v6addr[] = "::127.0.0.3";
+    constexpr char v4addr[] = "127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+    const std::vector<DnsRecord> records = {
+            {"hi.local.", ns_type::ns_t_cname, "a.local."},
+            {"a.local.", ns_type::ns_t_cname, "b.local."},
+            {"b.local.", ns_type::ns_t_cname, "c.local."},
+            {"c.local.", ns_type::ns_t_cname, "d.local."},
+            {"d.local.", ns_type::ns_t_cname, "e.local."},
+            {"e.local.", ns_type::ns_t_cname, host_name},
+            {host_name, ns_type::ns_t_a, v4addr},
+            {host_name, ns_type::ns_t_aaaa, v6addr},
+    };
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    for (const auto& r : records) {
+        mdnsv4.addMapping(r.host_name, r.type, r.addr);
+    }
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    for (const auto& r : records) {
+        mdnsv6.addMapping(r.host_name, r.type, r.addr);
+    }
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+    mdnsv4.clearQueries();
+    mdnsv6.clearQueries();
+
+    static const struct TestConfig {
+        int ai_family;
+        const std::string expected_addr;
+    } testConfigs[]{
+            {AF_INET, v4addr},
+            {AF_INET6, v6addr},
+    };
+
+    for (const auto& config : testConfigs) {
+        size_t cnamecount = 0;
+        // using gethostbyname2() to resolve ipv4 hello.local. to 127.0.0.3
+        // or ipv6 hello.local. to ::127.0.0.3.
+        // Ensure the v4 address and cnames are correct
+        const hostent* result;
+        result = gethostbyname2("hi.local", config.ai_family);
+        ASSERT_FALSE(result == nullptr);
+
+        for (int i = 0; result != nullptr && result->h_aliases[i] != nullptr; i++) {
+            std::string domain_name =
+                    records[i].host_name.substr(0, records[i].host_name.size() - 1);
+            EXPECT_EQ(result->h_aliases[i], domain_name);
+            cnamecount++;
+        }
+        // The size of "Non-cname type" record in DNS records is 2
+        ASSERT_EQ(cnamecount, records.size() - 2);
+        test::DNSResponder& mdns = config.ai_family == AF_INET ? mdnsv4 : mdnsv6;
+        EXPECT_EQ(1U, mdnsv4.queries().size()) << mdns.dumpQueries();
+        int length = config.ai_family == AF_INET ? 4 : 16;
+        ASSERT_EQ(length, result->h_length);
+
+        ASSERT_FALSE(result->h_addr_list[0] == nullptr);
+        EXPECT_EQ(config.expected_addr, ToString(result));
+        EXPECT_TRUE(result->h_addr_list[1] == nullptr);
+    }
+}
+
+TEST_F(ResolverTest, MdnsGetHostByName_cnamesInfiniteLoop) {
+    constexpr char host_name1[] = "hello.local.";
+    constexpr char host_name2[] = "hi.local.";
+    const std::vector<DnsRecord> records = {
+            {host_name1, ns_type::ns_t_cname, host_name2},
+            {host_name2, ns_type::ns_t_cname, host_name1},
+    };
+
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    for (const auto& r : records) {
+        mdnsv4.addMapping(r.host_name, r.type, r.addr);
+    }
+    for (const auto& r : records) {
+        mdnsv6.addMapping(r.host_name, r.type, r.addr);
+    }
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+    mdnsv4.clearQueries();
+    mdnsv6.clearQueries();
+
+    const hostent* result;
+    result = gethostbyname2("hello.local", AF_INET);
+    ASSERT_TRUE(result == nullptr);
+
+    result = gethostbyname2("hello.local", AF_INET6);
+    ASSERT_TRUE(result == nullptr);
+}
+
+TEST_F(ResolverTest, MdnsGetAddrInfo) {
+    constexpr char v6addr[] = "::127.0.0.3";
+    constexpr char v4addr[] = "127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv4.addMapping(host_name, ns_type::ns_t_a, v4addr);
+    mdnsv6.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+
+    std::vector<bool> keep_listening_udp_enable = {false, true};
+    for (int value : keep_listening_udp_enable) {
+        if (value == true) {
+            // Set keep_listening_udp enable
+            ScopedSystemProperties scopedSystemProperties(
+                    "persist.device_config.netd_native.keep_listening_udp", "1");
+            // Re-setup test network to make experiment flag take effect.
+            resetNetwork();
+        }
+
+        ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+        static const struct TestConfig {
+            int ai_family;
+            const std::vector<std::string> expected_addr;
+        } testConfigs[]{
+                {AF_INET, {v4addr}},
+                {AF_INET6, {v6addr}},
+                {AF_UNSPEC, {v4addr, v6addr}},
+        };
+
+        for (const auto& config : testConfigs) {
+            mdnsv4.clearQueries();
+            mdnsv6.clearQueries();
+            addrinfo hints = {.ai_family = config.ai_family, .ai_socktype = SOCK_DGRAM};
+            ScopedAddrinfo result = safe_getaddrinfo("hello.local", nullptr, &hints);
+
+            EXPECT_TRUE(result != nullptr);
+            if (config.ai_family == AF_INET) {
+                EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+                mdnsv4.clearQueries();
+            } else if (config.ai_family == AF_INET6) {
+                EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+                mdnsv6.clearQueries();
+            } else if (config.ai_family == AF_UNSPEC) {
+                EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+                EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+                mdnsv4.clearQueries();
+                mdnsv6.clearQueries();
+            }
+            std::string result_str = ToString(result);
+            EXPECT_THAT(ToStrings(result),
+                        testing::UnorderedElementsAreArray(config.expected_addr));
+
+            // Ensure the query results are still cached.
+            result = safe_getaddrinfo("hello.local", nullptr, &hints);
+            EXPECT_TRUE(result != nullptr);
+            if (config.ai_family == AF_INET)
+                EXPECT_EQ(0U, GetNumQueries(mdnsv4, host_name));
+            else if (config.ai_family == AF_INET6)
+                EXPECT_EQ(0U, GetNumQueries(mdnsv6, host_name));
+            else if (config.ai_family == AF_UNSPEC) {
+                EXPECT_EQ(0U, GetNumQueries(mdnsv4, host_name));
+                EXPECT_EQ(0U, GetNumQueries(mdnsv6, host_name));
+            }
+            result_str = ToString(result);
+            EXPECT_THAT(ToStrings(result),
+                        testing::UnorderedElementsAreArray(config.expected_addr));
+            ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+        }
+    }
+}
+
+TEST_F(ResolverTest, MdnsGetAddrInfo_InvalidSocketType) {
+    constexpr char v6addr[] = "::127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv6.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
+    ASSERT_TRUE(mdnsv6.startServer());
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    // TODO: Test other invalid socket types.
+    const addrinfo hints = {
+            .ai_family = AF_UNSPEC,
+            .ai_socktype = SOCK_PACKET,
+    };
+    addrinfo* result = nullptr;
+    // This is a valid hint, but the query won't be sent because the socket type is
+    // not supported.
+    EXPECT_EQ(EAI_NODATA, getaddrinfo("howdy.local", nullptr, &hints, &result));
+    ScopedAddrinfo result_cleanup(result);
+    EXPECT_EQ(nullptr, result);
+}
+
+TEST_F(ResolverTest, MdnsGetAddrInfo_cnames) {
+    constexpr char v6addr[] = "::127.0.0.3";
+    constexpr char v4addr[] = "127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    const std::vector<DnsRecord> records = {
+            {"hi.local.", ns_type::ns_t_cname, "a.local."},
+            {"a.local.", ns_type::ns_t_cname, "b.local."},
+            {"b.local.", ns_type::ns_t_cname, "c.local."},
+            {"c.local.", ns_type::ns_t_cname, "d.local."},
+            {"d.local.", ns_type::ns_t_cname, "e.local."},
+            {"e.local.", ns_type::ns_t_cname, host_name},
+            {host_name, ns_type::ns_t_a, v4addr},
+            {host_name, ns_type::ns_t_aaaa, v6addr},
+    };
+    for (const auto& r : records) {
+        mdnsv4.addMapping(r.host_name, r.type, r.addr);
+    }
+    for (const auto& r : records) {
+        mdnsv6.addMapping(r.host_name, r.type, r.addr);
+    }
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    static const struct TestConfig {
+        int ai_family;
+        const std::vector<std::string> expected_addr;
+    } testConfigs[]{
+            {AF_INET, {v4addr}},
+            {AF_INET6, {v6addr}},
+            {AF_UNSPEC, {v4addr, v6addr}},
+    };
+    for (const auto& config : testConfigs) {
+        mdnsv4.clearQueries();
+        mdnsv6.clearQueries();
+        addrinfo hints = {.ai_family = config.ai_family, .ai_socktype = SOCK_DGRAM};
+        ScopedAddrinfo result = safe_getaddrinfo("hi.local", nullptr, &hints);
+        EXPECT_TRUE(result != nullptr);
+        EXPECT_THAT(ToStrings(result), testing::UnorderedElementsAreArray(config.expected_addr));
+    }
+}
+
+TEST_F(ResolverTest, MdnsGetAddrInfo_cnamesNoIpAddress) {
+    constexpr char host_name[] = "hello.local.";
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv4.addMapping(host_name, ns_type::ns_t_cname, "a.local.");
+    mdnsv6.addMapping(host_name, ns_type::ns_t_cname, "a.local.");
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    addrinfo hints = {.ai_family = AF_INET};
+    ScopedAddrinfo result = safe_getaddrinfo("hello.local", nullptr, &hints);
+    EXPECT_TRUE(result == nullptr);
+
+    mdnsv4.clearQueries();
+    hints = {.ai_family = AF_INET6};
+    result = safe_getaddrinfo("hello.local", nullptr, &hints);
+    EXPECT_TRUE(result == nullptr);
+
+    mdnsv6.clearQueries();
+    hints = {.ai_family = AF_UNSPEC};
+    result = safe_getaddrinfo("hello.local", nullptr, &hints);
+    EXPECT_TRUE(result == nullptr);
+}
+
+TEST_F(ResolverTest, MdnsGetAddrInfo_cnamesIllegalRdata) {
+    constexpr char host_name[] = "hello.local.";
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv4.addMapping(host_name, ns_type::ns_t_cname, ".!#?");
+    mdnsv6.addMapping(host_name, ns_type::ns_t_cname, ".!#?");
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    addrinfo hints = {.ai_family = AF_INET};
+    ScopedAddrinfo result = safe_getaddrinfo("hello.local", nullptr, &hints);
+    EXPECT_TRUE(result == nullptr);
+
+    mdnsv4.clearQueries();
+    hints = {.ai_family = AF_INET6};
+    result = safe_getaddrinfo("hello.local", nullptr, &hints);
+    EXPECT_TRUE(result == nullptr);
+
+    mdnsv6.clearQueries();
+    hints = {.ai_family = AF_UNSPEC};
+    result = safe_getaddrinfo("hello.local", nullptr, &hints);
+    EXPECT_TRUE(result == nullptr);
 }
 
 // ResolverMultinetworkTest is used to verify multinetwork functionality. Here's how it works:

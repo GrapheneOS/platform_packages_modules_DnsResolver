@@ -41,6 +41,7 @@
 #include <netdutils/Slice.h>
 #include <netdutils/SocketOption.h>
 
+using android::base::unique_fd;
 using android::netdutils::BackoffSequence;
 using android::netdutils::enableSockopt;
 using android::netdutils::ScopedAddrinfo;
@@ -587,7 +588,10 @@ void DNSResponder::setTtl(unsigned ttl) {
 }
 
 bool DNSResponder::running() const {
-    return (udp_socket_.ok()) && (tcp_socket_.ok());
+    if (listen_service_ == kDefaultMdnsListenService)
+        return udp_socket_.ok();
+    else
+        return (udp_socket_.ok()) && (tcp_socket_.ok());
 }
 
 bool DNSResponder::startServer() {
@@ -602,14 +606,16 @@ bool DNSResponder::startServer() {
         return false;
     }
 
-    if (tcp_socket_ = createListeningSocket(SOCK_STREAM); tcp_socket_.get() < 0) {
-        PLOG(ERROR) << "failed to create TCP socket";
-        return false;
-    }
+    if (listen_service_ != kDefaultMdnsListenService) {
+        if (tcp_socket_ = createListeningSocket(SOCK_STREAM); tcp_socket_.get() < 0) {
+            PLOG(ERROR) << "failed to create TCP socket";
+            return false;
+        }
 
-    if (listen(tcp_socket_.get(), 1) < 0) {
-        PLOG(ERROR) << "failed to listen TCP socket";
-        return false;
+        if (listen(tcp_socket_.get(), 1) < 0) {
+            PLOG(ERROR) << "failed to listen TCP socket";
+            return false;
+        }
     }
 
     // Set up eventfd socket.
@@ -632,10 +638,12 @@ bool DNSResponder::startServer() {
         return false;
     }
 
-    LOG(INFO) << "adding TCP socket to epoll";
-    if (!addFd(tcp_socket_.get(), EPOLLIN)) {
-        LOG(ERROR) << "failed to add the TCP socket to epoll";
-        return false;
+    if (listen_service_ != kDefaultMdnsListenService) {
+        LOG(INFO) << "adding TCP socket to epoll";
+        if (!addFd(tcp_socket_.get(), EPOLLIN)) {
+            LOG(ERROR) << "failed to add the TCP socket to epoll";
+            return false;
+        }
     }
 
     LOG(INFO) << "adding eventfd to epoll";
@@ -1093,7 +1101,7 @@ void DNSResponder::handleQuery(int protocol) {
     sockaddr_storage sa;
     socklen_t sa_len = sizeof(sa);
     ssize_t len = 0;
-    android::base::unique_fd tcpFd;
+    unique_fd tcpFd;
     switch (protocol) {
         case IPPROTO_UDP:
             do {
@@ -1209,7 +1217,7 @@ void DNSResponder::handleEventFd() {
     }
 }
 
-android::base::unique_fd DNSResponder::createListeningSocket(int socket_type) {
+unique_fd DNSResponder::createListeningSocket(int socket_type) {
     addrinfo ai_hints{
             .ai_flags = AI_PASSIVE,
             .ai_family = AF_UNSPEC,
@@ -1225,24 +1233,66 @@ android::base::unique_fd DNSResponder::createListeningSocket(int socket_type) {
         return {};
     }
     for (const addrinfo* ai = ai_res; ai; ai = ai->ai_next) {
-        android::base::unique_fd fd(
-                socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol));
+        unique_fd fd(socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK, ai->ai_protocol));
         if (fd.get() < 0) {
             PLOG(ERROR) << "ignore creating socket failed";
             continue;
         }
-        enableSockopt(fd.get(), SOL_SOCKET, SO_REUSEPORT).ignoreError();
+
         enableSockopt(fd.get(), SOL_SOCKET, SO_REUSEADDR).ignoreError();
         const std::string host_str = addr2str(ai->ai_addr, ai->ai_addrlen);
-        const char* socket_str = (socket_type == SOCK_STREAM) ? "TCP" : "UDP";
-
-        if (bindSocket(fd.get(), ai->ai_addr, ai->ai_addrlen)) {
-            PLOG(ERROR) << "failed to bind " << socket_str << " " << host_str << ":"
-                        << listen_service_;
-            continue;
+        if ((listen_service_ == kDefaultMdnsListenService) && (socket_type == SOCK_DGRAM)) {
+            const int mdns_port = 5353;
+            const char mdns_multiaddrv4[] = "224.0.0.251";
+            const char mdns_multiaddrv6[] = "ff02::fb";
+            if (ai_res->ai_family == AF_INET) {
+                // Join the MDNS IPV4 multicast group
+                struct ip_mreq mreq;
+                mreq.imr_multiaddr.s_addr = inet_addr(mdns_multiaddrv4);
+                mreq.imr_interface.s_addr = inet_addr(host_str.c_str());
+                if (setsockopt(fd.get(), IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq,
+                               sizeof(struct ip_mreq)) == -1) {
+                    LOG(ERROR) << "Error set setsockopt for IP_ADD_MEMBERSHIP ";
+                    return {};
+                }
+                struct sockaddr_in addr = {.sin_family = AF_INET,
+                                           .sin_port = htons(mdns_port),
+                                           .sin_addr = {INADDR_ANY}};
+                if (bindSocket(fd.get(), (struct sockaddr*)&addr, sizeof(addr))) {
+                    LOG(ERROR) << "Unable to bind socket to interface.";
+                    return {};
+                }
+            } else if (ai_res->ai_family == AF_INET6) {
+                // Join the MDNS IPV6 multicast group
+                struct ipv6_mreq mreqv6;
+                inet_pton(AF_INET6, mdns_multiaddrv6, &mreqv6.ipv6mr_multiaddr.s6_addr);
+                mreqv6.ipv6mr_interface = 0;
+                if (setsockopt(fd.get(), IPPROTO_IPV6, IPV6_JOIN_GROUP, &mreqv6, sizeof(mreqv6)) ==
+                    -1) {
+                    LOG(ERROR) << "Error set setsockopt for IPV6_JOIN_GROUP ";
+                    return {};
+                }
+                struct sockaddr_in6 addr = {
+                        .sin6_family = AF_INET6,
+                        .sin6_port = htons(mdns_port),
+                        .sin6_addr = IN6ADDR_ANY_INIT,
+                };
+                if (bindSocket(fd.get(), (struct sockaddr*)&addr, sizeof(addr))) {
+                    LOG(ERROR) << "Unable to bind socket to interface.MDNS IPV6";
+                    return {};
+                }
+            }
+            return fd;
+        } else {
+            const char* socket_str = (socket_type == SOCK_STREAM) ? "TCP" : "UDP";
+            if (bindSocket(fd.get(), ai->ai_addr, ai->ai_addrlen)) {
+                PLOG(ERROR) << "failed to bind " << socket_str << " " << host_str << ":"
+                            << listen_service_;
+                continue;
+            }
+            LOG(INFO) << "bound to " << socket_str << " " << host_str << ":" << listen_service_;
+            return fd;
         }
-        LOG(INFO) << "bound to " << socket_str << " " << host_str << ":" << listen_service_;
-        return fd;
     }
     return {};
 }
