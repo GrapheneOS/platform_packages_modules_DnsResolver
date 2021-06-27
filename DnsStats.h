@@ -106,7 +106,7 @@ class StatsRecords {
     static constexpr int kMaxQuality = 10000;
 };
 
-// DnsStats class manages the statistics of DNS servers per netId.
+// DnsStats class manages the statistics of DNS servers or MDNS multicast addresses per netId.
 // The class itself is not thread-safe.
 class DnsStats {
   public:

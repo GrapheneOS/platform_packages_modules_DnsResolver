@@ -268,7 +268,7 @@ void DnsStats::dump(DumpWriter& dw) {
     const auto dumpStatsMap = [&](StatsMap& statsMap) {
         ScopedIndent indentLog(dw);
         if (statsMap.size() == 0) {
-            dw.println("<no server>");
+            dw.println("<no data>");
             return;
         }
         for (const auto& [_, statsRecords] : statsMap) {
@@ -290,6 +290,9 @@ void DnsStats::dump(DumpWriter& dw) {
 
     dw.println("over TCP");
     dumpStatsMap(mStats[PROTO_TCP]);
+
+    dw.println("over MDNS");
+    dumpStatsMap(mStats[PROTO_MDNS]);
 }
 
 }  // namespace android::net
