@@ -240,7 +240,7 @@ int res_nsearch(res_state statp, const char* name, /* domain name */
      *	- there is no dot, or
      *	- there is at least one dot and there is no trailing dot.
      */
-    if ((!dots) || (dots && !trailing_dot)) {
+    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(statp->_flags)) {
         int done = 0;
 
         /* Unfortunately we need to load network-specific info
