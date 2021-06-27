@@ -78,6 +78,7 @@
 // Flags for res_state->_flags
 #define RES_F_VC 0x00000001        // socket is TCP
 #define RES_F_EDNS0ERR 0x00000004  // EDNS0 caused errors
+#define RES_F_MDNS 0x00000008      // MDNS packet
 
 // Holds either a sockaddr_in or a sockaddr_in6.
 union sockaddr_union {
@@ -182,6 +183,12 @@ int getaddrinfo_numeric(const char* hostname, const char* servname, addrinfo hin
 
 // Helper function for converting h_errno to the error codes visible to netd
 int herrnoToAiErrno(int herrno);
+
+// Helper function to enable MDNS resolution.
+void setMdnsFlag(std::string_view hostname, uint32_t* flags);
+
+// Helper function for checking MDNS resolution is enabled or not.
+bool isMdnsResolution(uint32_t flags);
 
 // switch resolver log severity
 android::base::LogSeverity logSeverityStrToEnum(const std::string& logSeverityStr);

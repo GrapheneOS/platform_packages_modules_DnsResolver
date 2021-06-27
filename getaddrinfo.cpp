@@ -1437,6 +1437,8 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     ResState res(netcontext, event);
 
+    setMdnsFlag(name, &(res._flags));
+
     int he;
     if (res_searchN(name, &q, &res, &he) < 0) {
         // Return h_errno (he) to catch more detailed errors rather than EAI_NODATA.
@@ -1837,10 +1839,11 @@ static int res_searchN(const char* name, res_target* target, res_state res, int*
 
     /*
      * We do at least one level of search if
-     *	- there is no dot, or
-     *	- there is at least one dot and there is no trailing dot.
+     *	 - there is no dot, or
+     *	 - there is at least one dot and there is no trailing dot.
+     * - this is not a .local mDNS lookup.
      */
-    if ((!dots) || (dots && !trailing_dot)) {
+    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(res->_flags)) {
         int done = 0;
 
         /* Unfortunately we need to set stuff up before
