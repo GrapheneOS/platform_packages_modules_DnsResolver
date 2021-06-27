@@ -1649,8 +1649,8 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     netconfig->search_domains = filter_domains(domains);
 
     // Setup stats for cleartext dns servers.
-    if (!netconfig->dnsStats.setServers(netconfig->nameserverSockAddrs, PROTO_TCP) ||
-        !netconfig->dnsStats.setServers(netconfig->nameserverSockAddrs, PROTO_UDP)) {
+    if (!netconfig->dnsStats.setAddrs(netconfig->nameserverSockAddrs, PROTO_TCP) ||
+        !netconfig->dnsStats.setAddrs(netconfig->nameserverSockAddrs, PROTO_UDP)) {
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
@@ -1910,7 +1910,7 @@ int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::stri
         serverSockAddrs.push_back(IPSockAddr::toIPSockAddr(server, 853));
     }
 
-    if (!info->dnsStats.setServers(serverSockAddrs, android::net::PROTO_DOT)) {
+    if (!info->dnsStats.setAddrs(serverSockAddrs, android::net::PROTO_DOT)) {
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
