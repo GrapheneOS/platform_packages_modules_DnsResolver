@@ -72,6 +72,7 @@
 #include <functional>
 #include <vector>
 
+#include "Experiments.h"
 #include "hostent.h"
 #include "netd_resolv/resolv.h"
 #include "res_comp.h"
@@ -373,6 +374,8 @@ int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_
 
     getnamaddr info;
     ResState res(netcontext, event);
+
+    setMdnsFlag(name, &(res._flags));
 
     size_t size;
     switch (af) {
@@ -748,4 +751,14 @@ int herrnoToAiErrno(int he) {
         default:
             return EAI_FAIL;  // TODO: Perhaps convert default to EAI_MAX (unknown error) instead
     }
+}
+
+void setMdnsFlag(std::string_view hostname, uint32_t* flags) {
+    if (hostname.ends_with(".local") &&
+        android::net::Experiments::getInstance()->getFlag("mdns_resolution", 1))
+        *flags |= RES_F_MDNS;
+}
+
+bool isMdnsResolution(uint32_t flags) {
+    return flags & RES_F_MDNS;
 }
