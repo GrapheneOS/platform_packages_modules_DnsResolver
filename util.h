@@ -24,6 +24,8 @@
 
 #include <android-base/properties.h>
 
+#include "Experiments.h"
+
 socklen_t sockaddrSize(const sockaddr* sa);
 socklen_t sockaddrSize(const sockaddr_storage& ss);
 
@@ -55,4 +57,8 @@ inline uint64_t getApiLevel() {
 // It's the identical strategy as frameworks/base/core/java/android/os/Build.java did.
 inline bool isUserDebugBuild() {
     return (android::base::GetProperty("ro.build.type", "user") == "userdebug");
+}
+
+inline bool isDoHEnabled() {
+    return android::net::Experiments::getInstance()->getFlag("doh", 0);
 }
