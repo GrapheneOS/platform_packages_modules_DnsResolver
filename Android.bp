@@ -374,3 +374,30 @@ rust_test {
     ],
     min_sdk_version: "29",
 }
+
+// It's required by unit tests.
+rust_ffi_static {
+    name: "libdoh_ffi_for_test",
+    crate_name: "doh",
+    srcs: ["doh.rs"],
+    edition: "2018",
+
+    rlibs: [
+        "libandroid_logger",
+        "libanyhow",
+        "liblazy_static",
+        "liblibc",
+        "liblog_rust",
+        "libquiche_static",
+        "libring",
+        "libtokio",
+        "liburl",
+    ],
+    prefer_rlib: true,
+
+    apex_available: [
+        "//apex_available:platform",  // Needed by doh_ffi_test
+        "com.android.resolv"
+    ],
+    min_sdk_version: "29",
+}
