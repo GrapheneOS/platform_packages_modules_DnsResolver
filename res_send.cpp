@@ -457,7 +457,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     }
 
     // MDNS
-    if (isMdnsResolution(statp->_flags)) {
+    if (isMdnsResolution(statp->flags)) {
         // Use an impossible error code as default value.
         int terrno = ETIME;
         int resplen = 0;
@@ -509,7 +509,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     }
     // DoT
     if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS) &&
-        !isMdnsResolution(statp->_flags)) {
+        !isMdnsResolution(statp->flags)) {
         bool fallback = false;
         int resplen = res_tls_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
                                    Slice(ans, anssiz), rcode, &fallback);
@@ -731,7 +731,7 @@ same_ns:
     struct timespec start_time = evNowTime();
 
     /* Are we still talking to whom we want to talk to? */
-    if (statp->tcp_nssock >= 0 && (statp->_flags & RES_F_VC) != 0) {
+    if (statp->tcp_nssock >= 0 && (statp->flags & RES_F_VC) != 0) {
         struct sockaddr_storage peer;
         socklen_t size = sizeof peer;
         unsigned old_mark;
@@ -744,7 +744,7 @@ same_ns:
         }
     }
 
-    if (statp->tcp_nssock < 0 || (statp->_flags & RES_F_VC) == 0) {
+    if (statp->tcp_nssock < 0 || (statp->flags & RES_F_VC) == 0) {
         if (statp->tcp_nssock >= 0) statp->closeSockets();
 
         statp->tcp_nssock.reset(socket(nsap->sa_family, SOCK_STREAM | SOCK_CLOEXEC, 0));
@@ -793,7 +793,7 @@ same_ns:
             *rcode = RCODE_TIMEOUT;
             return (0);
         }
-        statp->_flags |= RES_F_VC;
+        statp->flags |= RES_F_VC;
     }
 
     /*
@@ -1172,7 +1172,7 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
                 LOG(DEBUG) << __func__ << ": server rejected query with EDNS0:";
                 res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
                 // record the error
-                statp->_flags |= RES_F_EDNS0ERR;
+                statp->flags |= RES_F_EDNS0ERR;
                 *terrno = EREMOTEIO;
                 continue;
             }

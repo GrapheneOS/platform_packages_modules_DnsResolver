@@ -75,7 +75,7 @@
 #define RES_TIMEOUT 5000 /* min. milliseconds between retries */
 #define RES_DFLRETRY 2    /* Default #/tries. */
 
-// Flags for ResState::_flags
+// Flags for ResState::flags
 #define RES_F_VC 0x00000001        // socket is TCP
 #define RES_F_EDNS0ERR 0x00000004  // EDNS0 caused errors
 #define RES_F_MDNS 0x00000008      // MDNS packet
@@ -108,7 +108,7 @@ struct ResState {
         copy.nsaddrs = nsaddrs;
         copy.ndots = ndots;
         copy._mark = _mark;
-        copy._flags = _flags;
+        copy.flags = flags;
         copy.event = (dnsEvent == nullptr) ? event : dnsEvent;
         copy.netcontext_flags = netcontext_flags;
         copy.tc_mode = tc_mode;
@@ -118,7 +118,7 @@ struct ResState {
     }
     void closeSockets() {
         tcp_nssock.reset();
-        _flags &= ~RES_F_VC;
+        flags &= ~RES_F_VC;
 
         for (auto& sock : udpsocks) {
             sock.reset();
@@ -133,18 +133,18 @@ struct ResState {
     pid_t pid;                                  // pid of the app that sent the DNS lookup
     std::vector<std::string> search_domains{};  // domains to search
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
-    android::base::unique_fd udpsocks[MAXNS];    // UDP sockets to nameservers and mdns responsder
+    android::base::unique_fd udpsocks[MAXNS];   // UDP sockets to nameservers
     unsigned ndots : 4 = 1;                     // threshold for initial abs. query
     unsigned _mark;                             // If non-0 SET_MARK to _mark on all request sockets
     android::base::unique_fd tcp_nssock;        // TCP socket (but why not one per nameserver?)
-    uint32_t _flags = 0;                        // See RES_F_* defines below
+    uint32_t flags = 0;                         // See RES_F_* defines below
     android::net::NetworkDnsEventReported* event;
     uint32_t netcontext_flags;
     int tc_mode = 0;
     bool enforce_dns_uid = false;
-    bool sort_nameservers = false;              // A flag to indicate whether nsaddrs has been
-                                                // sorted or not.
+    bool sort_nameservers = false;              // True if nsaddrs has been sorted.
     // clang-format on
+
   private:
     ResState() {}
 };

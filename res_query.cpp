@@ -136,7 +136,7 @@ again:
         // we also has the same symptom if EDNS is enabled.
         if ((statp->netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
-            (statp->_flags & RES_F_EDNS0ERR) && !retried) {
+            (statp->flags & RES_F_EDNS0ERR) && !retried) {
             LOG(DEBUG) << __func__ << ": retry without EDNS0";
             retried = true;
             goto again;
@@ -240,7 +240,7 @@ int res_nsearch(ResState* statp, const char* name, /* domain name */
      *	- there is no dot, or
      *	- there is at least one dot and there is no trailing dot.
      */
-    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(statp->_flags)) {
+    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(statp->flags)) {
         int done = 0;
 
         /* Unfortunately we need to load network-specific info

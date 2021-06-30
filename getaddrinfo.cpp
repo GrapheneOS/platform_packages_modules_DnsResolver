@@ -1437,7 +1437,7 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     ResState res(netcontext, event);
 
-    setMdnsFlag(name, &(res._flags));
+    setMdnsFlag(name, &(res.flags));
 
     int he;
     if (res_searchN(name, &q, &res, &he) < 0) {
@@ -1653,7 +1653,7 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
         // if the query choked with EDNS0, retry without EDNS0
         if ((res_temp.netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
-            (res_temp._flags & RES_F_EDNS0ERR)) {
+            (res_temp.flags & RES_F_EDNS0ERR)) {
             LOG(DEBUG) << __func__ << ": retry without EDNS0";
             n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf,
                              sizeof(buf), res_temp.netcontext_flags);
@@ -1780,7 +1780,7 @@ static int res_queryN(const char* name, res_target* target, ResState* res, int* 
             // we also has the same symptom if EDNS is enabled.
             if ((res->netcontext_flags &
                  (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
-                (res->_flags & RES_F_EDNS0ERR) && !retried) {
+                (res->flags & RES_F_EDNS0ERR) && !retried) {
                 LOG(DEBUG) << __func__ << ": retry without EDNS0";
                 retried = true;
                 goto again;
@@ -1843,7 +1843,7 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
      *	 - there is at least one dot and there is no trailing dot.
      * - this is not a .local mDNS lookup.
      */
-    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(res->_flags)) {
+    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(res->flags)) {
         int done = 0;
 
         /* Unfortunately we need to set stuff up before
