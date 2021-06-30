@@ -5268,7 +5268,7 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
         parcel.servers = config.tlsServers;
         parcel.tlsServers = config.tlsServers;
         parcel.tlsName = config.tlsName;
-        parcel.caCertificate = config.tlsName.empty() ? "" : kCaCert;
+        parcel.caCertificate = config.tlsName.empty() ? "" : DnsResponderClient::sCaCert;
 
         const bool dnsModeChanged = (TlsNameLastTime != config.tlsName);
 
@@ -5402,7 +5402,7 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
             parcel.servers = {config.tlsServer};
             parcel.tlsServers = {config.tlsServer};
             parcel.tlsName = config.tlsName;
-            parcel.caCertificate = config.tlsName.empty() ? "" : kCaCert;
+            parcel.caCertificate = config.tlsName.empty() ? "" : DnsResponderClient::sCaCert;
             ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
             if (serverState == WORKING) {
@@ -5452,7 +5452,6 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
 
 TEST_F(ResolverTest, PermissionCheckOnCertificateInjection) {
     ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
-    parcel.caCertificate = kCaCert;
     ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(parcel).isOk());
 
     for (const uid_t uid : {AID_SYSTEM, TEST_UID}) {
@@ -5964,7 +5963,6 @@ TEST_F(ResolverTest, MultipleDotQueriesInOnePacket) {
     parcel.servers = {addr};
     parcel.tlsServers = {addr};
     parcel.tlsName = kDefaultPrivateDnsHostName;
-    parcel.caCertificate = kCaCert;
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
     EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
     EXPECT_TRUE(tls.waitForQueries(1));
