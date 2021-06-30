@@ -739,7 +739,7 @@ same_ns:
         if (getpeername(statp->tcp_nssock, (struct sockaddr*)(void*)&peer, &size) < 0 ||
             !sock_eq((struct sockaddr*)(void*)&peer, nsap) ||
             getsockopt(statp->tcp_nssock, SOL_SOCKET, SO_MARK, &old_mark, &mark_size) < 0 ||
-            old_mark != statp->_mark) {
+            old_mark != statp->mark) {
             statp->closeSockets();
         }
     }
@@ -762,9 +762,9 @@ same_ns:
         }
         const uid_t uid = statp->enforce_dns_uid ? AID_DNS : statp->uid;
         resolv_tag_socket(statp->tcp_nssock, uid, statp->pid);
-        if (statp->_mark != MARK_UNSET) {
-            if (setsockopt(statp->tcp_nssock, SOL_SOCKET, SO_MARK, &statp->_mark,
-                           sizeof(statp->_mark)) < 0) {
+        if (statp->mark != MARK_UNSET) {
+            if (setsockopt(statp->tcp_nssock, SOL_SOCKET, SO_MARK, &statp->mark,
+                           sizeof(statp->mark)) < 0) {
                 *terrno = errno;
                 PLOG(DEBUG) << __func__ << ": setsockopt: ";
                 return -1;
@@ -1065,8 +1065,8 @@ static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd
     }
     const uid_t uid = statp->enforce_dns_uid ? AID_DNS : statp->uid;
     resolv_tag_socket(*fd_out, uid, statp->pid);
-    if (statp->_mark != MARK_UNSET) {
-        if (setsockopt(*fd_out, SOL_SOCKET, SO_MARK, &(statp->_mark), sizeof(statp->_mark)) < 0) {
+    if (statp->mark != MARK_UNSET) {
+        if (setsockopt(*fd_out, SOL_SOCKET, SO_MARK, &(statp->mark), sizeof(statp->mark)) < 0) {
             *terrno = errno;
             return -1;
         }

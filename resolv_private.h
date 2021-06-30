@@ -93,7 +93,7 @@ struct ResState {
         : netid(netcontext->dns_netid),
           uid(netcontext->uid),
           pid(netcontext->pid),
-          _mark(netcontext->dns_mark),
+          mark(netcontext->dns_mark),
           event(dnsEvent),
           netcontext_flags(netcontext->flags) {}
 
@@ -107,7 +107,7 @@ struct ResState {
         copy.search_domains = search_domains;
         copy.nsaddrs = nsaddrs;
         copy.ndots = ndots;
-        copy._mark = _mark;
+        copy.mark = mark;
         copy.flags = flags;
         copy.event = (dnsEvent == nullptr) ? event : dnsEvent;
         copy.netcontext_flags = netcontext_flags;
@@ -135,7 +135,7 @@ struct ResState {
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
     android::base::unique_fd udpsocks[MAXNS];   // UDP sockets to nameservers
     unsigned ndots : 4 = 1;                     // threshold for initial abs. query
-    unsigned _mark;                             // If non-0 SET_MARK to _mark on all request sockets
+    unsigned mark;                              // Socket mark to be used by all DNS query sockets
     android::base::unique_fd tcp_nssock;        // TCP socket (but why not one per nameserver?)
     uint32_t flags = 0;                         // See RES_F_* defines below
     android::net::NetworkDnsEventReported* event;
