@@ -115,12 +115,14 @@ class TestBase : public ::testing::Test {
     void SetResolvers() { SetResolverConfiguration(kDefaultServers, kDefaultSearchDomains); }
 
     void SetResolversWithTls() {
+        static const std::string sCaCert = ReadRelativeFile(kCaCertPath);
+
         // Pass servers as both network-assigned and TLS servers. Tests can
         // determine on which server and by which protocol queries arrived.
         // See also DnsClient::SetResolversWithTls() in
         // packages/modules/DnsResolver/tests/dns_responder/dns_responder_client.h.
         SetResolverConfiguration(kDefaultServers, kDefaultSearchDomains, kDefaultServers,
-                                 kDefaultPrivateDnsHostName, kCaCert);
+                                 kDefaultPrivateDnsHostName, sCaCert);
     }
 
     bool WaitForPrivateDnsValidation(const std::string& serverAddr) {
