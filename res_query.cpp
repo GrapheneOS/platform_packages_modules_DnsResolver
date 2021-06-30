@@ -99,7 +99,7 @@
  *
  * Caller must parse answer and determine whether it answers the question.
  */
-int res_nquery(res_state statp, const char* name,  // domain name
+int res_nquery(ResState* statp, const char* name,  // domain name
                int cl, int type,                   // class and type of query
                uint8_t* answer,                    // buffer to put answer
                int anslen,                         // size of answer buffer
@@ -201,7 +201,7 @@ again:
  * If enabled, implement search rules until answer or unrecoverable failure
  * is detected.  Error code, if any, is left in *herrno.
  */
-int res_nsearch(res_state statp, const char* name, /* domain name */
+int res_nsearch(ResState* statp, const char* name, /* domain name */
                 int cl, int type,                  /* class and type of query */
                 uint8_t* answer,                   /* buffer to put answer */
                 int anslen,                        /* size of answer */
@@ -325,7 +325,7 @@ int res_nsearch(res_state statp, const char* name, /* domain name */
  * Perform a call on res_query on the concatenation of name and domain,
  * removing a trailing dot from name if domain is NULL.
  */
-int res_nquerydomain(res_state statp, const char* name, const char* domain, int cl,
+int res_nquerydomain(ResState* statp, const char* name, const char* domain, int cl,
                      int type,        /* class and type of query */
                      uint8_t* answer, /* buffer to put answer */
                      int anslen,      /* size of answer */

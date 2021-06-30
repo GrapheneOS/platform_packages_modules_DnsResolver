@@ -106,7 +106,7 @@ std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedAndUsableServerList(
 }
 
 DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>& tlsServers,
-                                                  res_state statp, const Slice query,
+                                                  ResState* statp, const Slice query,
                                                   const Slice ans, int* resplen) {
     const std::list<DnsTlsServer> servers(
             getOrderedAndUsableServerList(tlsServers, statp->netid, statp->_mark));

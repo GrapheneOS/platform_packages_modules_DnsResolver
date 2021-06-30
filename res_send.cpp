@@ -150,10 +150,10 @@ const std::vector<IPSockAddr> mdns_addrs = {IPSockAddr::toIPSockAddr("ff02::fb",
                                             IPSockAddr::toIPSockAddr("224.0.0.251", 5353)};
 
 static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd_out, int* terrno);
-static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t* ns, int* v_circuit,
                    int* gotsomewhere, time_t* at, int* rcode, int* delay);
-static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+static int send_vc(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
                    int* delay);
 static int send_mdns(ResState* statp, std::span<const uint8_t> buf, uint8_t* ans, int anssiz,
@@ -164,7 +164,7 @@ static int sock_eq(struct sockaddr*, struct sockaddr*);
 static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t salen,
                                 const struct timespec timeout);
 static int retrying_poll(const int sock, short events, const struct timespec* finish);
-static int res_tls_send(res_state, const Slice query, const Slice answer, int* rcode,
+static int res_tls_send(ResState*, const Slice query, const Slice answer, int* rcode,
                         bool* fallback);
 
 NsType getQueryType(const uint8_t* msg, size_t msgLen) {
@@ -300,7 +300,7 @@ static void res_set_usable_server(int selectedServer, int nscount, bool usable_s
 }
 
 // Looks up the nameserver address in res.nsaddrs[], returns the ns number if found, otherwise -1.
-static int res_ourserver_p(res_state statp, const sockaddr* sa) {
+static int res_ourserver_p(ResState* statp, const sockaddr* sa) {
     const sockaddr_in *inp, *srv;
     const sockaddr_in6 *in6p, *srv6;
     int ns = 0;
@@ -425,7 +425,7 @@ static bool isNetworkRestricted(int terrno) {
     return (terrno == EPERM);
 }
 
-int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
+int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
               uint32_t flags, std::chrono::milliseconds sleepTimeMs) {
     LOG(DEBUG) << __func__;
 
@@ -678,7 +678,7 @@ int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     return -terrno;
 }
 
-static struct timespec get_timeout(res_state statp, const res_params* params, const int addrIndex) {
+static struct timespec get_timeout(ResState* statp, const res_params* params, const int addrIndex) {
     int msec;
     msec = params->base_timeout_msec << addrIndex;
     // Legacy algorithm which scales the timeout by nameserver number.
@@ -699,7 +699,7 @@ static struct timespec get_timeout(res_state statp, const res_params* params, co
     return result;
 }
 
-static int send_vc(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+static int send_vc(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
                    int* delay) {
     *at = time(NULL);
@@ -976,7 +976,7 @@ retry:
     return n;
 }
 
-static std::vector<pollfd> extractUdpFdset(res_state statp, const short events = POLLIN) {
+static std::vector<pollfd> extractUdpFdset(ResState* statp, const short events = POLLIN) {
     std::vector<pollfd> fdset(statp->nsaddrs.size());
     for (size_t i = 0; i < statp->nsaddrs.size(); ++i) {
         fdset[i] = {.fd = statp->udpsocks[i], .events = events};
@@ -984,7 +984,7 @@ static std::vector<pollfd> extractUdpFdset(res_state statp, const short events =
     return fdset;
 }
 
-static Result<std::vector<int>> udpRetryingPoll(res_state statp, const timespec* finish) {
+static Result<std::vector<int>> udpRetryingPoll(ResState* statp, const timespec* finish) {
     for (;;) {
         LOG(DEBUG) << __func__ << ": poll";
         timespec start_time = evNowTime();
@@ -1010,7 +1010,7 @@ static Result<std::vector<int>> udpRetryingPoll(res_state statp, const timespec*
     }
 }
 
-static Result<std::vector<int>> udpRetryingPollWrapper(res_state statp, int addrInfo,
+static Result<std::vector<int>> udpRetryingPollWrapper(ResState* statp, int addrInfo,
                                                        const timespec* finish) {
     const bool keepListeningUdp =
             android::net::Experiments::getInstance()->getFlag("keep_listening_udp", 0);
@@ -1022,7 +1022,7 @@ static Result<std::vector<int>> udpRetryingPollWrapper(res_state statp, int addr
     return std::vector<int>{statp->udpsocks[addrInfo]};
 }
 
-bool ignoreInvalidAnswer(res_state statp, const sockaddr_storage& from, const uint8_t* buf,
+bool ignoreInvalidAnswer(ResState* statp, const sockaddr_storage& from, const uint8_t* buf,
                          int buflen, uint8_t* ans, int anssiz, int* receivedFromNs) {
     const HEADER* hp = (const HEADER*)(const void*)buf;
     HEADER* anhp = (HEADER*)(void*)ans;
@@ -1080,7 +1080,7 @@ static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd
     return 1;
 }
 
-static int send_dg(res_state statp, res_params* params, const uint8_t* buf, int buflen,
+static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
                    uint8_t* ans, int anssiz, int* terrno, size_t* ns, int* v_circuit,
                    int* gotsomewhere, time_t* at, int* rcode, int* delay) {
     // It should never happen, but just in case.
@@ -1314,7 +1314,7 @@ PrivateDnsModes convertEnumType(PrivateDnsMode privateDnsmode) {
     }
 }
 
-static int res_tls_send(res_state statp, const Slice query, const Slice answer, int* rcode,
+static int res_tls_send(ResState* statp, const Slice query, const Slice answer, int* rcode,
                         bool* fallback) {
     int resplen = 0;
     const unsigned netId = statp->netid;

@@ -75,7 +75,7 @@
 #define RES_TIMEOUT 5000 /* min. milliseconds between retries */
 #define RES_DFLRETRY 2    /* Default #/tries. */
 
-// Flags for res_state->_flags
+// Flags for ResState::_flags
 #define RES_F_VC 0x00000001        // socket is TCP
 #define RES_F_EDNS0ERR 0x00000004  // EDNS0 caused errors
 #define RES_F_MDNS 0x00000008      // MDNS packet
@@ -149,9 +149,6 @@ struct ResState {
     ResState() {}
 };
 
-// TODO: remove these legacy aliases
-typedef ResState* res_state;
-
 /* End of stats related definitions */
 
 /*
@@ -169,14 +166,14 @@ extern const char* const _res_opcodes[];
 int res_nameinquery(const char*, int, int, const uint8_t*, const uint8_t*);
 int res_queriesmatch(const uint8_t*, const uint8_t*, const uint8_t*, const uint8_t*);
 
-int res_nquery(res_state, const char*, int, int, uint8_t*, int, int*);
-int res_nsearch(res_state, const char*, int, int, uint8_t*, int, int*);
-int res_nquerydomain(res_state, const char*, const char*, int, int, uint8_t*, int, int*);
+int res_nquery(ResState*, const char*, int, int, uint8_t*, int, int*);
+int res_nsearch(ResState*, const char*, int, int, uint8_t*, int, int*);
+int res_nquerydomain(ResState*, const char*, const char*, int, int, uint8_t*, int, int*);
 int res_nmkquery(int op, const char* qname, int cl, int type, const uint8_t* data, int datalen,
                  uint8_t* buf, int buflen, int netcontext_flags);
-int res_nsend(res_state statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
+int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
               uint32_t flags, std::chrono::milliseconds sleepTimeMs = {});
-int res_nopt(res_state, int, uint8_t*, int, int);
+int res_nopt(ResState*, int, uint8_t*, int, int);
 
 int getaddrinfo_numeric(const char* hostname, const char* servname, addrinfo hints,
                         addrinfo** result);
