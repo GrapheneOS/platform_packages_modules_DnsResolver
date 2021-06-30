@@ -39,16 +39,6 @@ using android::netdutils::enableSockopt;
 using android::netdutils::ScopedAddrinfo;
 
 namespace {
-static bssl::UniquePtr<X509> stringToX509Certs(const char* certs) {
-    bssl::UniquePtr<BIO> bio(BIO_new_mem_buf(certs, strlen(certs)));
-    return bssl::UniquePtr<X509>(PEM_read_bio_X509(bio.get(), nullptr, nullptr, nullptr));
-}
-
-// Convert a string buffer containing an RSA Private Key into an OpenSSL RSA struct.
-static bssl::UniquePtr<RSA> stringToRSAPrivateKey(const char* key) {
-    bssl::UniquePtr<BIO> bio(BIO_new_mem_buf(key, strlen(key)));
-    return bssl::UniquePtr<RSA>(PEM_read_bio_RSAPrivateKey(bio.get(), nullptr, nullptr, nullptr));
-}
 
 std::string addr2str(const sockaddr* sa, socklen_t sa_len) {
     char host_str[NI_MAXHOST] = {0};
@@ -76,19 +66,14 @@ bool DnsTlsFrontend::startServer() {
 
     SSL_CTX_set_ecdh_auto(ctx_.get(), 1);
 
-    bssl::UniquePtr<X509> ca_certs(stringToX509Certs(kCertificate));
-    if (!ca_certs) {
-        LOG(ERROR) << "StringToX509Certs failed";
+    static const std::string certPath = ToAbsolutePath(kServerCertPath);
+    if (SSL_CTX_use_certificate_chain_file(ctx_.get(), certPath.c_str()) != 1) {
+        LOG(ERROR) << "SSL_CTX_use_certificate_chain_file failed";
         return false;
     }
 
-    if (SSL_CTX_use_certificate(ctx_.get(), ca_certs.get()) <= 0) {
-        LOG(ERROR) << "SSL_CTX_use_certificate failed";
-        return false;
-    }
-
-    bssl::UniquePtr<RSA> private_key(stringToRSAPrivateKey(kPrivatekey));
-    if (SSL_CTX_use_RSAPrivateKey(ctx_.get(), private_key.get()) <= 0) {
+    static const std::string keyPath = ToAbsolutePath(kServerPrivateKeyPath);
+    if (SSL_CTX_use_RSAPrivateKey_file(ctx_.get(), keyPath.c_str(), SSL_FILETYPE_PEM) != 1) {
         LOG(ERROR) << "Error loading client RSA Private Key data.";
         return false;
     }

@@ -23,6 +23,12 @@
        <option name="push" value="resolv_gold_test->/data/local/tmp/resolv_gold_test" />
        <!-- Temporary solotuon for b/151392634 -->
        <option name="push" value="testdata->/data/local/tmp/testdata/" />
+
+       <option name="push"
+           value="server_certificate.pem->/data/local/tmp/test_keys/server_certificate.pem" />
+       <option name="push" value="server_key.pem->/data/local/tmp/test_keys/server_key.pem" />
+       <option name="push"
+           value="ca_certificate.pem->/data/local/tmp/test_keys/ca_certificate.pem" />
    </target_preparer>
    <test class="com.android.tradefed.testtype.GTest" >
        <option name="native-test-device-path" value="/data/local/tmp" />
