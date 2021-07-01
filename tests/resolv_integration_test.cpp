@@ -4700,8 +4700,17 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         resetNetwork();
 
         // This test is sensitive to the number of queries sent in DoT validation.
-        const int latencyFactor = std::stoi(GetProperty(kDotValidationLatencyFactorFlag, "-1"));
-        const int latencyOffsetMs = std::stoi(GetProperty(kDotValidationLatencyOffsetMsFlag, "-1"));
+        int latencyFactor;
+        int latencyOffsetMs;
+        if (isAtLeastR) {
+            // The feature is enabled by default in R.
+            latencyFactor = std::stoi(GetProperty(kDotValidationLatencyFactorFlag, "3"));
+            latencyOffsetMs = std::stoi(GetProperty(kDotValidationLatencyOffsetMsFlag, "100"));
+        } else {
+            // The feature is disabled by default in Q.
+            latencyFactor = std::stoi(GetProperty(kDotValidationLatencyFactorFlag, "-1"));
+            latencyOffsetMs = std::stoi(GetProperty(kDotValidationLatencyOffsetMsFlag, "-1"));
+        }
         const bool dotValidationExtraProbes = (config.dnsMode == "OPPORTUNISTIC") &&
                                               (latencyFactor >= 0 && latencyOffsetMs >= 0 &&
                                                latencyFactor + latencyOffsetMs != 0);
