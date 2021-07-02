@@ -151,9 +151,9 @@ static bool files_getaddrinfo(const size_t netid, const char* name, const addrin
                               addrinfo** res);
 static int _find_src_addr(const struct sockaddr*, struct sockaddr*, unsigned, uid_t);
 
-static int res_queryN(const char* name, res_target* target, res_state res, int* herrno);
-static int res_searchN(const char* name, res_target* target, res_state res, int* herrno);
-static int res_querydomainN(const char* name, const char* domain, res_target* target, res_state res,
+static int res_queryN(const char* name, res_target* target, ResState* res, int* herrno);
+static int res_searchN(const char* name, res_target* target, ResState* res, int* herrno);
+static int res_querydomainN(const char* name, const char* domain, res_target* target, ResState* res,
                             int* herrno);
 
 const char* const ai_errlist[] = {
@@ -1437,7 +1437,7 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     ResState res(netcontext, event);
 
-    setMdnsFlag(name, &(res._flags));
+    setMdnsFlag(name, &(res.flags));
 
     int he;
     if (res_searchN(name, &q, &res, &he) < 0) {
@@ -1609,7 +1609,7 @@ struct QueryResult {
     NetworkDnsEventReported event;
 };
 
-QueryResult doQuery(const char* name, res_target* t, res_state res,
+QueryResult doQuery(const char* name, res_target* t, ResState* res,
                     std::chrono::milliseconds sleepTimeMs) {
     HEADER* hp = (HEADER*)(void*)t->answer.data();
 
@@ -1653,7 +1653,7 @@ QueryResult doQuery(const char* name, res_target* t, res_state res,
         // if the query choked with EDNS0, retry without EDNS0
         if ((res_temp.netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
-            (res_temp._flags & RES_F_EDNS0ERR)) {
+            (res_temp.flags & RES_F_EDNS0ERR)) {
             LOG(DEBUG) << __func__ << ": retry without EDNS0";
             n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf,
                              sizeof(buf), res_temp.netcontext_flags);
@@ -1674,7 +1674,7 @@ QueryResult doQuery(const char* name, res_target* t, res_state res,
 
 }  // namespace
 
-static int res_queryN_parallel(const char* name, res_target* target, res_state res, int* herrno) {
+static int res_queryN_parallel(const char* name, res_target* target, ResState* res, int* herrno) {
     std::vector<std::future<QueryResult>> results;
     results.reserve(2);
     std::chrono::milliseconds sleepTimeMs{};
@@ -1713,7 +1713,7 @@ static int res_queryN_parallel(const char* name, res_target* target, res_state r
     return ancount;
 }
 
-static int res_queryN_wrapper(const char* name, res_target* target, res_state res, int* herrno) {
+static int res_queryN_wrapper(const char* name, res_target* target, ResState* res, int* herrno) {
     const bool parallel_lookup =
             android::net::Experiments::getInstance()->getFlag("parallel_lookup_release", 1);
     if (parallel_lookup) return res_queryN_parallel(name, target, res, herrno);
@@ -1731,7 +1731,7 @@ static int res_queryN_wrapper(const char* name, res_target* target, res_state re
  *
  * Caller must parse answer and determine whether it answers the question.
  */
-static int res_queryN(const char* name, res_target* target, res_state res, int* herrno) {
+static int res_queryN(const char* name, res_target* target, ResState* res, int* herrno) {
     uint8_t buf[MAXPACKET];
     int n;
     struct res_target* t;
@@ -1780,7 +1780,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
             // we also has the same symptom if EDNS is enabled.
             if ((res->netcontext_flags &
                  (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
-                (res->_flags & RES_F_EDNS0ERR) && !retried) {
+                (res->flags & RES_F_EDNS0ERR) && !retried) {
                 LOG(DEBUG) << __func__ << ": retry without EDNS0";
                 retried = true;
                 goto again;
@@ -1807,7 +1807,7 @@ static int res_queryN(const char* name, res_target* target, res_state res, int* 
  * If enabled, implement search rules until answer or unrecoverable failure
  * is detected.  Error code, if any, is left in *herrno.
  */
-static int res_searchN(const char* name, res_target* target, res_state res, int* herrno) {
+static int res_searchN(const char* name, res_target* target, ResState* res, int* herrno) {
     const char* cp;
     HEADER* hp;
     uint32_t dots;
@@ -1843,7 +1843,7 @@ static int res_searchN(const char* name, res_target* target, res_state res, int*
      *	 - there is at least one dot and there is no trailing dot.
      * - this is not a .local mDNS lookup.
      */
-    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(res->_flags)) {
+    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(res->flags)) {
         int done = 0;
 
         /* Unfortunately we need to set stuff up before
@@ -1924,7 +1924,7 @@ static int res_searchN(const char* name, res_target* target, res_state res, int*
 
 // Perform a call on res_query on the concatenation of name and domain,
 // removing a trailing dot from name if domain is NULL.
-static int res_querydomainN(const char* name, const char* domain, res_target* target, res_state res,
+static int res_querydomainN(const char* name, const char* domain, res_target* target, ResState* res,
                             int* herrno) {
     char nbuf[MAXDNAME];
     const char* longname = nbuf;
