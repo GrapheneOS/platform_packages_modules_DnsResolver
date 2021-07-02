@@ -84,7 +84,7 @@
 
 #include "res_comp.h"
 #include "res_debug.h"
-#include "resolv_private.h"  // res_state
+#include "resolv_private.h"  // ResState*
 
 // Queries will be padded to a multiple of this length when EDNS0 is active.
 constexpr uint16_t kEdns0Padding = 128;
@@ -191,7 +191,7 @@ int res_nmkquery(int op,               // opcode of query
     return (cp - buf);
 }
 
-int res_nopt(res_state statp, int n0, /* current offset in buffer */
+int res_nopt(ResState* statp, int n0, /* current offset in buffer */
              uint8_t* buf,            /* buffer to put query */
              int buflen,              /* size of buffer */
              int anslen)              /* UDP answer buffer size */

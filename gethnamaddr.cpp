@@ -375,7 +375,7 @@ int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_
     getnamaddr info;
     ResState res(netcontext, event);
 
-    setMdnsFlag(name, &(res._flags));
+    setMdnsFlag(name, &(res.flags));
 
     size_t size;
     switch (af) {
