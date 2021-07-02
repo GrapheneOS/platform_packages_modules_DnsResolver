@@ -99,7 +99,7 @@
  *
  * Caller must parse answer and determine whether it answers the question.
  */
-int res_nquery(res_state statp, const char* name,  // domain name
+int res_nquery(ResState* statp, const char* name,  // domain name
                int cl, int type,                   // class and type of query
                uint8_t* answer,                    // buffer to put answer
                int anslen,                         // size of answer buffer
@@ -136,7 +136,7 @@ again:
         // we also has the same symptom if EDNS is enabled.
         if ((statp->netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
-            (statp->_flags & RES_F_EDNS0ERR) && !retried) {
+            (statp->flags & RES_F_EDNS0ERR) && !retried) {
             LOG(DEBUG) << __func__ << ": retry without EDNS0";
             retried = true;
             goto again;
@@ -201,7 +201,7 @@ again:
  * If enabled, implement search rules until answer or unrecoverable failure
  * is detected.  Error code, if any, is left in *herrno.
  */
-int res_nsearch(res_state statp, const char* name, /* domain name */
+int res_nsearch(ResState* statp, const char* name, /* domain name */
                 int cl, int type,                  /* class and type of query */
                 uint8_t* answer,                   /* buffer to put answer */
                 int anslen,                        /* size of answer */
@@ -240,7 +240,7 @@ int res_nsearch(res_state statp, const char* name, /* domain name */
      *	- there is no dot, or
      *	- there is at least one dot and there is no trailing dot.
      */
-    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(statp->_flags)) {
+    if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(statp->flags)) {
         int done = 0;
 
         /* Unfortunately we need to load network-specific info
@@ -325,7 +325,7 @@ int res_nsearch(res_state statp, const char* name, /* domain name */
  * Perform a call on res_query on the concatenation of name and domain,
  * removing a trailing dot from name if domain is NULL.
  */
-int res_nquerydomain(res_state statp, const char* name, const char* domain, int cl,
+int res_nquerydomain(ResState* statp, const char* name, const char* domain, int cl,
                      int type,        /* class and type of query */
                      uint8_t* answer, /* buffer to put answer */
                      int anslen,      /* size of answer */
