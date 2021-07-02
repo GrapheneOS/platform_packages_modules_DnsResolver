@@ -301,11 +301,11 @@ bool DnsTlsTransport::validate(const DnsTlsServer& server, uint32_t mark) {
     //
     // For instance, with latencyFactor = 3 and latencyOffsetMs = 10, if UDP probe latency is 5 ms,
     // DoT probe latency must less than 25 ms.
-    const bool versionHigherThanAndroidR = getApiLevel() >= 30;
+    const bool isAtLeastR = getApiLevel() >= 30;
     int latencyFactor = Experiments::getInstance()->getFlag("dot_validation_latency_factor",
-                                                            (versionHigherThanAndroidR ? 3 : -1));
-    int latencyOffsetMs = Experiments::getInstance()->getFlag(
-            "dot_validation_latency_offset_ms", (versionHigherThanAndroidR ? 100 : -1));
+                                                            (isAtLeastR ? 3 : -1));
+    int latencyOffsetMs = Experiments::getInstance()->getFlag("dot_validation_latency_offset_ms",
+                                                              (isAtLeastR ? 100 : -1));
     const bool shouldCompareUdpLatency =
             server.name.empty() &&
             (latencyFactor >= 0 && latencyOffsetMs >= 0 && latencyFactor + latencyOffsetMs != 0);
