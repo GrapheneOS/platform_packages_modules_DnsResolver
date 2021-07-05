@@ -59,10 +59,10 @@ std::string rcodeToName(int rcode) {
     // clang-format on
 }
 
-bool ensureNoInvalidIp(const std::vector<IPSockAddr>& servers) {
-    for (const auto& server : servers) {
-        if (server.ip() == INVALID_IPADDRESS || server.port() == 0) {
-            LOG(WARNING) << "Invalid server: " << server;
+bool ensureNoInvalidIp(const std::vector<IPSockAddr>& addrs) {
+    for (const auto& addr : addrs) {
+        if (addr.ip() == INVALID_IPADDRESS || addr.port() == 0) {
+            LOG(WARNING) << "Invalid addr: " << addr;
             return false;
         }
     }
@@ -73,8 +73,8 @@ bool ensureNoInvalidIp(const std::vector<IPSockAddr>& servers) {
 
 // The comparison ignores the last update time.
 bool StatsData::operator==(const StatsData& o) const {
-    return std::tie(serverSockAddr, total, rcodeCounts, latencyUs) ==
-           std::tie(o.serverSockAddr, o.total, o.rcodeCounts, o.latencyUs);
+    return std::tie(sockAddr, total, rcodeCounts, latencyUs) ==
+           std::tie(o.sockAddr, o.total, o.rcodeCounts, o.latencyUs);
 }
 
 int StatsData::averageLatencyMs() const {
@@ -82,7 +82,7 @@ int StatsData::averageLatencyMs() const {
 }
 
 std::string StatsData::toString() const {
-    if (total == 0) return StringPrintf("%s <no data>", serverSockAddr.ip().toString().c_str());
+    if (total == 0) return StringPrintf("%s <no data>", sockAddr.ip().toString().c_str());
 
     const auto now = std::chrono::steady_clock::now();
     const int lastUpdateSec = duration_cast<seconds>(now - lastUpdate).count();
@@ -92,7 +92,7 @@ std::string StatsData::toString() const {
             buf += StringPrintf("%s:%d ", rcodeToName(rcode).c_str(), counts);
         }
     }
-    return StringPrintf("%s (%d, %dms, [%s], %ds)", serverSockAddr.ip().toString().c_str(), total,
+    return StringPrintf("%s (%d, %dms, [%s], %ds)", sockAddr.ip().toString().c_str(), total,
                         averageLatencyMs(), buf.c_str(), lastUpdateSec);
 }
 
@@ -171,20 +171,20 @@ void StatsRecords::incrementSkippedCount() {
     mSkippedCount = std::min(mSkippedCount + 1, kMaxQuality);
 }
 
-bool DnsStats::setServers(const std::vector<netdutils::IPSockAddr>& servers, Protocol protocol) {
-    if (!ensureNoInvalidIp(servers)) return false;
+bool DnsStats::setAddrs(const std::vector<netdutils::IPSockAddr>& addrs, Protocol protocol) {
+    if (!ensureNoInvalidIp(addrs)) return false;
 
-    ServerStatsMap& statsMap = mStats[protocol];
-    for (const auto& server : servers) {
-        statsMap.try_emplace(server, StatsRecords(server, kLogSize));
+    StatsMap& statsMap = mStats[protocol];
+    for (const auto& addr : addrs) {
+        statsMap.try_emplace(addr, StatsRecords(addr, kLogSize));
     }
 
     // Clean up the map to eliminate the nodes not belonging to the given list of servers.
-    const auto cleanup = [&](ServerStatsMap* statsMap) {
-        ServerStatsMap tmp;
-        for (const auto& server : servers) {
-            if (statsMap->find(server) != statsMap->end()) {
-                tmp.insert(statsMap->extract(server));
+    const auto cleanup = [&](StatsMap* statsMap) {
+        StatsMap tmp;
+        for (const auto& addr : addrs) {
+            if (statsMap->find(addr) != statsMap->end()) {
+                tmp.insert(statsMap->extract(addr));
             }
         }
         statsMap->swap(tmp);
@@ -199,8 +199,8 @@ bool DnsStats::addStats(const IPSockAddr& ipSockAddr, const DnsQueryEvent& recor
     if (ipSockAddr.ip() == INVALID_IPADDRESS) return false;
 
     bool added = false;
-    for (auto& [serverSockAddr, statsRecords] : mStats[record.protocol()]) {
-        if (serverSockAddr == ipSockAddr) {
+    for (auto& [sockAddr, statsRecords] : mStats[record.protocol()]) {
+        if (sockAddr == ipSockAddr) {
             const StatsRecords::Record rec = {
                     .rcode = record.rcode(),
                     .linux_errno = record.linux_errno(),
@@ -265,10 +265,10 @@ std::vector<StatsData> DnsStats::getStats(Protocol protocol) const {
 }
 
 void DnsStats::dump(DumpWriter& dw) {
-    const auto dumpStatsMap = [&](ServerStatsMap& statsMap) {
+    const auto dumpStatsMap = [&](StatsMap& statsMap) {
         ScopedIndent indentLog(dw);
         if (statsMap.size() == 0) {
-            dw.println("<no server>");
+            dw.println("<no data>");
             return;
         }
         for (const auto& [_, statsRecords] : statsMap) {
@@ -290,6 +290,9 @@ void DnsStats::dump(DumpWriter& dw) {
 
     dw.println("over TCP");
     dumpStatsMap(mStats[PROTO_TCP]);
+
+    dw.println("over MDNS");
+    dumpStatsMap(mStats[PROTO_MDNS]);
 }
 
 }  // namespace android::net
