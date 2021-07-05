@@ -71,9 +71,12 @@ using android::base::StringAppendF;
 using android::net::DnsQueryEvent;
 using android::net::DnsStats;
 using android::net::Experiments;
+using android::net::PROTO_DOH;
 using android::net::PROTO_DOT;
+using android::net::PROTO_MDNS;
 using android::net::PROTO_TCP;
 using android::net::PROTO_UDP;
+using android::net::Protocol;
 using android::netdutils::DumpWriter;
 using android::netdutils::IPSockAddr;
 
@@ -1476,6 +1479,7 @@ int resolv_create_cache_for_net(unsigned netid) {
     }
 
     sNetConfigMap[netid] = std::make_unique<NetConfig>(netid);
+
     return 0;
 }
 
@@ -1649,8 +1653,8 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     netconfig->search_domains = filter_domains(domains);
 
     // Setup stats for cleartext dns servers.
-    if (!netconfig->dnsStats.setServers(netconfig->nameserverSockAddrs, PROTO_TCP) ||
-        !netconfig->dnsStats.setServers(netconfig->nameserverSockAddrs, PROTO_UDP)) {
+    if (!netconfig->dnsStats.setAddrs(netconfig->nameserverSockAddrs, PROTO_TCP) ||
+        !netconfig->dnsStats.setAddrs(netconfig->nameserverSockAddrs, PROTO_UDP)) {
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
@@ -1898,20 +1902,39 @@ int resolv_cache_get_expiration(unsigned netid, const std::vector<char>& query,
     return 0;
 }
 
-int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::string>& servers) {
+static const char* protocol_to_str(const Protocol proto) {
+    switch (proto) {
+        case PROTO_UDP:
+            return "UDP";
+        case PROTO_TCP:
+            return "TCP";
+        case PROTO_DOT:
+            return "DOT";
+        case PROTO_DOH:
+            return "DOH";
+        case PROTO_MDNS:
+            return "MDNS";
+        default:
+            return "UNKNOWN";
+    }
+}
+
+int resolv_stats_set_addrs(unsigned netid, Protocol proto, const std::vector<std::string>& addrs,
+                           int port) {
     std::lock_guard guard(cache_mutex);
     const auto info = find_netconfig_locked(netid);
 
     if (info == nullptr) return -ENONET;
 
-    std::vector<IPSockAddr> serverSockAddrs;
-    serverSockAddrs.reserve(servers.size());
-    for (const auto& server : servers) {
-        serverSockAddrs.push_back(IPSockAddr::toIPSockAddr(server, 853));
+    std::vector<IPSockAddr> sockAddrs;
+    sockAddrs.reserve(addrs.size());
+    for (const auto& addr : addrs) {
+        sockAddrs.push_back(IPSockAddr::toIPSockAddr(addr, port));
     }
 
-    if (!info->dnsStats.setServers(serverSockAddrs, android::net::PROTO_DOT)) {
-        LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
+    if (!info->dnsStats.setAddrs(sockAddrs, proto)) {
+        LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set "
+                     << protocol_to_str(proto) << " stats";
         return -EINVAL;
     }
 
