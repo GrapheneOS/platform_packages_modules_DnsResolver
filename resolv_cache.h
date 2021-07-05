@@ -105,8 +105,9 @@ bool has_named_cache(unsigned netid);
 // returned if the expiration time can't be acquired.
 int resolv_cache_get_expiration(unsigned netid, const std::vector<char>& query, time_t* expiration);
 
-// Set private DNS servers to DnsStats for a given network.
-int resolv_stats_set_servers_for_dot(unsigned netid, const std::vector<std::string>& servers);
+// Set addresses to DnsStats for a given network.
+int resolv_stats_set_addrs(unsigned netid, android::net::Protocol proto,
+                           const std::vector<std::string>& addrs, int port);
 
 // Add a statistics record to DnsStats for a given network.
 bool resolv_stats_add(unsigned netid, const android::netdutils::IPSockAddr& server,

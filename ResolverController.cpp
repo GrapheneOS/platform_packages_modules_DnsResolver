@@ -38,6 +38,8 @@
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
+using android::net::PROTO_DOT;
+using android::net::PROTO_MDNS;
 
 namespace android {
 
@@ -212,7 +214,14 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
         return err;
     }
 
-    if (int err = resolv_stats_set_servers_for_dot(resolverParams.netId, tlsServers); err != 0) {
+    if (int err = resolv_stats_set_addrs(resolverParams.netId, PROTO_DOT, tlsServers, 853);
+        err != 0) {
+        return err;
+    }
+
+    if (int err = resolv_stats_set_addrs(resolverParams.netId, PROTO_MDNS,
+                                         {"ff02::fb", "224.0.0.251"}, 5353);
+        err != 0) {
         return err;
     }
 
