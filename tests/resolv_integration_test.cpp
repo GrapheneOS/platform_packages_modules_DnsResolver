@@ -6581,6 +6581,13 @@ class ResolverMultinetworkTest : public ResolverTest {
                                                          const char* ipv4_addr,
                                                          const char* ipv6_addr);
 
+    void expectDnsQueryCountsFn(std::shared_ptr<test::DNSResponder> dnsServer,
+                                const char* host_name, size_t count, unsigned expectedDnsNetId) {
+        EXPECT_EQ(GetNumQueries(*dnsServer, host_name), count);
+        EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(expectedDnsNetId).isOk());
+        dnsServer->clearQueries();
+    }
+
   private:
     // Use a different netId because this class inherits from the class ResolverTest which
     // always creates TEST_NETID in setup. It's incremented when CreateScoped{Physical,
@@ -6908,15 +6915,6 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
         const unsigned secureVpnNetId = secureVpnNetwork.netId();
         // We've called setNetworkForProcess in SetupOemNetwork, so reset to default first.
         ScopedSetNetworkForProcess scopedSetNetworkForProcess(NETID_UNSET);
-        auto expectDnsQueryCountsFn = [&](size_t count,
-                                          std::shared_ptr<test::DNSResponder> dnsServer,
-                                          unsigned expectedDnsNetId) -> void {
-            EXPECT_EQ(GetNumQueries(*dnsServer, host_name), count);
-            EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(expectedDnsNetId).isOk());
-            dnsServer->clearQueries();
-            // Give DnsResolver some time to clear cache to avoid race.
-            usleep(5 * 1000);
-        };
 
         // Create a object to represent default network, do not init it.
         ScopedPhysicalNetwork defaultNetwork{NETID_UNSET, "Default"};
@@ -6943,7 +6941,7 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
             SCOPED_TRACE(fmt::format("Bypassble VPN with DnsServer, selectedNetwork = {}",
                                      config.selectedNetwork->name()));
             expectDnsWorksForUid(host_name, config.selectedNetwork->netId(), TEST_UID, result);
-            expectDnsQueryCountsFn(result.size(), config.expectedDnsServer,
+            expectDnsQueryCountsFn(config.expectedDnsServer, host_name, result.size(),
                                    config.expectedDnsNetId);
         }
 
@@ -6956,7 +6954,7 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
             SCOPED_TRACE(fmt::format("Bypassble VPN without DnsServer, selectedNetwork = {}",
                                      selectedNetwork->name()));
             expectDnsWorksForUid(host_name, selectedNetwork->netId(), TEST_UID, result);
-            expectDnsQueryCountsFn(result.size(), *underlyingNwDnsSv, underlyingNetId);
+            expectDnsQueryCountsFn(*underlyingNwDnsSv, host_name, result.size(), underlyingNetId);
         }
 
         // The same test scenario as before plus enableVpnIsolation for secure VPN, TEST_UID2.
@@ -6972,7 +6970,8 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
                 SCOPED_TRACE(fmt::format("Secure VPN without DnsServer, selectedNetwork = {}",
                                          selectedNetwork->name()));
                 expectDnsWorksForUid(host_name, selectedNetwork->netId(), TEST_UID2, result);
-                expectDnsQueryCountsFn(result.size(), *underlyingNwDnsSv, underlyingNetId);
+                expectDnsQueryCountsFn(*underlyingNwDnsSv, host_name, result.size(),
+                                       underlyingNetId);
             }
 
             // Test secure VPN with DNS server.
@@ -6981,7 +6980,7 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
                 SCOPED_TRACE(fmt::format("Secure VPN with DnsServer, selectedNetwork = {}",
                                          selectedNetwork->name()));
                 expectDnsWorksForUid(host_name, selectedNetwork->netId(), TEST_UID2, result);
-                expectDnsQueryCountsFn(result.size(), *secureVpnDnsSv, secureVpnNetId);
+                expectDnsQueryCountsFn(*secureVpnDnsSv, host_name, result.size(), secureVpnNetId);
             }
 
             if (enableVpnIsolation) {
@@ -7041,21 +7040,16 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
 
         // We've called setNetworkForProcess in SetupOemNetwork, reset to default first.
         ScopedSetNetworkForProcess scopedSetNetworkForProcess(NETID_UNSET);
-        auto expectDnsQueryCountsFn = [&](size_t count,
-                                          std::shared_ptr<test::DNSResponder> dnsServer,
-                                          unsigned expectedDnsNetId) -> void {
-            EXPECT_EQ(GetNumQueries(*dnsServer, host_name), count);
-            EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(expectedDnsNetId).isOk());
-            dnsServer->clearQueries();
-        };
 
         // Test DNS query without selecting a network. --> use system default network.
         expectDnsWorksForUid(host_name, NETID_UNSET, TEST_UID, expectedDnsReply);
-        expectDnsQueryCountsFn(expectedDnsReply.size(), *sysDefaultNwDnsSv, systemDefaultNetId);
+        expectDnsQueryCountsFn(*sysDefaultNwDnsSv, host_name, expectedDnsReply.size(),
+                               systemDefaultNetId);
         // Add user to app default network. --> use app default network.
         ASSERT_RESULT_OK(appDefaultNetwork.addUser(TEST_UID));
         expectDnsWorksForUid(host_name, NETID_UNSET, TEST_UID, expectedDnsReply);
-        expectDnsQueryCountsFn(expectedDnsReply.size(), *appDefaultNwDnsSv, appDefaultNetId);
+        expectDnsQueryCountsFn(*appDefaultNwDnsSv, host_name, expectedDnsReply.size(),
+                               appDefaultNetId);
 
         // Test DNS query with a selected network.
         // App default network applies to uid, vpn does not applies to uid.
@@ -7078,18 +7072,19 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
                                      config.selectedNetwork->name()));
             expectDnsWorksForUid(host_name, config.selectedNetwork->netId(), TEST_UID,
                                  expectedDnsReply);
-            expectDnsQueryCountsFn(expectedDnsReply.size(), config.expectedDnsServer,
+            expectDnsQueryCountsFn(config.expectedDnsServer, host_name, expectedDnsReply.size(),
                                    config.expectedDnsNetId);
         }
 
         // App default network applies to uid, vpn applies to uid. --> use vpn.
         ASSERT_RESULT_OK(vpn.addUser(TEST_UID));
         expectDnsWorksForUid(host_name, vpn.netId(), TEST_UID, expectedDnsReply);
-        expectDnsQueryCountsFn(expectedDnsReply.size(), *vpnDnsSv, vpnNetId);
+        expectDnsQueryCountsFn(*vpnDnsSv, host_name, expectedDnsReply.size(), vpnNetId);
 
         // vpn without server. --> fallback to app default network.
         ASSERT_TRUE(vpn.clearDnsConfiguration());
         expectDnsWorksForUid(host_name, vpn.netId(), TEST_UID, expectedDnsReply);
-        expectDnsQueryCountsFn(expectedDnsReply.size(), *appDefaultNwDnsSv, appDefaultNetId);
+        expectDnsQueryCountsFn(*appDefaultNwDnsSv, host_name, expectedDnsReply.size(),
+                               appDefaultNetId);
     }
 }
