@@ -6576,6 +6576,8 @@ class ResolverMultinetworkTest : public ResolverTest {
         if (mNextNetId == TEST_NETID_BASE + 256) mNextNetId = TEST_NETID_BASE;
         return mNextNetId++;
     }
+    void setupDns(std::shared_ptr<test::DNSResponder> dnsServer, const char* host_name,
+                  const char* ipv4_addr, const char* ipv6_addr, ScopedNetwork* nw);
 
   private:
     // Use a different netId because this class inherits from the class ResolverTest which
@@ -6639,6 +6641,15 @@ void ResolverMultinetworkTest::StartDns(test::DNSResponder& dns,
         setNetworkForSocket(netId.value(), dns.getUdpSocket());
         setNetworkForSocket(netId.value(), dns.getTcpSocket());
     }
+}
+
+void ResolverMultinetworkTest::setupDns(std::shared_ptr<test::DNSResponder> dnsServer,
+                                        const char* host_name, const char* ipv4_addr,
+                                        const char* ipv6_addr, ScopedNetwork* nw) {
+    StartDns(*dnsServer,
+             {{host_name, ns_type::ns_t_a, ipv4_addr}, {host_name, ns_type::ns_t_aaaa, ipv6_addr}});
+    ASSERT_TRUE(nw->setDnsConfiguration());
+    ASSERT_TRUE(nw->startTunForwarder());
 }
 
 Result<ResolverMultinetworkTest::DnsServerPair> ResolverMultinetworkTest::ScopedNetwork::addDns(
@@ -6873,13 +6884,6 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
         ASSERT_RESULT_OK(bypassableVpnNetwork.addUser(TEST_UID));
         ASSERT_RESULT_OK(secureVpnNetwork.addUser(TEST_UID2));
 
-        auto setupDnsFn = [&](std::shared_ptr<test::DNSResponder> dnsServer,
-                              ScopedNetwork* nw) -> void {
-            StartDns(*dnsServer, {{host_name, ns_type::ns_t_a, ipv4_addr},
-                                  {host_name, ns_type::ns_t_aaaa, ipv6_addr}});
-            ASSERT_TRUE(nw->setDnsConfiguration());
-            ASSERT_TRUE(nw->startTunForwarder());
-        };
         // Add a testing DNS server to networks.
         const Result<DnsServerPair> underlyingPair = (type == ConnectivityType::V4)
                                                              ? underlyingNetwork.addIpv4Dns()
@@ -6894,9 +6898,10 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
                                                             : secureVpnNetwork.addIpv6Dns();
         ASSERT_RESULT_OK(secureVpnPair);
         // Set up resolver and start forwarding for networks.
-        setupDnsFn(underlyingPair->dnsServer, &underlyingNetwork);
-        setupDnsFn(bypassableVpnPair->dnsServer, &bypassableVpnNetwork);
-        setupDnsFn(secureVpnPair->dnsServer, &secureVpnNetwork);
+        setupDns(underlyingPair->dnsServer, host_name, ipv4_addr, ipv6_addr, &underlyingNetwork);
+        setupDns(bypassableVpnPair->dnsServer, host_name, ipv4_addr, ipv6_addr,
+                 &bypassableVpnNetwork);
+        setupDns(secureVpnPair->dnsServer, host_name, ipv4_addr, ipv6_addr, &secureVpnNetwork);
 
         setDefaultNetwork(underlyingNetwork.netId());
         const unsigned underlyingNetId = underlyingNetwork.netId();
@@ -7015,13 +7020,6 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
         ASSERT_RESULT_OK(appDefaultNetwork.init());
         ASSERT_RESULT_OK(vpn.init());
 
-        auto setupDnsFn = [&](std::shared_ptr<test::DNSResponder> dnsServer,
-                              ScopedNetwork* nw) -> void {
-            StartDns(*dnsServer, {{host_name, ns_type::ns_t_a, ipv4_addr},
-                                  {host_name, ns_type::ns_t_aaaa, ipv6_addr}});
-            ASSERT_TRUE(nw->setDnsConfiguration());
-            ASSERT_TRUE(nw->startTunForwarder());
-        };
         // Create testing DNS servers for each network.
         const Result<DnsServerPair> sysDefaultPair = (ipVersion == ConnectivityType::V4)
                                                              ? sysDefaultNetwork.addIpv4Dns()
@@ -7035,9 +7033,9 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
                 (ipVersion == ConnectivityType::V4) ? vpn.addIpv4Dns() : vpn.addIpv6Dns();
         ASSERT_RESULT_OK(vpnPair);
         // Set up resolver and start forwarding for networks.
-        setupDnsFn(sysDefaultPair->dnsServer, &sysDefaultNetwork);
-        setupDnsFn(appDefaultPair->dnsServer, &appDefaultNetwork);
-        setupDnsFn(vpnPair->dnsServer, &vpn);
+        setupDns(sysDefaultPair->dnsServer, host_name, ipv4_addr, ipv6_addr, &sysDefaultNetwork);
+        setupDns(appDefaultPair->dnsServer, host_name, ipv4_addr, ipv6_addr, &appDefaultNetwork);
+        setupDns(vpnPair->dnsServer, host_name, ipv4_addr, ipv6_addr, &vpn);
 
         const unsigned systemDefaultNetId = sysDefaultNetwork.netId();
         const unsigned appDefaultNetId = appDefaultNetwork.netId();
