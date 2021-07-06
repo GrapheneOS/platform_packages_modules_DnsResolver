@@ -6010,7 +6010,7 @@ TEST_F(ResolverTest, MultipleDotQueriesInOnePacket) {
     threads[1].join();
 
     // Also check no additional queries due to DoT reconnection.
-    EXPECT_EQ(tls.queries(), 2);
+    EXPECT_TRUE(tls.waitForQueries(2));
 }
 
 TEST_F(ResolverTest, MdnsGetHostByName) {
