@@ -266,7 +266,8 @@ cc_library_static {
 genrule {
     name: "statslog_resolv.h",
     tools: ["stats-log-api-gen"],
-    cmd: "$(location stats-log-api-gen) --header $(genDir)/statslog_resolv.h --module resolv --namespace android,net,stats",
+    cmd: "$(location stats-log-api-gen) --header $(genDir)/statslog_resolv.h --module resolv" +
+         " --namespace android,net,stats --minApiLevel 29",
     out: [
         "statslog_resolv.h",
     ],
@@ -275,7 +276,8 @@ genrule {
 genrule {
     name: "statslog_resolv.cpp",
     tools: ["stats-log-api-gen"],
-    cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_resolv.cpp --module resolv --namespace android,net,stats --importHeader statslog_resolv.h --supportQ",
+    cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_resolv.cpp --module resolv" +
+         " --namespace android,net,stats --importHeader statslog_resolv.h --minApiLevel 29",
     out: [
         "statslog_resolv.cpp",
     ],
