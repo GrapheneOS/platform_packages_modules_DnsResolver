@@ -89,10 +89,7 @@ cc_test {
     // TODO: Remove the xml after MTS fixing the problem.
     test_config: "resolv_gold_test_config.xml",
     defaults: ["netd_defaults", "resolv_test_defaults"],
-    data: [
-        ":resolv_gold_test_pbtxt2pb",
-        ":resolv_test_keys",
-    ],
+    data: [":resolv_gold_test_pbtxt2pb"],
     srcs: [
         "resolv_gold_test.cpp",
     ],
@@ -190,9 +187,6 @@ cc_test {
         "netd_event_listener_interface-lateststable-ndk_platform",
         "libipchecksum",
         "resolv_unsolicited_listener",
-    ],
-    data: [
-        ":resolv_test_keys",
     ],
     // This test talks to the DnsResolver module over a binary protocol on a socket, so keep it as
     // multilib setting is worth because we might be able to get some coverage for the case where
