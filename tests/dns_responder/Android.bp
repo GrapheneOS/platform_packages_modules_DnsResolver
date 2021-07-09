@@ -33,12 +33,6 @@ cc_test_library {
         "dns_responder.cpp",
         "dns_responder_client_ndk.cpp",
         "dns_tls_frontend.cpp",
-        "dns_tls_certificate.cpp",
     ],
     export_include_dirs: ["."],
-}
-
-filegroup {
-    name: "resolv_test_keys",
-    srcs: ["test_keys/*.pem"],
 }
