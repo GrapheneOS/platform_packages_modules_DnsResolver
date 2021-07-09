@@ -144,9 +144,6 @@ cc_defaults {
             suffix: "64",
         },
     },
-    data: [
-        ":resolv_test_keys",
-    ],
 }
 
 cc_library {
