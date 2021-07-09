@@ -28,18 +28,6 @@
        <option name="push" value="{MODULE}->/data/local/tmp/{MODULE}" />
        <option name="append-bitness" value="true" />
    </target_preparer>
-
-   <!-- For test files which are not renamed with bitness appended -->
-   <target_preparer class="com.android.compatibility.common.tradefed.targetprep.FilePusher">
-       <option name="cleanup" value="true" />
-       <option name="push"
-            value="server_certificate.pem->/data/local/tmp/test_keys/server_certificate.pem" />
-       <option name="push" value="server_key.pem->/data/local/tmp/test_keys/server_key.pem" />
-       <option name="push"
-            value="ca_certificate.pem->/data/local/tmp/test_keys/ca_certificate.pem" />
-       <option name="append-bitness" value="false" />
-   </target_preparer>
-
    <test class="com.android.tradefed.testtype.GTest" >
        <option name="native-test-device-path" value="/data/local/tmp" />
        <option name="module-name" value="{MODULE}" />
