@@ -1439,6 +1439,11 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     setMdnsFlag(name, &(res.flags));
 
+    if (isMdnsResolution(res.flags)) {
+        q.qclass |= C_UNICAST;
+        q2.qclass |= C_UNICAST;
+    }
+
     int he;
     if (res_searchN(name, &q, &res, &he) < 0) {
         // Return h_errno (he) to catch more detailed errors rather than EAI_NODATA.
