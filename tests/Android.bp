@@ -295,7 +295,6 @@ cc_test {
         "libdoh_ffi_for_test",
         "libgmock",
         "liblog",
-        "libring-core",
         "libssl",
     ],
     shared_libs: [
