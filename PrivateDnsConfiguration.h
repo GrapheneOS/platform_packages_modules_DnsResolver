@@ -16,20 +16,25 @@
 
 #pragma once
 
+#include <array>
 #include <list>
 #include <map>
 #include <mutex>
 #include <vector>
 
+#include <android-base/format.h>
+#include <android-base/logging.h>
 #include <android-base/result.h>
 #include <android-base/thread_annotations.h>
 #include <netdutils/BackoffSequence.h>
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
+#include <netdutils/Slice.h>
 
 #include "DnsTlsServer.h"
 #include "LockedQueue.h"
 #include "PrivateDnsValidationObserver.h"
+#include "doh.h"
 
 namespace android {
 namespace net {
@@ -61,6 +66,8 @@ class PrivateDnsConfiguration {
 
         explicit ServerIdentity(const IPrivateDnsServer& server)
             : sockaddr(server.addr()), provider(server.provider()) {}
+        ServerIdentity(const netdutils::IPSockAddr& addr, const std::string& host)
+            : sockaddr(addr), provider(host) {}
 
         bool operator<(const ServerIdentity& other) const {
             return std::tie(sockaddr, provider) < std::tie(other.sockaddr, other.provider);
@@ -79,9 +86,19 @@ class PrivateDnsConfiguration {
     int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
             const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
 
+    void initDoh() EXCLUDES(mPrivateDnsLock);
+
+    int setDoh(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
+               const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
+
     PrivateDnsStatus getStatus(unsigned netId) const EXCLUDES(mPrivateDnsLock);
 
     void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
+
+    void clearDoh(unsigned netId) EXCLUDES(mPrivateDnsLock);
+
+    ssize_t dohQuery(unsigned netId, const netdutils::Slice query, const netdutils::Slice answer,
+                     uint64_t timeoutMs) EXCLUDES(mPrivateDnsLock);
 
     // Request the server to be revalidated on a connection tagged with |mark|.
     // Returns a Result to indicate if the request is accepted.
@@ -91,6 +108,9 @@ class PrivateDnsConfiguration {
     void setObserver(PrivateDnsValidationObserver* observer);
 
     void dump(netdutils::DumpWriter& dw) const;
+
+    void onDohStatusUpdate(uint32_t netId, bool success, const char* ipAddr, const char* host)
+            EXCLUDES(mPrivateDnsLock);
 
   private:
     typedef std::map<ServerIdentity, std::unique_ptr<IPrivateDnsServer>> PrivateDnsTracker;
@@ -105,8 +125,8 @@ class PrivateDnsConfiguration {
     bool recordPrivateDnsValidation(const ServerIdentity& identity, unsigned netId, bool success,
                                     bool isRevalidation) EXCLUDES(mPrivateDnsLock);
 
-    void sendPrivateDnsValidationEvent(const ServerIdentity& identity, unsigned netId, bool success)
-            REQUIRES(mPrivateDnsLock);
+    void sendPrivateDnsValidationEvent(const ServerIdentity& identity, unsigned netId,
+                                       bool success) const REQUIRES(mPrivateDnsLock);
 
     // Decide if a validation for |server| is needed. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
@@ -123,6 +143,8 @@ class PrivateDnsConfiguration {
     base::Result<IPrivateDnsServer*> getPrivateDnsLocked(const ServerIdentity& identity,
                                                          unsigned netId) REQUIRES(mPrivateDnsLock);
 
+    void initDohLocked() REQUIRES(mPrivateDnsLock);
+
     mutable std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);
 
@@ -135,8 +157,13 @@ class PrivateDnsConfiguration {
     void notifyValidationStateUpdate(const netdutils::IPSockAddr& sockaddr, Validation validation,
                                      uint32_t netId) const REQUIRES(mPrivateDnsLock);
 
+    bool needReportEvent(uint32_t netId, ServerIdentity identity, bool success) const
+            REQUIRES(mPrivateDnsLock);
+
     // TODO: fix the reentrancy problem.
     PrivateDnsValidationObserver* mObserver GUARDED_BY(mPrivateDnsLock);
+
+    DohDispatcher* mDohDispatcher;
 
     friend class PrivateDnsConfigurationTest;
 
@@ -146,6 +173,58 @@ class PrivateDnsConfiguration {
             netdutils::BackoffSequence<>::Builder()
                     .withInitialRetransmissionTime(std::chrono::seconds(60))
                     .withMaximumRetransmissionTime(std::chrono::seconds(3600));
+
+    struct DohIdentity {
+        std::string httpsTemplate;
+        std::string ipAddr;
+        std::string host;
+        Validation status;
+        bool operator<(const DohIdentity& other) const {
+            return std::tie(ipAddr, host) < std::tie(other.ipAddr, other.host);
+        }
+        bool operator==(const DohIdentity& other) const {
+            return std::tie(ipAddr, host) == std::tie(other.ipAddr, other.host);
+        }
+        bool operator<(const ServerIdentity& other) const {
+            std::string otherIp = other.sockaddr.ip().toString();
+            return std::tie(ipAddr, host) < std::tie(otherIp, other.provider);
+        }
+        bool operator==(const ServerIdentity& other) const {
+            std::string otherIp = other.sockaddr.ip().toString();
+            return std::tie(ipAddr, host) == std::tie(otherIp, other.provider);
+        }
+    };
+
+    struct DohProviderEntry {
+        std::string provider;
+        std::set<std::string> ips;
+        std::string host;
+        std::string httpsTemplate;
+        base::Result<DohIdentity> getDohIdentity(const std::vector<std::string>& ips,
+                                                 const std::string& host) const {
+            if (!host.empty() && this->host != host) return Errorf("host {} not matched", host);
+            for (const auto& ip : ips) {
+                if (this->ips.find(ip) == this->ips.end()) continue;
+                LOG(INFO) << fmt::format("getDohIdentity: {} {}", ip, host);
+                // Only pick the first one for now.
+                return DohIdentity{httpsTemplate, ip, host, Validation::in_process};
+            }
+            return Errorf("server not matched");
+        };
+    };
+
+    // TODO: Move below DoH relevant stuff into Rust implementation.
+    std::map<unsigned, DohIdentity> mDohTracker GUARDED_BY(mPrivateDnsLock);
+    std::array<DohProviderEntry, 2> mAvailableDoHProviders = {{
+            {"Google",
+             {"2001:4860:4860::8888", "2001:4860:4860::8844", "8.8.8.8", "8.8.4.4"},
+             "dns.google",
+             "https://dns.google/dns-query"},
+            {"Cloudflare",
+             {"2606:4700::6810:f8f9", "2606:4700::6810:f9f9", "104.16.248.249", "104.16.249.249"},
+             "cloudflare-dns.com",
+             "https://cloudflare-dns.com/dns-query"},
+    }};
 
     struct RecordEntry {
         RecordEntry(uint32_t netId, const ServerIdentity& identity, Validation state)
