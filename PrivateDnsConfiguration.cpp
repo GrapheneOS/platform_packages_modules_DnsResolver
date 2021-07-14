@@ -21,18 +21,22 @@
 #include <android-base/format.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <netdutils/Slice.h>
 #include <netdutils/ThreadUtil.h>
 #include <sys/socket.h>
 
 #include "DnsTlsTransport.h"
 #include "ResolverEventReporter.h"
+#include "doh.h"
 #include "netd_resolv/resolv.h"
+#include "resolv_private.h"
 #include "util.h"
 
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::StringPrintf;
 using android::netdutils::setThreadName;
+using android::netdutils::Slice;
 using std::chrono::milliseconds;
 
 namespace android {
@@ -238,9 +242,9 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
 }
 
 void PrivateDnsConfiguration::sendPrivateDnsValidationEvent(const ServerIdentity& identity,
-                                                            unsigned netId, bool success) {
+                                                            unsigned netId, bool success) const {
     LOG(DEBUG) << "Sending validation " << (success ? "success" : "failure") << " event on netId "
-               << netId << " for " << identity.sockaddr.ip().toString() << " with hostname {"
+               << netId << " for " << identity.sockaddr.toString() << " with hostname {"
                << identity.provider << "}";
     // Send a validation event to NetdEventListenerService.
     const auto& listeners = ResolverEventReporter::getInstance().getListeners();
@@ -313,7 +317,9 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& i
     }
 
     // Send private dns validation result to listeners.
-    sendPrivateDnsValidationEvent(identity, netId, success);
+    if (needReportEvent(netId, identity, success)) {
+        sendPrivateDnsValidationEvent(identity, netId, success);
+    }
 
     if (success) {
         updateServerState(identity, Validation::success, netId);
@@ -409,6 +415,135 @@ void PrivateDnsConfiguration::dump(netdutils::DumpWriter& dw) const {
                 record.serverIdentity.provider, validationStatusToString(record.state)));
     }
     dw.blankline();
+}
+
+void PrivateDnsConfiguration::initDoh() {
+    std::lock_guard guard(mPrivateDnsLock);
+    initDohLocked();
+}
+
+void PrivateDnsConfiguration::initDohLocked() {
+    if (mDohDispatcher != nullptr) return;
+    mDohDispatcher = doh_dispatcher_new(
+            [](uint32_t net_id, bool success, const char* ip_addr, const char* host) {
+                android::net::PrivateDnsConfiguration::getInstance().onDohStatusUpdate(
+                        net_id, success, ip_addr, host);
+            });
+}
+
+int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
+                                    const std::vector<std::string>& servers,
+                                    const std::string& name, const std::string& caCert) {
+    if (servers.empty()) return 0;
+    LOG(DEBUG) << "PrivateDnsConfiguration::setDoh(" << netId << ", 0x" << std::hex << mark
+               << std::dec << ", " << servers.size() << ", " << name << ")";
+    std::lock_guard guard(mPrivateDnsLock);
+
+    initDohLocked();
+
+    // TODO: 1. Improve how to choose the server
+    // TODO: 2. Support multiple servers
+    for (const auto& entry : mAvailableDoHProviders) {
+        const auto& doh = entry.getDohIdentity(servers, name);
+        if (!doh.ok()) continue;
+
+        auto it = mDohTracker.find(netId);
+        // Skip if the same server already exists and its status == success.
+        if (it != mDohTracker.end() && it->second == doh.value() &&
+            it->second.status == Validation::success) {
+            return 0;
+        }
+        const auto& [dohIt, _] = mDohTracker.insert_or_assign(netId, doh.value());
+        const auto& dohId = dohIt->second;
+
+        RecordEntry record(netId, {netdutils::IPSockAddr::toIPSockAddr(dohId.ipAddr, 443), name},
+                           dohId.status);
+        mPrivateDnsLog.push(std::move(record));
+        return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
+                           dohId.ipAddr.c_str(), mark, caCert.c_str(), 3000);
+    }
+
+    LOG(INFO) << __func__ << "No suitable DoH server found";
+    return 0;
+}
+
+void PrivateDnsConfiguration::clearDoh(unsigned netId) {
+    LOG(DEBUG) << "PrivateDnsConfiguration::clearDoh (" << netId << ")";
+    std::lock_guard guard(mPrivateDnsLock);
+    if (mDohDispatcher != nullptr) doh_net_delete(mDohDispatcher, netId);
+    mDohTracker.erase(netId);
+}
+
+ssize_t PrivateDnsConfiguration::dohQuery(unsigned netId, const Slice query, const Slice answer,
+                                          uint64_t timeoutMs) {
+    {
+        std::lock_guard guard(mPrivateDnsLock);
+        // It's safe because mDohDispatcher won't be deleted after initializing.
+        if (mDohDispatcher == nullptr) return RESULT_CAN_NOT_SEND;
+    }
+    return doh_query(mDohDispatcher, netId, query.base(), query.size(), answer.base(),
+                     answer.size(), timeoutMs);
+}
+
+void PrivateDnsConfiguration::onDohStatusUpdate(uint32_t netId, bool success, const char* ipAddr,
+                                                const char* host) {
+    LOG(INFO) << __func__ << netId << ", " << success << ", " << ipAddr << ", " << host;
+    std::lock_guard guard(mPrivateDnsLock);
+    // Update the server status.
+    auto it = mDohTracker.find(netId);
+    if (it == mDohTracker.end() || (it->second.ipAddr != ipAddr && it->second.host != host)) {
+        LOG(WARNING) << __func__ << "obsolete event";
+        return;
+    }
+    Validation status = success ? Validation::success : Validation::fail;
+    it->second.status = status;
+    // Send the events to registered listeners.
+    ServerIdentity identity = {netdutils::IPSockAddr::toIPSockAddr(ipAddr, 443), host};
+    if (needReportEvent(netId, identity, success)) {
+        sendPrivateDnsValidationEvent(identity, netId, success);
+    }
+    // Add log.
+    RecordEntry record(netId, identity, status);
+    mPrivateDnsLog.push(std::move(record));
+}
+
+bool PrivateDnsConfiguration::needReportEvent(uint32_t netId, ServerIdentity identity,
+                                              bool success) const {
+    // If the result is success or DoH is not enable, no concern to report the events.
+    if (success || !isDoHEnabled()) return true;
+    // If the result is failure, check another transport's status to determine if we should report
+    // the event.
+    switch (identity.sockaddr.port()) {
+        // DoH
+        case 443: {
+            auto netPair = mPrivateDnsTransports.find(netId);
+            if (netPair == mPrivateDnsTransports.end()) return true;
+            for (const auto& [id, server] : netPair->second) {
+                if ((identity.sockaddr.ip() == id.sockaddr.ip()) &&
+                    (identity.sockaddr.port() != id.sockaddr.port()) &&
+                    (server->validationState() == Validation::success)) {
+                    LOG(DEBUG) << __func__
+                               << "skip reporting DoH validation failure event, server addr: " +
+                                          identity.sockaddr.ip().toString();
+                    return false;
+                }
+            }
+            break;
+        }
+        // DoT
+        case 853: {
+            auto it = mDohTracker.find(netId);
+            if (it == mDohTracker.end()) return true;
+            if (it->second == identity && it->second.status == Validation::success) {
+                LOG(DEBUG) << __func__
+                           << "skip reporting DoT validation failure event, server addr: " +
+                                      identity.sockaddr.ip().toString();
+                return false;
+            }
+            break;
+        }
+    }
+    return true;
 }
 
 }  // namespace net

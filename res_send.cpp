@@ -110,6 +110,7 @@
 #include "netd_resolv/resolv.h"
 #include "private/android_filesystem_config.h"
 
+#include "doh.h"
 #include "res_comp.h"
 #include "res_debug.h"
 #include "resolv_cache.h"
@@ -125,6 +126,7 @@ using android::base::unique_fd;
 using android::net::CacheStatus;
 using android::net::DnsQueryEvent;
 using android::net::DnsTlsDispatcher;
+using android::net::DnsTlsServer;
 using android::net::DnsTlsTransport;
 using android::net::IpVersion;
 using android::net::IV_IPV4;
@@ -139,6 +141,7 @@ using android::net::PrivateDnsConfiguration;
 using android::net::PrivateDnsMode;
 using android::net::PrivateDnsModes;
 using android::net::PrivateDnsStatus;
+using android::net::PROTO_DOH;
 using android::net::PROTO_MDNS;
 using android::net::PROTO_TCP;
 using android::net::PROTO_UDP;
@@ -164,8 +167,11 @@ static int sock_eq(struct sockaddr*, struct sockaddr*);
 static int connect_with_timeout(int sock, const struct sockaddr* nsap, socklen_t salen,
                                 const struct timespec timeout);
 static int retrying_poll(const int sock, short events, const struct timespec* finish);
-static int res_tls_send(ResState*, const Slice query, const Slice answer, int* rcode,
-                        bool* fallback);
+static int res_private_dns_send(ResState*, const Slice query, const Slice answer, int* rcode,
+                                bool* fallback);
+static int res_tls_send(const std::list<DnsTlsServer>& tlsServers, ResState*, const Slice query,
+                        const Slice answer, int* rcode, PrivateDnsMode mode);
+static ssize_t res_doh_send(ResState*, const Slice query, const Slice answer, int* rcode);
 
 NsType getQueryType(const uint8_t* msg, size_t msgLen) {
     ns_msg handle;
@@ -507,14 +513,14 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     if (sleepTimeMs != 0ms) {
         std::this_thread::sleep_for(sleepTimeMs);
     }
-    // DoT
+    // Private DNS
     if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS) &&
         !isMdnsResolution(statp->flags)) {
         bool fallback = false;
-        int resplen = res_tls_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
-                                   Slice(ans, anssiz), rcode, &fallback);
+        int resplen = res_private_dns_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
+                                           Slice(ans, anssiz), rcode, &fallback);
         if (resplen > 0) {
-            LOG(DEBUG) << __func__ << ": got answer from DoT";
+            LOG(DEBUG) << __func__ << ": got answer from Private DNS";
             res_pquery(ans, resplen);
             if (cache_status == RESOLV_CACHE_NOTFOUND) {
                 resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
@@ -1314,60 +1320,108 @@ PrivateDnsModes convertEnumType(PrivateDnsMode privateDnsmode) {
     }
 }
 
-static int res_tls_send(ResState* statp, const Slice query, const Slice answer, int* rcode,
-                        bool* fallback) {
-    int resplen = 0;
+static int res_private_dns_send(ResState* statp, const Slice query, const Slice answer, int* rcode,
+                                bool* fallback) {
     const unsigned netId = statp->netid;
 
     auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
     PrivateDnsStatus privateDnsStatus = privateDnsConfiguration.getStatus(netId);
     statp->event->set_private_dns_modes(convertEnumType(privateDnsStatus.mode));
 
-    if (privateDnsStatus.mode == PrivateDnsMode::OFF) {
-        *fallback = true;
-        return -1;
-    }
-
-    if (privateDnsStatus.validatedServers().empty()) {
-        if (privateDnsStatus.mode == PrivateDnsMode::OPPORTUNISTIC) {
+    const bool enableDoH = isDoHEnabled();
+    ssize_t result = -1;
+    switch (privateDnsStatus.mode) {
+        case PrivateDnsMode::OFF: {
             *fallback = true;
             return -1;
-        } else {
-            // Sleep and iterate some small number of times checking for the
-            // arrival of resolved and validated server IP addresses, instead
-            // of returning an immediate error.
-            // This is needed because as soon as a network becomes the default network, apps will
-            // send DNS queries on that network. If no servers have yet validated, and we do not
-            // block those queries, they would immediately fail, causing application-visible errors.
-            // Note that this can happen even before the network validates, since an unvalidated
-            // network can become the default network if no validated networks are available.
-            //
-            // TODO: see if there is a better way to address this problem, such as buffering the
-            // queries in a queue or only blocking queries for the first few seconds after a default
-            // network change.
-            for (int i = 0; i < 42; i++) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                // Calling getStatus() to merely check if there's any validated server seems
-                // wasteful. Consider adding a new method in PrivateDnsConfiguration for speed ups.
-                if (!privateDnsConfiguration.getStatus(netId).validatedServers().empty()) {
-                    privateDnsStatus = privateDnsConfiguration.getStatus(netId);
-                    break;
-                }
+        }
+        case PrivateDnsMode::OPPORTUNISTIC: {
+            *fallback = true;
+            if (enableDoH) {
+                result = res_doh_send(statp, query, answer, rcode);
+                if (result != RESULT_CAN_NOT_SEND) return result;
+            }
+            return res_tls_send(privateDnsStatus.validatedServers(), statp, query, answer, rcode,
+                                privateDnsStatus.mode);
+        }
+        case PrivateDnsMode::STRICT: {
+            *fallback = false;
+            if (enableDoH) {
+                result = res_doh_send(statp, query, answer, rcode);
+                if (result != RESULT_CAN_NOT_SEND) return result;
             }
             if (privateDnsStatus.validatedServers().empty()) {
-                return -1;
+                // Sleep and iterate some small number of times checking for the
+                // arrival of resolved and validated server IP addresses, instead
+                // of returning an immediate error.
+                // This is needed because as soon as a network becomes the default network, apps
+                // will send DNS queries on that network. If no servers have yet validated, and we
+                // do not block those queries, they would immediately fail, causing
+                // application-visible errors. Note that this can happen even before the network
+                // validates, since an unvalidated network can become the default network if no
+                // validated networks are available.
+                //
+                // TODO: see if there is a better way to address this problem, such as buffering the
+                // queries in a queue or only blocking queries for the first few seconds after a
+                // default network change.
+                for (int i = 0; i < 42; i++) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (enableDoH) {
+                        result = res_doh_send(statp, query, answer, rcode);
+                        if (result != RESULT_CAN_NOT_SEND) return result;
+                    }
+                    // Calling getStatus() to merely check if there's any validated server seems
+                    // wasteful. Consider adding a new method in PrivateDnsConfiguration for speed
+                    // ups.
+                    if (!privateDnsConfiguration.getStatus(netId).validatedServers().empty()) {
+                        privateDnsStatus = privateDnsConfiguration.getStatus(netId);
+                        break;
+                    }
+                }
             }
+            return res_tls_send(privateDnsStatus.validatedServers(), statp, query, answer, rcode,
+                                privateDnsStatus.mode);
         }
     }
+    LOG(ERROR) << __func__ << ": unknown private DNS mode";
+    return -1;
+}
 
+ssize_t res_doh_send(ResState* statp, const Slice query, const Slice answer, int* rcode) {
+    auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
+    const unsigned netId = statp->netid;
+    LOG(INFO) << __func__ << ": performing query over Https";
+    Stopwatch queryStopwatch;
+    ssize_t result = privateDnsConfiguration.dohQuery(netId, query, answer, /*timeoutMs*/ 2000);
+    LOG(INFO) << __func__ << ": Https query result: " << result;
+
+    if (result == RESULT_CAN_NOT_SEND) return RESULT_CAN_NOT_SEND;
+
+    DnsQueryEvent* dnsQueryEvent = statp->event->mutable_dns_query_events()->add_dns_query_event();
+    dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
+    // TODO: Make this information available.
+    // dnsQueryEvent->set_ip_version(ipFamilyToIPVersion(?));
+    if (result > 0) {
+        *rcode = reinterpret_cast<HEADER*>(answer.base())->rcode;
+    } else {
+        *rcode = -result;
+    }
+    dnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
+    dnsQueryEvent->set_protocol(PROTO_DOH);
+    dnsQueryEvent->set_type(getQueryType(query.base(), query.size()));
+    return result;
+}
+
+int res_tls_send(const std::list<DnsTlsServer>& tlsServers, ResState* statp, const Slice query,
+                 const Slice answer, int* rcode, PrivateDnsMode mode) {
+    if (tlsServers.empty()) return -1;
     LOG(INFO) << __func__ << ": performing query over TLS";
-
-    const auto response = DnsTlsDispatcher::getInstance().query(privateDnsStatus.validatedServers(),
-                                                                statp, query, answer, &resplen);
+    int resplen = 0;
+    const auto response =
+            DnsTlsDispatcher::getInstance().query(tlsServers, statp, query, answer, &resplen);
 
     LOG(INFO) << __func__ << ": TLS query result: " << static_cast<int>(response);
-
-    if (privateDnsStatus.mode == PrivateDnsMode::OPPORTUNISTIC) {
+    if (mode == PrivateDnsMode::OPPORTUNISTIC) {
         // In opportunistic mode, handle falling back to cleartext in some
         // cases (DNS shouldn't fail if a validated opportunistic mode server
         // becomes unreachable for some reason).
@@ -1375,12 +1429,11 @@ static int res_tls_send(ResState* statp, const Slice query, const Slice answer, 
             case DnsTlsTransport::Response::success:
                 *rcode = reinterpret_cast<HEADER*>(answer.base())->rcode;
                 return resplen;
+            // It's OPPORTUNISTIC mode,
+            // hence it's not required to do anything because it'll fallback to UDP.
             case DnsTlsTransport::Response::network_error:
-                // No need to set the error timeout here since it will fallback to UDP.
+                [[fallthrough]];
             case DnsTlsTransport::Response::internal_error:
-                // Note: this will cause cleartext queries to be emitted, with
-                // all of the EDNS0 goodness enabled. Fingers crossed.  :-/
-                *fallback = true;
                 [[fallthrough]];
             default:
                 return -1;
