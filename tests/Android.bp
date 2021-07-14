@@ -298,5 +298,8 @@ cc_test {
         "libring-core",
         "libssl",
     ],
+    shared_libs: [
+        "libnetd_client",
+    ],
     min_sdk_version: "29",
 }
