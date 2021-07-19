@@ -34,6 +34,21 @@ static const ssize_t RESULT_CAN_NOT_SEND = -2;
 /// The return code of doh_query to indicate that the query timed out.
 static const ssize_t RESULT_TIMEOUT = -255;
 
+/// The error log level.
+static const uint32_t LOG_LEVEL_ERROR = 0;
+
+/// The warning log level.
+static const uint32_t LOG_LEVEL_WARN = 1;
+
+/// The info log level.
+static const uint32_t LOG_LEVEL_INFO = 2;
+
+/// The debug log level.
+static const uint32_t LOG_LEVEL_DEBUG = 3;
+
+/// The trace log level.
+static const uint32_t LOG_LEVEL_TRACE = 4;
+
 /// Context for a running DoH engine.
 struct DohDispatcher;
 
@@ -42,7 +57,13 @@ using ValidationCallback = void (*)(uint32_t net_id, bool success, const char* i
 
 extern "C" {
 
-/// Performs static initialization for the DoH engine.
+/// Performs static initialization for android logger.
+void doh_init_logger(uint32_t level);
+
+/// Set the log level.
+void doh_set_log_level(uint32_t level);
+
+/// Performs the initialization for the DoH engine.
 /// Creates and returns a DoH engine instance.
 DohDispatcher* doh_dispatcher_new(ValidationCallback ptr);
 

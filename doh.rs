@@ -21,7 +21,7 @@ use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use quiche::h3;
 use ring::rand::SecureRandom;
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ use std::ops::Deref;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::{ptr, slice};
 use tokio::net::UdpSocket;
 use tokio::runtime::{Builder, Runtime};
@@ -40,12 +40,24 @@ use tokio::task;
 use tokio::time::{timeout, Duration, Instant};
 use url::Url;
 
+static INIT: Once = Once::new();
+
 /// The return code of doh_query means that there is no answer.
 pub const RESULT_INTERNAL_ERROR: ssize_t = -1;
 /// The return code of doh_query means that query can't be sent.
 pub const RESULT_CAN_NOT_SEND: ssize_t = -2;
 /// The return code of doh_query to indicate that the query timed out.
 pub const RESULT_TIMEOUT: ssize_t = -255;
+/// The error log level.
+pub const LOG_LEVEL_ERROR: u32 = 0;
+/// The warning log level.
+pub const LOG_LEVEL_WARN: u32 = 1;
+/// The info log level.
+pub const LOG_LEVEL_INFO: u32 = 2;
+/// The debug log level.
+pub const LOG_LEVEL_DEBUG: u32 = 3;
+/// The trace log level.
+pub const LOG_LEVEL_TRACE: u32 = 4;
 
 const MAX_BUFFERED_CMD_SIZE: usize = 400;
 const MAX_INCOMING_BUFFER_SIZE_WHOLE: u64 = 10000000;
@@ -330,7 +342,7 @@ impl DohConnection {
                     debug!("quiche::h3::Event::Data");
                     let mut buf = vec![0; MAX_DATAGRAM_SIZE];
                     if let Ok(read) = h3_conn.recv_body(&mut self.quic_conn, stream_id, &mut buf) {
-                        debug!(
+                        trace!(
                             "got {} bytes of response data on stream {}: {:x?}",
                             read,
                             stream_id,
@@ -648,7 +660,7 @@ async fn doh_handler(
                 info!("probe_futures remaining size: {}", probe_futures.len());
             },
             Some(cmd) = cmd_rx.recv() => {
-                info!("recv {:?}", cmd);
+                trace!("recv {:?}", cmd);
                 match cmd {
                     DohCommand::Probe { info, timeout: t } => {
                         match make_connection_if_needed(&info, &mut doh_conn_map, &mut config_cache) {
@@ -714,7 +726,7 @@ fn make_doh_udp_socket(peer_addr: SocketAddr, mark: u32) -> Result<std::net::Udp
     }
     udp_sk.connect(peer_addr)?;
 
-    info!("connecting to {:} from {:}", peer_addr, udp_sk.local_addr()?);
+    debug!("connecting to {:} from {:}", peer_addr, udp_sk.local_addr()?);
     Ok(udp_sk)
 }
 
@@ -784,11 +796,37 @@ fn make_probe_query() -> Result<String> {
     Ok(base64::encode_config(query, base64::URL_SAFE_NO_PAD))
 }
 
-/// Performs static initialization for the DoH engine.
+/// Performs static initialization for android logger.
+#[no_mangle]
+pub extern "C" fn doh_init_logger(level: u32) {
+    INIT.call_once(|| {
+        let level = match level {
+            LOG_LEVEL_WARN => log::Level::Warn,
+            LOG_LEVEL_DEBUG => log::Level::Debug,
+            _ => log::Level::Error,
+        };
+        android_logger::init_once(android_logger::Config::default().with_min_level(level));
+    });
+}
+
+/// Set the log level.
+#[no_mangle]
+pub extern "C" fn doh_set_log_level(level: u32) {
+    let level = match level {
+        LOG_LEVEL_ERROR => log::LevelFilter::Error,
+        LOG_LEVEL_WARN => log::LevelFilter::Warn,
+        LOG_LEVEL_INFO => log::LevelFilter::Info,
+        LOG_LEVEL_DEBUG => log::LevelFilter::Debug,
+        LOG_LEVEL_TRACE => log::LevelFilter::Trace,
+        _ => log::LevelFilter::Off,
+    };
+    log::set_max_level(level);
+}
+
+/// Performs the initialization for the DoH engine.
 /// Creates and returns a DoH engine instance.
 #[no_mangle]
 pub extern "C" fn doh_dispatcher_new(ptr: ValidationCallback) -> *mut DohDispatcher {
-    android_logger::init_once(android_logger::Config::default().with_min_level(log::Level::Info));
     match DohDispatcher::new(ptr) {
         Ok(c) => Box::into_raw(c),
         Err(e) => {
