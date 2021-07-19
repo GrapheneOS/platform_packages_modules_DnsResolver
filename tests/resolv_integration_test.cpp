@@ -6427,6 +6427,14 @@ class ResolverMultinetworkTest : public ResolverTest {
         bool clearDnsConfiguration() const;
         unsigned netId() const { return mNetId; }
         std::string name() const { return mNetworkName; }
+        Result<void> addUser(uid_t uid) const { return addUidRange(uid, uid); }
+        Result<void> addUidRange(uid_t from, uid_t to) const {
+            if (auto r = mNetdSrv->networkAddUidRanges(mNetId, {makeUidRangeParcel(from, to)});
+                !r.isOk()) {
+                return Error() << r.getMessage();
+            }
+            return {};
+        }
 
       protected:
         // Subclasses should implement it to decide which network should be create.
@@ -6508,14 +6516,6 @@ class ResolverMultinetworkTest : public ResolverTest {
                 return Error() << r.getMessage();
             }
             mVpnIsolationUids.erase(uid);
-            return {};
-        }
-        Result<void> addUser(uid_t uid) const { return addUidRange(uid, uid); }
-        Result<void> addUidRange(uid_t from, uid_t to) const {
-            if (auto r = mNetdSrv->networkAddUidRanges(mNetId, {makeUidRangeParcel(from, to)});
-                !r.isOk()) {
-                return Error() << r.getMessage();
-            }
             return {};
         }
 
@@ -6986,5 +6986,123 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
                 EXPECT_RESULT_OK(secureVpnNetwork.disableVpnIsolation(TEST_UID2));
             }
         }
+    }
+}
+
+// verify per-application default network selection on DNS.
+TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
+    // Netd supports uid ranges on physical network from v6.
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.netdService(), 6);
+
+    constexpr char host_name[] = "ohayou.example.com.";
+    constexpr char ipv4_addr[] = "192.0.2.0";
+    constexpr char ipv6_addr[] = "2001:db8:cafe:d00d::31";
+
+    const std::pair<ConnectivityType, std::vector<std::string>> testPairs[] = {
+            {ConnectivityType::V4, {ipv4_addr}},
+            {ConnectivityType::V6, {ipv6_addr}},
+            {ConnectivityType::V4V6, {ipv6_addr, ipv4_addr}},
+    };
+    for (const auto& [ipVersion, expectedDnsReply] : testPairs) {
+        SCOPED_TRACE(StringPrintf("ConnectivityType: %d", ipVersion));
+
+        // Create networks.
+        ScopedPhysicalNetwork sysDefaultNetwork =
+                CreateScopedPhysicalNetwork(ipVersion, "SysDefault");
+        ScopedPhysicalNetwork appDefaultNetwork =
+                CreateScopedPhysicalNetwork(ipVersion, "AppDefault");
+        ScopedVirtualNetwork vpn = CreateScopedVirtualNetwork(ipVersion, false, "Vpn");
+
+        ASSERT_RESULT_OK(sysDefaultNetwork.init());
+        ASSERT_RESULT_OK(appDefaultNetwork.init());
+        ASSERT_RESULT_OK(vpn.init());
+
+        auto setupDnsFn = [&](std::shared_ptr<test::DNSResponder> dnsServer,
+                              ScopedNetwork* nw) -> void {
+            StartDns(*dnsServer, {{host_name, ns_type::ns_t_a, ipv4_addr},
+                                  {host_name, ns_type::ns_t_aaaa, ipv6_addr}});
+            ASSERT_TRUE(nw->setDnsConfiguration());
+            ASSERT_TRUE(nw->startTunForwarder());
+        };
+        // Create testing DNS servers for each network.
+        const Result<DnsServerPair> sysDefaultPair = (ipVersion == ConnectivityType::V4)
+                                                             ? sysDefaultNetwork.addIpv4Dns()
+                                                             : sysDefaultNetwork.addIpv6Dns();
+        ASSERT_RESULT_OK(sysDefaultPair);
+        const Result<DnsServerPair> appDefaultPair = (ipVersion == ConnectivityType::V4)
+                                                             ? appDefaultNetwork.addIpv4Dns()
+                                                             : appDefaultNetwork.addIpv6Dns();
+        ASSERT_RESULT_OK(appDefaultPair);
+        const Result<DnsServerPair> vpnPair =
+                (ipVersion == ConnectivityType::V4) ? vpn.addIpv4Dns() : vpn.addIpv6Dns();
+        ASSERT_RESULT_OK(vpnPair);
+        // Set up resolver and start forwarding for networks.
+        setupDnsFn(sysDefaultPair->dnsServer, &sysDefaultNetwork);
+        setupDnsFn(appDefaultPair->dnsServer, &appDefaultNetwork);
+        setupDnsFn(vpnPair->dnsServer, &vpn);
+
+        const unsigned systemDefaultNetId = sysDefaultNetwork.netId();
+        const unsigned appDefaultNetId = appDefaultNetwork.netId();
+        const unsigned vpnNetId = vpn.netId();
+
+        setDefaultNetwork(systemDefaultNetId);
+        EXPECT_TRUE(
+                mDnsClient.netdService()
+                        ->networkSetPermissionForNetwork(appDefaultNetId, INetd::PERMISSION_SYSTEM)
+                        .isOk());
+
+        // We've called setNetworkForProcess in SetupOemNetwork, reset to default first.
+        ScopedSetNetworkForProcess scopedSetNetworkForProcess(NETID_UNSET);
+        auto expectDnsQueryCountsFn = [&](size_t count,
+                                          std::shared_ptr<test::DNSResponder> dnsServer,
+                                          unsigned expectedDnsNetId) -> void {
+            EXPECT_EQ(GetNumQueries(*dnsServer, host_name), count);
+            EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(expectedDnsNetId).isOk());
+            dnsServer->clearQueries();
+        };
+
+        // Test DNS query without selecting a network. --> use system default network.
+        expectDnsWorksForUid(host_name, NETID_UNSET, TEST_UID, expectedDnsReply);
+        expectDnsQueryCountsFn(expectedDnsReply.size(), sysDefaultPair->dnsServer,
+                               systemDefaultNetId);
+        // Add user to app default network. --> use app default network.
+        ASSERT_RESULT_OK(appDefaultNetwork.addUser(TEST_UID));
+        expectDnsWorksForUid(host_name, NETID_UNSET, TEST_UID, expectedDnsReply);
+        expectDnsQueryCountsFn(expectedDnsReply.size(), appDefaultPair->dnsServer, appDefaultNetId);
+
+        // Test DNS query with a selected network.
+        // App default network applies to uid, vpn does not applies to uid.
+        const struct TestConfig {
+            ScopedNetwork* selectedNetwork;
+            unsigned expectedDnsNetId;
+            std::shared_ptr<test::DNSResponder> expectedDnsServer;
+        } vpnWithDnsServerConfigs[]{
+                // clang-format off
+                // App can select the system default network without any permission.
+                {&sysDefaultNetwork, systemDefaultNetId, sysDefaultPair->dnsServer},
+                // App can select the restricted network, since its uid was assigned to the network.
+                {&appDefaultNetwork, appDefaultNetId, appDefaultPair->dnsServer},
+                // App does not have access to the VPN. --> fallback to app default network.
+                {&vpn, appDefaultNetId, appDefaultPair->dnsServer},
+                // clang-format on
+        };
+        for (const auto& config : vpnWithDnsServerConfigs) {
+            SCOPED_TRACE(fmt::format("Dns over app default network, selectedNetwork = {}",
+                                     config.selectedNetwork->name()));
+            expectDnsWorksForUid(host_name, config.selectedNetwork->netId(), TEST_UID,
+                                 expectedDnsReply);
+            expectDnsQueryCountsFn(expectedDnsReply.size(), config.expectedDnsServer,
+                                   config.expectedDnsNetId);
+        }
+
+        // App default network applies to uid, vpn applies to uid. --> use vpn.
+        ASSERT_RESULT_OK(vpn.addUser(TEST_UID));
+        expectDnsWorksForUid(host_name, vpn.netId(), TEST_UID, expectedDnsReply);
+        expectDnsQueryCountsFn(expectedDnsReply.size(), vpnPair->dnsServer, vpnNetId);
+
+        // vpn without server. --> fallback to app default network.
+        ASSERT_TRUE(vpn.clearDnsConfiguration());
+        expectDnsWorksForUid(host_name, vpn.netId(), TEST_UID, expectedDnsReply);
+        expectDnsQueryCountsFn(expectedDnsReply.size(), appDefaultPair->dnsServer, appDefaultNetId);
     }
 }
