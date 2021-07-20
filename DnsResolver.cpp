@@ -31,7 +31,9 @@ bool resolv_init(const ResolverNetdCallbacks* callbacks) {
     android::base::SetDefaultTag("libnetd_resolv");
     LOG(INFO) << __func__ << ": Initializing resolver";
     // TODO(b/170539625): restore log level to WARNING after clarifying flaky tests.
-    resolv_set_log_severity(isUserDebugBuild() ? android::base::DEBUG : android::base::WARNING);
+    const bool isDebug = isUserDebugBuild();
+    resolv_set_log_severity(isDebug ? android::base::DEBUG : android::base::WARNING);
+    doh_init_logger(isDebug ? LOG_LEVEL_DEBUG : LOG_LEVEL_WARN);
     using android::net::gApiLevel;
     gApiLevel = getApiLevel();
     using android::net::gResNetdCallbacks;

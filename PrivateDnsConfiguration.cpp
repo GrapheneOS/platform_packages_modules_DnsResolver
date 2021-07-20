@@ -18,6 +18,8 @@
 
 #include "PrivateDnsConfiguration.h"
 
+#include <algorithm>
+
 #include <android-base/format.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
@@ -35,6 +37,7 @@
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::StringPrintf;
+using android::netdutils::IPAddress;
 using android::netdutils::setThreadName;
 using android::netdutils::Slice;
 using std::chrono::milliseconds;
@@ -439,12 +442,21 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
                << std::dec << ", " << servers.size() << ", " << name << ")";
     std::lock_guard guard(mPrivateDnsLock);
 
+    // Sort the input servers to ensure that we could get the server vector at the same order.
+    std::vector<std::string> sortedServers = servers;
+    // Prefer ipv6.
+    std::sort(sortedServers.begin(), sortedServers.end(), [](std::string a, std::string b) {
+        IPAddress ipa = IPAddress::forString(a);
+        IPAddress ipb = IPAddress::forString(b);
+        return ipa > ipb;
+    });
+
     initDohLocked();
 
     // TODO: 1. Improve how to choose the server
     // TODO: 2. Support multiple servers
     for (const auto& entry : mAvailableDoHProviders) {
-        const auto& doh = entry.getDohIdentity(servers, name);
+        const auto& doh = entry.getDohIdentity(sortedServers, name);
         if (!doh.ok()) continue;
 
         auto it = mDohTracker.find(netId);
