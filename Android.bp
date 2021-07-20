@@ -397,7 +397,8 @@ rust_ffi_static {
         "liburl",
     ],
     prefer_rlib: true,
-    // For unit tests to run on the Android 10 platform, libunwind must be statically linked..
+    // TODO(b/194022174), for unit tests to run on the Android 10 platform,
+    // libunwind must be statically linked.
     whole_static_libs: ["libunwind"],
     apex_available: [
         "//apex_available:platform",  // Needed by doh_ffi_test
