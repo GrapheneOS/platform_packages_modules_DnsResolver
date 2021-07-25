@@ -27,6 +27,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <span>
 
 #include <chrono>
 #include <iostream>
@@ -38,14 +39,12 @@
 #include <android-base/strings.h>
 #include <netdutils/BackoffSequence.h>
 #include <netdutils/InternetAddresses.h>
-#include <netdutils/Slice.h>
 #include <netdutils/SocketOption.h>
 
 using android::base::unique_fd;
 using android::netdutils::BackoffSequence;
 using android::netdutils::enableSockopt;
 using android::netdutils::ScopedAddrinfo;
-using android::netdutils::Slice;
 using std::chrono::milliseconds;
 
 namespace test {
@@ -57,22 +56,22 @@ std::string errno2str() {
     return strerror_r(errno, error_msg, sizeof(error_msg));
 }
 
-std::string str2hex(const char* buffer, size_t len) {
-    std::string str(len * 2, '\0');
-    for (size_t i = 0; i < len; ++i) {
-        static const char* hex = "0123456789ABCDEF";
-        uint8_t c = buffer[i];
-        str[i * 2] = hex[c >> 4];
-        str[i * 2 + 1] = hex[c & 0x0F];
-    }
-    return str;
-}
-
 std::string addr2str(const sockaddr* sa, socklen_t sa_len) {
     char host_str[NI_MAXHOST] = {0};
     int rv = getnameinfo(sa, sa_len, host_str, sizeof(host_str), nullptr, 0, NI_NUMERICHOST);
     if (rv == 0) return std::string(host_str);
     return std::string();
+}
+
+std::string bytesToHexStr(std::span<const uint8_t> bytes) {
+    static char const hex[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
+                                 '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+    std::string str;
+    str.reserve(bytes.size() * 2);
+    for (uint8_t ch : bytes) {
+        str.append({hex[(ch & 0xf0) >> 4], hex[ch & 0xf]});
+    }
+    return str;
 }
 
 // Because The address might still being set up (b/186181084), This is a wrapper function
@@ -536,8 +535,7 @@ void DNSResponder::removeMappingBinaryPacket(const std::vector<uint8_t>& query) 
     if (!packet_mappings_.erase(query)) {
         LOG(ERROR) << "Cannot remove mapping, not present in registered BinaryPacket mappings";
         LOG(INFO) << "Hex dump:";
-        LOG(INFO) << android::netdutils::toHex(
-                Slice(const_cast<uint8_t*>(query.data()), query.size()), 32);
+        LOG(INFO) << bytesToHexStr(query);
     }
 }
 
@@ -737,7 +735,8 @@ void DNSResponder::requestHandler() {
 
 bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, int protocol, char* response,
                                     size_t* response_len) const {
-    LOG(DEBUG) << "request: '" << str2hex(buffer, len) << "', on " << dnsproto2str(protocol);
+    LOG(DEBUG) << "request: '" << bytesToHexStr({reinterpret_cast<const uint8_t*>(buffer), len})
+               << "', on " << dnsproto2str(protocol);
     const char* buffer_end = buffer + len;
     DNSHeader header;
     const char* cur = header.read(buffer, buffer_end);
