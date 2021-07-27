@@ -382,28 +382,24 @@ impl DohConnection {
             .timeout()
             .unwrap_or_else(|| Duration::from_millis(QUICHE_IDLE_TIMEOUT_MS));
         match timeout(ts, self.udp_sk.recv_from(&mut buf)).await {
-            Ok(v) => {
-                match v {
-                    Ok((size, from)) => {
-                        let recv_info = quiche::RecvInfo { from };
-                        let processed = match self.quic_conn.recv(&mut buf[..size], recv_info) {
-                            Ok(l) => l,
-                            Err(e) => {
-                                return Err(anyhow!("quic recv failed: {:?}", e));
-                            }
-                        };
-                        debug!("processed {} bytes", processed);
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        return Err(anyhow!("socket recv failed: {:?}", e));
-                    }
-                };
-            }
+            Ok(v) => match v {
+                Ok((size, from)) => {
+                    let recv_info = quiche::RecvInfo { from };
+                    let processed = match self.quic_conn.recv(&mut buf[..size], recv_info) {
+                        Ok(l) => l,
+                        Err(e) => {
+                            return Err(anyhow!("quic recv failed: {:?}", e));
+                        }
+                    };
+                    debug!("processed {} bytes", processed);
+                    Ok(())
+                }
+                Err(e) => Err(anyhow!("socket recv failed: {:?}", e)),
+            },
             Err(_) => {
                 warn!("timeout did not receive value within {:?} ms, {}", ts, self.net_id);
                 self.quic_conn.on_timeout();
-                return Ok(());
+                Ok(())
             }
         }
     }
