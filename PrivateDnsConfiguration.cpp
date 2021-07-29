@@ -38,30 +38,13 @@ using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
 using android::base::StringPrintf;
 using android::netdutils::IPAddress;
+using android::netdutils::IPSockAddr;
 using android::netdutils::setThreadName;
 using android::netdutils::Slice;
 using std::chrono::milliseconds;
 
 namespace android {
 namespace net {
-
-bool parseServer(const char* server, sockaddr_storage* parsed) {
-    addrinfo hints = {
-            .ai_flags = AI_NUMERICHOST | AI_NUMERICSERV,
-            .ai_family = AF_UNSPEC,
-    };
-    addrinfo* res;
-
-    int err = getaddrinfo(server, "853", &hints, &res);
-    if (err != 0) {
-        LOG(WARNING) << "Failed to parse server address (" << server << "): " << gai_strerror(err);
-        return false;
-    }
-
-    memcpy(parsed, res->ai_addr, res->ai_addrlen);
-    freeaddrinfo(res);
-    return true;
-}
 
 int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
                                  const std::vector<std::string>& servers, const std::string& name,
@@ -72,11 +55,13 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
     // Parse the list of servers that has been passed in
     PrivateDnsTracker tmp;
     for (const auto& s : servers) {
-        sockaddr_storage parsed;
-        if (!parseServer(s.c_str(), &parsed)) {
+        IPAddress ip;
+        if (!IPAddress::forString(s, &ip)) {
+            LOG(WARNING) << "Failed to parse server address (" << s << ")";
             return -EINVAL;
         }
-        auto server = std::make_unique<DnsTlsServer>(parsed);
+
+        auto server = std::make_unique<DnsTlsServer>(ip);
         server->name = name;
         server->certificate = caCert;
         server->mark = mark;
