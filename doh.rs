@@ -242,7 +242,7 @@ impl DohConnection {
             return Err(anyhow!("quic connection is not ready"));
         }
         let h3_conn = self.h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
-        let stream_id = h3_conn.send_request(&mut self.quic_conn, &req, false /*fin*/)?;
+        let stream_id = h3_conn.send_request(&mut self.quic_conn, req, false /*fin*/)?;
         self.flush_tx().await?;
         Ok(stream_id)
     }
@@ -278,7 +278,7 @@ impl DohConnection {
     fn resume_connection(&mut self, quic_conn: Pin<Box<quiche::Connection>>) {
         self.quic_conn = quic_conn;
         if let Some(session) = &self.cached_session {
-            if self.quic_conn.set_session(&session).is_err() {
+            if self.quic_conn.set_session(session).is_err() {
                 warn!("can't restore session for network {}", self.net_id);
             }
         }
@@ -534,16 +534,15 @@ fn make_connection_if_needed(
         // The cert path is not either empty or SYSTEM_CERT_PATH, which means it's used by tests,
         // it's not necessary to cache the config.
         Some(cert_path) if cert_path != SYSTEM_CERT_PATH => {
-            let mut config = create_quiche_config(Some(&cert_path))?;
-            let doh = DohConnection::new(&info, &mut config)?;
+            let mut config = create_quiche_config(Some(cert_path))?;
+            let doh = DohConnection::new(info, &mut config)?;
             doh_conn_map.insert(info.net_id, (info.clone(), None));
             Ok(Some(doh))
         }
         // The normal cases, get the config from config cache.
         cert_path => {
-            let config =
-                config_cache.get(&cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
-            let doh = DohConnection::new(&info, config)?;
+            let config = config_cache.get(cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
+            let doh = DohConnection::new(info, config)?;
             doh_conn_map.insert(info.net_id, (info.clone(), None));
             Ok(Some(doh))
         }
@@ -693,7 +692,7 @@ async fn doh_handler(
 fn make_dns_request(base64_query: &str, url: &url::Url) -> Result<DnsRequest> {
     let mut path = String::from(url.path());
     path.push_str("?dns=");
-    path.push_str(&base64_query);
+    path.push_str(base64_query);
     let req = vec![
         quiche::h3::Header::new(b":method", b"GET"),
         quiche::h3::Header::new(b":scheme", b"https"),
