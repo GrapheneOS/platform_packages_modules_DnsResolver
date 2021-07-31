@@ -514,8 +514,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         std::this_thread::sleep_for(sleepTimeMs);
     }
     // Private DNS
-    if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS) &&
-        !isMdnsResolution(statp->flags)) {
+    if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
         bool fallback = false;
         int resplen = res_private_dns_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
                                            Slice(ans, anssiz), rcode, &fallback);
