@@ -1,0 +1,18 @@
+rust_ffi_static {
+    name: "libdoh_frontend_ffi",
+    crate_name: "doh_frontend_ffi",
+    srcs: ["src/lib.rs"],
+    edition: "2018",
+
+    rlibs: [
+        "liblibc",
+        "liblog_rust",
+        "libandroid_logger",
+        "libanyhow",
+        "libquiche",
+        "libring",
+        "liblazy_static",
+        "libtokio",
+        "libbase64_rust",
+    ],
+}
