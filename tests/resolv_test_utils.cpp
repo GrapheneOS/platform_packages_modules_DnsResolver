@@ -20,7 +20,6 @@
 #include <arpa/inet.h>
 
 #include <android-base/chrono_utils.h>
-#include <netdutils/InternetAddresses.h>
 
 using android::netdutils::ScopedAddrinfo;
 
@@ -145,4 +144,13 @@ bool PollForCondition(const std::function<bool()>& condition, std::chrono::milli
         std::this_thread::sleep_for(retryIntervalMs);
     }
     return false;
+}
+
+ScopedAddrinfo safe_getaddrinfo(const char* node, const char* service,
+                                const struct addrinfo* hints) {
+    addrinfo* result = nullptr;
+    if (getaddrinfo(node, service, hints, &result) != 0) {
+        result = nullptr;  // Should already be the case, but...
+    }
+    return ScopedAddrinfo(result);
 }
