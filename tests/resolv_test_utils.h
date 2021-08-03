@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <aidl/android/net/INetd.h>
+#include <android-base/properties.h>
 #include <gtest/gtest.h>
 #include <netdutils/InternetAddresses.h>
 
@@ -72,6 +73,19 @@ class ScopedChangeUID {
   private:
     const uid_t mTestUid;
     const uid_t mSavedUid;
+};
+
+class ScopedSystemProperties {
+  public:
+    ScopedSystemProperties(const std::string& key, const std::string& value) : mStoredKey(key) {
+        mStoredValue = android::base::GetProperty(key, "");
+        android::base::SetProperty(key, value);
+    }
+    ~ScopedSystemProperties() { android::base::SetProperty(mStoredKey, mStoredValue); }
+
+  private:
+    std::string mStoredKey;
+    std::string mStoredValue;
 };
 
 struct DnsRecord {
@@ -196,3 +210,6 @@ std::vector<std::string> ToStrings(const android::netdutils::ScopedAddrinfo& ai)
 // Wait for |condition| to be met until |timeout|.
 bool PollForCondition(const std::function<bool()>& condition,
                       std::chrono::milliseconds timeout = std::chrono::milliseconds(1000));
+
+android::netdutils::ScopedAddrinfo safe_getaddrinfo(const char* node, const char* service,
+                                                    const struct addrinfo* hints);

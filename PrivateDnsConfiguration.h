@@ -200,6 +200,7 @@ class PrivateDnsConfiguration {
         std::set<std::string> ips;
         std::string host;
         std::string httpsTemplate;
+        bool forTesting;
         base::Result<DohIdentity> getDohIdentity(const std::vector<std::string>& ips,
                                                  const std::string& host) const {
             if (!host.empty() && this->host != host) return Errorf("host {} not matched", host);
@@ -215,15 +216,24 @@ class PrivateDnsConfiguration {
 
     // TODO: Move below DoH relevant stuff into Rust implementation.
     std::map<unsigned, DohIdentity> mDohTracker GUARDED_BY(mPrivateDnsLock);
-    std::array<DohProviderEntry, 2> mAvailableDoHProviders = {{
+    std::array<DohProviderEntry, 3> mAvailableDoHProviders = {{
             {"Google",
              {"2001:4860:4860::8888", "2001:4860:4860::8844", "8.8.8.8", "8.8.4.4"},
              "dns.google",
-             "https://dns.google/dns-query"},
+             "https://dns.google/dns-query",
+             false},
             {"Cloudflare",
              {"2606:4700::6810:f8f9", "2606:4700::6810:f9f9", "104.16.248.249", "104.16.249.249"},
              "cloudflare-dns.com",
-             "https://cloudflare-dns.com/dns-query"},
+             "https://cloudflare-dns.com/dns-query",
+             false},
+
+            // The DoH provider for testing.
+            {"ResolverTestProvider",
+             {"127.0.0.3", "::1"},
+             "example.com",
+             "https://example.com/dns-query",
+             true},
     }};
 
     struct RecordEntry {
