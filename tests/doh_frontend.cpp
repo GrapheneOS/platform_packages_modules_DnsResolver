@@ -60,7 +60,7 @@ bool DohFrontend::stopServer() {
 
 int DohFrontend::queries() const {
     std::lock_guard guard(mMutex);
-    if (!mRustDoh) return -1;
+    if (!mRustDoh) return 0;
 
     rust::Stats stats;
     rust::frontend_stats(mRustDoh, &stats);
