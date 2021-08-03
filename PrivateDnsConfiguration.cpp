@@ -23,6 +23,7 @@
 #include <android-base/format.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
+#include <android/binder_ibinder.h>
 #include <netdutils/Slice.h>
 #include <netdutils/ThreadUtil.h>
 #include <sys/socket.h>
@@ -443,6 +444,9 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
     for (const auto& entry : mAvailableDoHProviders) {
         const auto& doh = entry.getDohIdentity(sortedServers, name);
         if (!doh.ok()) continue;
+
+        // The internal tests are supposed to have root permission.
+        if (entry.forTesting && AIBinder_getCallingUid() != AID_ROOT) continue;
 
         auto it = mDohTracker.find(netId);
         // Skip if the same server already exists and its status == success.
