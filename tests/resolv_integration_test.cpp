@@ -19,7 +19,6 @@
 
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
-#include <android-base/properties.h>
 #include <android-base/result.h>
 #include <android-base/stringprintf.h>
 #include <android-base/unique_fd.h>
@@ -126,17 +125,7 @@ using android::netdutils::ScopedAddrinfo;
 using android::netdutils::Stopwatch;
 using android::netdutils::toHex;
 
-// TODO: move into libnetdutils?
 namespace {
-
-ScopedAddrinfo safe_getaddrinfo(const char* node, const char* service,
-                                const struct addrinfo* hints) {
-    addrinfo* result = nullptr;
-    if (getaddrinfo(node, service, hints, &result) != 0) {
-        result = nullptr;  // Should already be the case, but...
-    }
-    return ScopedAddrinfo(result);
-}
 
 std::pair<ScopedAddrinfo, int> safe_getaddrinfo_time_taken(const char* node, const char* service,
                                                            const addrinfo& hints) {
@@ -170,19 +159,6 @@ struct NameserverStats {
     int errors = 0;
     int timeouts = 0;
     int internal_errors = 0;
-};
-
-class ScopedSystemProperties {
-  public:
-    ScopedSystemProperties(const std::string& key, const std::string& value) : mStoredKey(key) {
-        mStoredValue = android::base::GetProperty(key, "");
-        android::base::SetProperty(key, value);
-    }
-    ~ScopedSystemProperties() { android::base::SetProperty(mStoredKey, mStoredValue); }
-
-  private:
-    std::string mStoredKey;
-    std::string mStoredValue;
 };
 
 const bool isAtLeastR = (getApiLevel() >= 30);
