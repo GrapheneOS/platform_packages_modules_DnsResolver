@@ -121,7 +121,7 @@ impl Client {
         let headers = vec![
             quiche::h3::Header::new(b":status", b"200"),
             quiche::h3::Header::new(b"content-type", b"application/dns-message"),
-            quiche::h3::Header::new(b"content-length", &len.to_string().as_bytes()),
+            quiche::h3::Header::new(b"content-length", len.to_string().as_bytes()),
             // TODO: need to add cache-control?
         ];
 
