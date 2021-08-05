@@ -24,4 +24,7 @@ rust_ffi_static {
         "libtokio",
         "libbase64_rust",
     ],
+
+    // TODO(b/194022174): this is a workaround for resolv_integration_test to run on Q devices.
+    whole_static_libs: ["libunwind"],
 }
