@@ -82,6 +82,9 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
                            std::optional<aidl::android::net::ResolverOptionsParcel> resolverOptions,
                            const std::vector<int32_t>& transportTypes = {});
 
+// Sets options for a given network.
+int resolv_set_options(unsigned netid, const aidl::android::net::ResolverOptionsParcel& options);
+
 // Creates the cache associated with the given network.
 int resolv_create_cache_for_net(unsigned netid);
 
