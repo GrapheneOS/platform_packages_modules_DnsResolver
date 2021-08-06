@@ -79,11 +79,11 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
 // TODO: Pass all of ResolverParamsParcel and remove the res_params argument.
 int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
                            const std::vector<std::string>& domains, const res_params& params,
-                           const aidl::android::net::ResolverOptionsParcel& resolverOptions =
-                                   {{} /* hosts */,
-                                    aidl::android::net::IDnsResolver::TC_MODE_DEFAULT,
-                                    false /* enforceDnsUid */},
+                           std::optional<aidl::android::net::ResolverOptionsParcel> resolverOptions,
                            const std::vector<int32_t>& transportTypes = {});
+
+// Sets options for a given network.
+int resolv_set_options(unsigned netid, const aidl::android::net::ResolverOptionsParcel& options);
 
 // Creates the cache associated with the given network.
 int resolv_create_cache_for_net(unsigned netid);
