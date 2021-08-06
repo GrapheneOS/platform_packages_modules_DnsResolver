@@ -134,6 +134,35 @@ impl<T: Deref> OptionDeref<T> for Option<T> {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+struct BootTime {
+    d: Duration,
+}
+
+impl BootTime {
+    fn now() -> BootTime {
+        unsafe {
+            let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+            if libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut t as *mut libc::timespec) != 0 {
+                panic!("get boot time failed: {:?}", std::io::Error::last_os_error());
+            }
+            BootTime { d: Duration::new(t.tv_sec as u64, t.tv_nsec as u32) }
+        }
+    }
+
+    fn elapsed(&self) -> Option<Duration> {
+        BootTime::now().duration_since(*self)
+    }
+
+    fn checked_add(&self, duration: Duration) -> Option<BootTime> {
+        Some(BootTime { d: self.d.checked_add(duration)? })
+    }
+
+    fn duration_since(&self, earlier: BootTime) -> Option<Duration> {
+        self.d.checked_sub(earlier.d)
+    }
+}
+
 /// Context for a running DoH engine.
 pub struct DohDispatcher {
     /// Used to submit cmds to the I/O task.
@@ -181,6 +210,7 @@ struct DohConnection {
     query_map: HashMap<u64, QueryResponder>,
     pending_queries: Vec<(DnsRequest, QueryResponder, Instant)>,
     cached_session: Option<Vec<u8>>,
+    expired_time: Option<BootTime>,
 }
 
 impl DohConnection {
@@ -202,7 +232,21 @@ impl DohConnection {
             query_map: HashMap::new(),
             pending_queries: Vec::new(),
             cached_session: None,
+            expired_time: None,
         })
+    }
+
+    fn handle_if_connection_expired(&mut self) {
+        if let Some(expired_time) = self.expired_time {
+            if let Some(elapsed) = expired_time.elapsed() {
+                warn!(
+                    "Change the status to Idle due to connection timeout, {:?}, {}",
+                    elapsed, self.net_id
+                );
+                self.quic_conn.on_timeout();
+                self.status = ConnectionStatus::Idle;
+            }
+        }
     }
 
     async fn probe(&mut self, req: DnsRequest) -> Result<()> {
@@ -224,6 +268,7 @@ impl DohConnection {
     }
 
     async fn connect(&mut self) -> Result<()> {
+        debug!("connecting to Network {}", self.net_id);
         while !self.quic_conn.is_established() {
             self.flush_tx().await?;
             self.recv_rx().await?;
@@ -242,8 +287,9 @@ impl DohConnection {
             bail!("quic connection is not ready");
         }
         let h3_conn = self.h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
-        let stream_id = h3_conn.send_request(&mut self.quic_conn, req, false /*fin*/)?;
+        let stream_id = h3_conn.send_request(&mut self.quic_conn, req, true /*fin*/)?;
         self.flush_tx().await?;
+        debug!("send dns query successfully to Network {}, stream id: {}", self.net_id, stream_id);
         Ok(stream_id)
     }
 
@@ -288,10 +334,12 @@ impl DohConnection {
             }
         }
         self.status = ConnectionStatus::Pending;
+        debug!("resume the connection for Network {}", self.net_id);
         // TODO: Also do a re-probe?
     }
 
     async fn process_queries(&mut self) -> Result<()> {
+        debug!("process_queries entry, Network {}", self.net_id);
         if self.status == ConnectionStatus::Pending {
             self.connect().await?;
         }
@@ -301,6 +349,7 @@ impl DohConnection {
                 if let Some((req, resp, exp_time)) = self.pending_queries.pop() {
                     // Ignore the expired queries.
                     if Instant::now().checked_duration_since(exp_time).is_some() {
+                        warn!("Drop the obsolete query for network {}", self.net_id);
                         continue;
                     }
                     if self.try_send_doh_query(req, resp, exp_time).await.is_err() {
@@ -313,8 +362,12 @@ impl DohConnection {
             self.flush_tx().await?;
             if let Ok((stream_id, buf)) = self.recv_query() {
                 if let Some(resp) = self.query_map.remove(&stream_id) {
+                    debug!(
+                        "sending answer back to resolv, Network {}, stream id: {}",
+                        self.net_id, stream_id
+                    );
                     resp.send(Response::Success { answer: buf }).unwrap_or_else(|e| {
-                        warn!("the receiver dropped {:?}", e);
+                        trace!("the receiver dropped {:?}, stream id: {}", e, stream_id);
                     });
                 } else {
                     // Should not happen
@@ -353,14 +406,14 @@ impl DohConnection {
                         list, stream_id, has_body
                     );
                 }
-                Ok((_stream_id, quiche::h3::Event::Finished)) => {
-                    debug!("quiche::h3::Event::Finished");
+                Ok((stream_id, quiche::h3::Event::Finished)) => {
+                    debug!("quiche::h3::Event::Finished on stream id {}", stream_id);
                 }
-                Ok((_stream_id, quiche::h3::Event::Datagram)) => {
-                    debug!("quiche::h3::Event::Datagram");
+                Ok((stream_id, quiche::h3::Event::Datagram)) => {
+                    debug!("quiche::h3::Event::Datagram on stream id {}", stream_id);
                 }
-                Ok((_stream_id, quiche::h3::Event::GoAway)) => {
-                    debug!("quiche::h3::Event::GoAway");
+                Ok((stream_id, quiche::h3::Event::GoAway)) => {
+                    debug!("quiche::h3::Event::GoAway on stream id {}", stream_id);
                 }
                 Err(e) => {
                     debug!("recv_query {:?}", e);
@@ -377,7 +430,9 @@ impl DohConnection {
             .quic_conn
             .timeout()
             .unwrap_or_else(|| Duration::from_millis(QUICHE_IDLE_TIMEOUT_MS));
-        debug!("recv_rx entry  next timeout {:?}, {}", ts, self.net_id);
+
+        self.expired_time = BootTime::now().checked_add(ts);
+        debug!("recv_rx entry next timeout {:?} {:?}, {}", ts, self.expired_time, self.net_id);
         match timeout(ts, self.udp_sk.recv_from(&mut buf)).await {
             Ok(v) => match v {
                 Ok((size, from)) => {
@@ -404,7 +459,6 @@ impl DohConnection {
 
     async fn flush_tx(&mut self) -> Result<()> {
         let mut out = [0; MAX_DATAGRAM_SIZE];
-        debug!("flush_tx entry ");
         loop {
             let (write, _) = match self.quic_conn.send(&mut out) {
                 Ok(v) => v,
@@ -567,15 +621,20 @@ impl QuicheConfigCache {
     }
 }
 
-fn resume_connection(
+fn resume_connection_if_needed(
     info: &ServerInfo,
     quic_conn: &mut DohConnection,
     config_cache: &mut QuicheConfigCache,
 ) -> Result<()> {
-    let mut c = config_cache.get(&info.cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
-    let connid = quiche::ConnectionId::from_ref(&quic_conn.scid);
-    let new_quic_conn = quiche::connect(info.domain.as_deref(), &connid, info.peer_addr, &mut c)?;
-    quic_conn.resume_connection(new_quic_conn);
+    quic_conn.handle_if_connection_expired();
+    if quic_conn.status == ConnectionStatus::Idle {
+        let mut c =
+            config_cache.get(&info.cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
+        let connid = quiche::ConnectionId::from_ref(&quic_conn.scid);
+        let new_quic_conn =
+            quiche::connect(info.domain.as_deref(), &connid, info.peer_addr, &mut c)?;
+        quic_conn.resume_connection(new_quic_conn);
+    }
     Ok(())
 }
 
@@ -602,15 +661,13 @@ async fn handle_query_cmd(
                 if quic_conn.status == ConnectionStatus::Fail {
                     let _ = resp.send(Response::Error { error: QueryError::BrokenServer });
                     return;
-                } else if quic_conn.status == ConnectionStatus::Idle {
-                    if let Err(e) = resume_connection(info, quic_conn, config_cache) {
-                        error!("resume_connection failed {:?}", e);
-                        let _ = resp.send(Response::Error { error: QueryError::BrokenServer });
-                        return;
-                    }
+                }
+                if let Err(e) = resume_connection_if_needed(info, quic_conn, config_cache) {
+                    error!("resume_connection failed {:?}", e);
+                    let _ = resp.send(Response::Error { error: QueryError::BrokenServer });
+                    return;
                 }
                 if let Ok(req) = make_dns_request(&base64_query, &info.url) {
-                    debug!("Try to send query");
                     let _ = quic_conn.try_send_doh_query(req, resp, expired_time).await;
                 } else {
                     let _ = resp.send(Response::Error { error: QueryError::Unexpected });
