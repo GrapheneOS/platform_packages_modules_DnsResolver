@@ -109,7 +109,7 @@ class TestBase : public ::testing::Test {
         ASSERT_EQ(privateDnsConfiguration.set(TEST_NETID, fwmark.intValue, tlsServers, tlsHostname,
                                               caCert),
                   0);
-        ASSERT_EQ(resolv_set_nameservers(TEST_NETID, servers, domains, kParams), 0);
+        ASSERT_EQ(resolv_set_nameservers(TEST_NETID, servers, domains, kParams, std::nullopt), 0);
     }
 
     void SetResolvers() { SetResolverConfiguration(kDefaultServers, kDefaultSearchDomains); }

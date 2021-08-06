@@ -16,6 +16,7 @@
 
 package android.net;
 
+import android.net.ResolverOptionsParcel;
 import android.net.ResolverParamsParcel;
 import android.net.metrics.INetdEventListener;
 import android.net.resolv.aidl.IDnsResolverUnsolicitedEventListener;
@@ -233,4 +234,14 @@ interface IDnsResolver {
     *         unix errno.
     */
     void registerUnsolicitedEventListener(IDnsResolverUnsolicitedEventListener listener);
+
+    /**
+     * Sets resolver options for the given network.
+     *
+     * @param netId the netId on which to set the options.
+     * @param optionParams the option parameters to be wrapped into parcel.
+     * @throws ServiceSpecificException in case of failure, with an error code corresponding to the
+     *         unix errno.
+     */
+    void setResolverOptions(int netId, in ResolverOptionsParcel optionParams);
 }
