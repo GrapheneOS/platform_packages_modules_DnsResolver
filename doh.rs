@@ -16,7 +16,7 @@
 
 //! DoH backend for the Android DnsResolver module.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use futures::future::join_all;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
@@ -239,7 +239,7 @@ impl DohConnection {
 
     async fn send_dns_query(&mut self, req: &DnsRequestArg) -> Result<u64> {
         if !self.quic_conn.is_established() {
-            return Err(anyhow!("quic connection is not ready"));
+            bail!("quic connection is not ready");
         }
         let h3_conn = self.h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
         let stream_id = h3_conn.send_request(&mut self.quic_conn, req, false /*fin*/)?;
@@ -260,7 +260,8 @@ impl DohConnection {
                     Ok(req_id) => {
                         self.query_map.insert(req_id, resp);
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        error!("send querry error {:?}", e);
                         resp.send(Response::Error { error: QueryError::ConnectionError }).ok();
                     }
                 }
@@ -328,7 +329,7 @@ impl DohConnection {
             }
             if self.quic_conn.is_closed() || !self.quic_conn.is_established() {
                 self.status = ConnectionStatus::Idle;
-                return Err(anyhow!("connection become idle"));
+                bail!("connection become idle");
             }
         }
     }
@@ -368,7 +369,8 @@ impl DohConnection {
                     debug!("quiche::h3::Event::GoAway");
                 }
                 Err(e) => {
-                    return Err(anyhow!(e));
+                    debug!("recv_query {:?}", e);
+                    bail!(e);
                 }
             }
         }
@@ -381,6 +383,7 @@ impl DohConnection {
             .quic_conn
             .timeout()
             .unwrap_or_else(|| Duration::from_millis(QUICHE_IDLE_TIMEOUT_MS));
+        debug!("recv_rx entry  next timeout {:?}, {}", ts, self.net_id);
         match timeout(ts, self.udp_sk.recv_from(&mut buf)).await {
             Ok(v) => match v {
                 Ok((size, from)) => {
@@ -388,16 +391,17 @@ impl DohConnection {
                     let processed = match self.quic_conn.recv(&mut buf[..size], recv_info) {
                         Ok(l) => l,
                         Err(e) => {
-                            return Err(anyhow!("quic recv failed: {:?}", e));
+                            debug!("recv_rx error {:?}", e);
+                            bail!("quic recv failed: {:?}", e);
                         }
                     };
                     debug!("processed {} bytes", processed);
                     Ok(())
                 }
-                Err(e) => Err(anyhow!("socket recv failed: {:?}", e)),
+                Err(e) => bail!("socket recv failed: {:?}", e),
             },
             Err(_) => {
-                warn!("timeout did not receive value within {:?} ms, {}", ts, self.net_id);
+                warn!("timeout did not receive value within {:?}, {}", ts, self.net_id);
                 self.quic_conn.on_timeout();
                 Ok(())
             }
@@ -416,7 +420,7 @@ impl DohConnection {
                 }
                 Err(e) => {
                     self.quic_conn.close(false, 0x1, b"fail").ok();
-                    return Err(anyhow::Error::new(e));
+                    bail!(e);
                 }
             };
             self.udp_sk.send(&out[..write]).await?;
@@ -557,7 +561,7 @@ struct QuicheConfigCache {
 impl QuicheConfigCache {
     fn get(&mut self, cert_path: &Option<String>) -> Result<Option<&mut quiche::Config>> {
         if !cert_path.as_ref().map_or(true, |path| path == SYSTEM_CERT_PATH) {
-            return Err(anyhow!("Custom cert_path is not allowed for config cache"));
+            bail!("Custom cert_path is not allowed for config cache");
         }
         // No config is cached or the cached config isn't matched with the input cert_path
         // Create it with the input cert_path.
