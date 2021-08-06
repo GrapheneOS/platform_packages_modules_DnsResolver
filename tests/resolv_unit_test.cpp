@@ -126,10 +126,10 @@ class TestBase : public ::testing::Test {
         dns.clearQueries();
     }
 
-    int SetResolvers() { return resolv_set_nameservers(TEST_NETID, servers, domains, params); }
+    int SetResolvers() { return SetResolvers(servers); }
 
     int SetResolvers(std::vector<std::string> servers) {
-        return resolv_set_nameservers(TEST_NETID, servers, domains, params);
+        return resolv_set_nameservers(TEST_NETID, servers, domains, params, std::nullopt);
     }
 
     int WaitChild(pid_t pid) {
