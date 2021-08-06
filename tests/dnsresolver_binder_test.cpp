@@ -208,9 +208,10 @@ class DnsResolverBinderTest : public ::testing::Test {
         return o;
     }
 
-    std::string toString(const ResolverOptionsParcel& parms) {
+    std::string toString(const std::optional<ResolverOptionsParcel>& parms) {
+        if (!parms.has_value()) return "(null)";
         return fmt::format("ResolverOptionsParcel{{hosts: [{}], tcMode: {}, enforceDnsUid: {}}}",
-                           toString(parms.hosts), parms.tcMode, parms.enforceDnsUid);
+                           toString(parms->hosts), parms->tcMode, parms->enforceDnsUid);
     }
 
     std::string toString(const ResolverParamsParcel& parms) {

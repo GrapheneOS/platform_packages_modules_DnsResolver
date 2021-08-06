@@ -30,6 +30,7 @@ static const char* ANDROID_DNS_MODE = "ANDROID_DNS_MODE";
 
 using aidl::android::net::IDnsResolver;
 using aidl::android::net::INetd;
+using aidl::android::net::ResolverOptionsParcel;
 using aidl::android::net::ResolverParamsParcel;
 using android::net::ResolverStats;
 
@@ -77,6 +78,7 @@ ResolverParamsParcel DnsResponderClient::makeResolverParamsParcel(
     paramsParcel.tlsServers = tlsServers;
     paramsParcel.tlsFingerprints = {};
     paramsParcel.caCertificate = caCert;
+    paramsParcel.resolverOptions = ResolverOptionsParcel{};  // optional, must be explicitly set.
 
     // Note, do not remove this otherwise the ResolverTest#ConnectTlsServerTimeout won't pass in M4
     // module.
