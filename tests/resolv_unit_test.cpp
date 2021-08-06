@@ -123,7 +123,11 @@ class TestBase : public ::testing::Test {
         dns.clearQueries();
     }
 
-    int SetResolvers() { return resolv_set_nameservers(TEST_NETID, servers, domains, params); }
+    int SetResolvers() { return SetResolvers(servers); }
+
+    int SetResolvers(std::vector<std::string> servers) {
+        return resolv_set_nameservers(TEST_NETID, servers, domains, params, std::nullopt);
+    }
 
     const android_net_context mNetcontext = {
             .app_netid = TEST_NETID,

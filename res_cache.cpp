@@ -67,6 +67,7 @@
 #include "util.h"
 
 using aidl::android::net::IDnsResolver;
+using aidl::android::net::ResolverOptionsParcel;
 using android::base::StringAppendF;
 using android::net::DnsQueryEvent;
 using android::net::DnsStats;
@@ -1600,7 +1601,7 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
 
 int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
                            const std::vector<std::string>& domains, const res_params& params,
-                           const aidl::android::net::ResolverOptionsParcel& resolverOptions,
+                           const std::optional<ResolverOptionsParcel> optionalResolverOptions,
                            const std::vector<int32_t>& transportTypes) {
     std::vector<std::string> nameservers = filter_nameservers(servers);
     const int numservers = static_cast<int>(nameservers.size());
@@ -1655,19 +1656,23 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
         return -EINVAL;
     }
     netconfig->customizedTable.clear();
-    for (const auto& host : resolverOptions.hosts) {
-        if (!host.hostName.empty() && !host.ipAddr.empty())
-            netconfig->customizedTable.emplace(host.hostName, host.ipAddr);
-    }
 
-    if (resolverOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
-        resolverOptions.tcMode > aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
-        LOG(WARNING) << __func__ << ": netid = " << netid
-                     << ", invalid TC mode: " << resolverOptions.tcMode;
-        return -EINVAL;
+    if (optionalResolverOptions.has_value()) {
+        const ResolverOptionsParcel& resolverOptions = optionalResolverOptions.value();
+        for (const auto& host : resolverOptions.hosts) {
+            if (!host.hostName.empty() && !host.ipAddr.empty())
+                netconfig->customizedTable.emplace(host.hostName, host.ipAddr);
+        }
+
+        if (resolverOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
+            resolverOptions.tcMode > aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
+            LOG(WARNING) << __func__ << ": netid = " << netid
+                         << ", invalid TC mode: " << resolverOptions.tcMode;
+            return -EINVAL;
+        }
+        netconfig->tc_mode = resolverOptions.tcMode;
+        netconfig->enforceDnsUid = resolverOptions.enforceDnsUid;
     }
-    netconfig->tc_mode = resolverOptions.tcMode;
-    netconfig->enforceDnsUid = resolverOptions.enforceDnsUid;
 
     netconfig->transportTypes = transportTypes;
 
