@@ -1009,7 +1009,23 @@ struct NetConfig {
         dns_event_subsampling_map = resolv_get_dns_event_subsampling_map();
     }
     int nameserverCount() { return nameserverSockAddrs.size(); }
+    int setOptions(const ResolverOptionsParcel& resolverOptions) {
+        customizedTable.clear();
+        for (const auto& host : resolverOptions.hosts) {
+            if (!host.hostName.empty() && !host.ipAddr.empty())
+                customizedTable.emplace(host.hostName, host.ipAddr);
+        }
 
+        if (resolverOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
+            resolverOptions.tcMode > aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
+            LOG(WARNING) << __func__ << ": netid = " << netid
+                         << ", invalid TC mode: " << resolverOptions.tcMode;
+            return -EINVAL;
+        }
+        tc_mode = resolverOptions.tcMode;
+        enforceDnsUid = resolverOptions.enforceDnsUid;
+        return 0;
+    }
     const unsigned netid;
     std::unique_ptr<Cache> cache;
     std::vector<std::string> nameservers;
@@ -1661,28 +1677,20 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
-    netconfig->customizedTable.clear();
-
+    netconfig->transportTypes = transportTypes;
     if (optionalResolverOptions.has_value()) {
         const ResolverOptionsParcel& resolverOptions = optionalResolverOptions.value();
-        for (const auto& host : resolverOptions.hosts) {
-            if (!host.hostName.empty() && !host.ipAddr.empty())
-                netconfig->customizedTable.emplace(host.hostName, host.ipAddr);
-        }
-
-        if (resolverOptions.tcMode < aidl::android::net::IDnsResolver::TC_MODE_DEFAULT ||
-            resolverOptions.tcMode > aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
-            LOG(WARNING) << __func__ << ": netid = " << netid
-                         << ", invalid TC mode: " << resolverOptions.tcMode;
-            return -EINVAL;
-        }
-        netconfig->tc_mode = resolverOptions.tcMode;
-        netconfig->enforceDnsUid = resolverOptions.enforceDnsUid;
+        return netconfig->setOptions(resolverOptions);
     }
-
-    netconfig->transportTypes = transportTypes;
-
     return 0;
+}
+
+int resolv_set_options(unsigned netid, const ResolverOptionsParcel& options) {
+    std::lock_guard guard(cache_mutex);
+    NetConfig* netconfig = find_netconfig_locked(netid);
+
+    if (netconfig == nullptr) return -ENONET;
+    return netconfig->setOptions(options);
 }
 
 static bool resolv_is_nameservers_equal(const std::vector<std::string>& oldServers,
