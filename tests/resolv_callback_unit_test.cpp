@@ -128,7 +128,7 @@ class CallbackTest : public ::testing::Test {
                 .base_timeout_msec = 1000,
                 .retry_count = 2,
         };
-        return resolv_set_nameservers(TEST_NETID, servers, domains, params);
+        return resolv_set_nameservers(TEST_NETID, servers, domains, params, std::nullopt);
     }
 
     const android_net_context mNetcontext = {
