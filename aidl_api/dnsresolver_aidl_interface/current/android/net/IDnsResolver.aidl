@@ -32,6 +32,7 @@ interface IDnsResolver {
   void flushNetworkCache(int netId);
   void setPrefix64(int netId, @utf8InCpp String prefix);
   void registerUnsolicitedEventListener(android.net.resolv.aidl.IDnsResolverUnsolicitedEventListener listener);
+  void setResolverOptions(int netId, in android.net.ResolverOptionsParcel optionParams);
   const int RESOLVER_PARAMS_SAMPLE_VALIDITY = 0;
   const int RESOLVER_PARAMS_SUCCESS_THRESHOLD = 1;
   const int RESOLVER_PARAMS_MIN_SAMPLES = 2;
