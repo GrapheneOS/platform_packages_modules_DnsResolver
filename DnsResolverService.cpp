@@ -36,6 +36,7 @@
 #include "ResolverEventReporter.h"
 #include "resolv_cache.h"
 
+using aidl::android::net::ResolverOptionsParcel;
 using aidl::android::net::ResolverParamsParcel;
 using android::base::Join;
 using android::base::StringPrintf;
@@ -305,6 +306,14 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     int res = gDnsResolv->resolverCtrl.flushNetworkCache(netId);
 
     return statusFromErrcode(res);
+}
+
+::ndk::ScopedAStatus DnsResolverService::setResolverOptions(int32_t netId,
+                                                            const ResolverOptionsParcel& options) {
+    // Locking happens in res_cache.cpp functions.
+    ENFORCE_NETWORK_STACK_PERMISSIONS();
+
+    return statusFromErrcode(resolv_set_options(netId, options));
 }
 
 }  // namespace net
