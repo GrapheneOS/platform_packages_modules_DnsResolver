@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -61,16 +62,16 @@ typedef enum {
     RESOLV_CACHE_SKIP         /* Don't do anything on cache */
 } ResolvCacheStatus;
 
-ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int querylen, void* answer,
-                                      int answersize, int* answerlen, uint32_t flags);
+ResolvCacheStatus resolv_cache_lookup(unsigned netid, std::span<const uint8_t> query,
+                                      std::span<uint8_t> answer, int* answerlen, uint32_t flags);
 
 // add a (query,answer) to the cache. If the pair has been in the cache, no new entry will be added
 // in the cache.
-int resolv_cache_add(unsigned netid, const void* query, int querylen, const void* answer,
-                     int answerlen);
+int resolv_cache_add(unsigned netid, std::span<const uint8_t> query,
+                     std::span<const uint8_t> answer);
 
 /* Notify the cache a request failed */
-void _resolv_cache_query_failed(unsigned netid, const void* query, int querylen, uint32_t flags);
+void _resolv_cache_query_failed(unsigned netid, std::span<const uint8_t> query, uint32_t flags);
 
 // Get a customized table for a given network.
 std::vector<std::string> getCustomizedTableByName(const size_t netid, const char* hostname);
@@ -103,7 +104,7 @@ bool has_named_cache(unsigned netid);
 // For test only.
 // Get the expiration time of a cache entry. Return 0 on success; otherwise, an negative error is
 // returned if the expiration time can't be acquired.
-int resolv_cache_get_expiration(unsigned netid, const std::vector<char>& query, time_t* expiration);
+int resolv_cache_get_expiration(unsigned netid, std::span<const uint8_t> query, time_t* expiration);
 
 // Set addresses to DnsStats for a given network.
 int resolv_stats_set_addrs(unsigned netid, android::net::Protocol proto,

@@ -20,6 +20,7 @@
 #include <atomic>
 #include <chrono>
 #include <ctime>
+#include <span>
 #include <thread>
 
 #include <android-base/logging.h>
@@ -49,8 +50,8 @@ constexpr int MAX_ENTRIES = 64 * 2 * 5;
 namespace {
 
 struct CacheEntry {
-    std::vector<char> query;
-    std::vector<char> answer;
+    std::vector<uint8_t> query;
+    std::vector<uint8_t> answer;
 };
 
 struct SetupParams {
@@ -67,18 +68,17 @@ struct CacheStats {
     int pendingReqTimeoutCount;
 };
 
-std::vector<char> makeQuery(int op, const char* qname, int qclass, int qtype) {
+std::vector<uint8_t> makeQuery(int op, const char* qname, int qclass, int qtype) {
     uint8_t buf[MAXPACKET] = {};
-    const int len = res_nmkquery(op, qname, qclass, qtype, /*data=*/nullptr, /*datalen=*/0, buf,
-                                 sizeof(buf),
-                                 /*netcontext_flags=*/0);
-    return std::vector<char>(buf, buf + len);
+    const int len = res_nmkquery(op, qname, qclass, qtype, {}, buf, /*netcontext_flags=*/0);
+    return std::vector<uint8_t>(buf, buf + len);
 }
 
-std::vector<char> makeAnswer(const std::vector<char>& query, const char* rdata_str,
-                             const unsigned ttl) {
+std::vector<uint8_t> makeAnswer(const std::vector<uint8_t>& query, const char* rdata_str,
+                                const unsigned ttl) {
     test::DNSHeader header;
-    header.read(query.data(), query.data() + query.size());
+    header.read(reinterpret_cast<const char*>(query.data()),
+                reinterpret_cast<const char*>(query.data()) + query.size());
 
     for (const test::DNSQuestion& question : header.questions) {
         std::string rname(question.qname.name);
@@ -94,7 +94,7 @@ std::vector<char> makeAnswer(const std::vector<char>& query, const char* rdata_s
 
     char answer[MAXPACKET] = {};
     char* answer_end = header.write(answer, answer + sizeof(answer));
-    return std::vector<char>(answer, answer_end);
+    return std::vector<uint8_t>(answer, answer_end);
 }
 
 // Get the current time in unix timestamp since the Epoch.
@@ -155,9 +155,8 @@ class ResolvCacheTest : public ::testing::Test {
     [[nodiscard]] bool cacheLookup(ResolvCacheStatus expectedCacheStatus, uint32_t netId,
                                    const CacheEntry& ce, uint32_t flags = 0) {
         int anslen = 0;
-        std::vector<char> answer(MAXPACKET);
-        const auto cacheStatus = resolv_cache_lookup(netId, ce.query.data(), ce.query.size(),
-                                                     answer.data(), answer.size(), &anslen, flags);
+        std::vector<uint8_t> answer(MAXPACKET);
+        const auto cacheStatus = resolv_cache_lookup(netId, ce.query, answer, &anslen, flags);
         if (cacheStatus != expectedCacheStatus) {
             ADD_FAILURE() << "cacheStatus: expected = " << expectedCacheStatus
                           << ", actual =" << cacheStatus;
@@ -183,20 +182,20 @@ class ResolvCacheTest : public ::testing::Test {
     }
 
     int cacheAdd(uint32_t netId, const CacheEntry& ce) {
-        return resolv_cache_add(netId, ce.query.data(), ce.query.size(), ce.answer.data(),
-                                ce.answer.size());
+        return resolv_cache_add(netId, ce.query, ce.answer);
     }
 
-    int cacheAdd(uint32_t netId, const std::vector<char>& query, const std::vector<char>& answer) {
-        return resolv_cache_add(netId, query.data(), query.size(), answer.data(), answer.size());
+    int cacheAdd(uint32_t netId, const std::vector<uint8_t>& query,
+                 const std::vector<uint8_t>& answer) {
+        return resolv_cache_add(netId, query, answer);
     }
 
-    int cacheGetExpiration(uint32_t netId, const std::vector<char>& query, time_t* expiration) {
+    int cacheGetExpiration(uint32_t netId, const std::vector<uint8_t>& query, time_t* expiration) {
         return resolv_cache_get_expiration(netId, query, expiration);
     }
 
     void cacheQueryFailed(uint32_t netId, const CacheEntry& ce, uint32_t flags) {
-        _resolv_cache_query_failed(netId, ce.query.data(), ce.query.size(), flags);
+        _resolv_cache_query_failed(netId, ce.query, flags);
     }
 
     int cacheSetupResolver(uint32_t netId, const SetupParams& setup) {
@@ -284,8 +283,8 @@ TEST_F(ResolvCacheTest, CreateAndDeleteCache) {
 TEST_F(ResolvCacheTest, CacheAdd_InvalidArgs) {
     EXPECT_EQ(0, cacheCreate(TEST_NETID));
 
-    const std::vector<char> queryEmpty(MAXPACKET, 0);
-    const std::vector<char> queryTooSmall(DNS_HEADER_SIZE - 1, 0);
+    const std::vector<uint8_t> queryEmpty(MAXPACKET, 0);
+    const std::vector<uint8_t> queryTooSmall(DNS_HEADER_SIZE - 1, 0);
     CacheEntry ce = makeCacheEntry(QUERY, "valid.cache", ns_c_in, ns_t_a, "1.2.3.4");
 
     EXPECT_EQ(-EINVAL, cacheAdd(TEST_NETID, queryEmpty, ce.answer));
@@ -395,15 +394,14 @@ TEST_F(ResolvCacheTest, CacheLookup_Types) {
 TEST_F(ResolvCacheTest, CacheLookup_InvalidArgs) {
     EXPECT_EQ(0, cacheCreate(TEST_NETID));
 
-    const std::vector<char> queryEmpty(MAXPACKET, 0);
-    const std::vector<char> queryTooSmall(DNS_HEADER_SIZE - 1, 0);
-    std::vector<char> answerTooSmall(DNS_HEADER_SIZE - 1, 0);
+    const std::vector<uint8_t> queryEmpty(MAXPACKET, 0);
+    const std::vector<uint8_t> queryTooSmall(DNS_HEADER_SIZE - 1, 0);
+    std::vector<uint8_t> answerTooSmall(DNS_HEADER_SIZE - 1, 0);
     const CacheEntry ce = makeCacheEntry(QUERY, "valid.cache", ns_c_in, ns_t_a, "1.2.3.4");
-    auto cacheLookupFn = [](const std::vector<char>& query,
-                            std::vector<char> answer) -> ResolvCacheStatus {
+    auto cacheLookupFn = [](const std::vector<uint8_t>& query,
+                            std::vector<uint8_t> answer) -> ResolvCacheStatus {
         int anslen = 0;
-        return resolv_cache_lookup(TEST_NETID, query.data(), query.size(), answer.data(),
-                                   answer.size(), &anslen, 0);
+        return resolv_cache_lookup(TEST_NETID, query, answer, &anslen, 0);
     };
 
     EXPECT_EQ(0, cacheAdd(TEST_NETID, ce));
