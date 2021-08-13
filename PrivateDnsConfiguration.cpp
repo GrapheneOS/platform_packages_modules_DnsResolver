@@ -462,8 +462,13 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         mPrivateDnsLog.push(std::move(record));
         LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
 
+        int probeTimeout = Experiments::getInstance()->getFlag("doh_probe_timeout_ms",
+                                                               kDohProbeDefaultTimeoutMs);
+        if (probeTimeout < 1000) {
+            probeTimeout = 1000;
+        }
         return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
-                           dohId.ipAddr.c_str(), mark, caCert.c_str(), 3000);
+                           dohId.ipAddr.c_str(), mark, caCert.c_str(), probeTimeout);
     }
 
     LOG(INFO) << __func__ << ": No suitable DoH server found";
