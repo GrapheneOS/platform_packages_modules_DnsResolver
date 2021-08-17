@@ -128,6 +128,7 @@ using android::net::DnsQueryEvent;
 using android::net::DnsTlsDispatcher;
 using android::net::DnsTlsServer;
 using android::net::DnsTlsTransport;
+using android::net::Experiments;
 using android::net::IpVersion;
 using android::net::IV_IPV4;
 using android::net::IV_IPV6;
@@ -1393,7 +1394,12 @@ ssize_t res_doh_send(ResState* statp, const Slice query, const Slice answer, int
     const unsigned netId = statp->netid;
     LOG(INFO) << __func__ << ": performing query over Https";
     Stopwatch queryStopwatch;
-    ssize_t result = privateDnsConfiguration.dohQuery(netId, query, answer, /*timeoutMs*/ 2000);
+    int queryTimeout = Experiments::getInstance()->getFlag(
+            "doh_query_timeout_ms", PrivateDnsConfiguration::kDohQueryDefaultTimeoutMs);
+    if (queryTimeout < 1000) {
+        queryTimeout = 1000;
+    }
+    ssize_t result = privateDnsConfiguration.dohQuery(netId, query, answer, queryTimeout);
     LOG(INFO) << __func__ << ": Https query result: " << result;
 
     if (result == RESULT_CAN_NOT_SEND) return RESULT_CAN_NOT_SEND;
