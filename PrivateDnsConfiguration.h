@@ -60,6 +60,9 @@ struct PrivateDnsStatus {
 
 class PrivateDnsConfiguration {
   public:
+    static constexpr int kDohQueryDefaultTimeoutMs = 30000;
+    static constexpr int kDohProbeDefaultTimeoutMs = 60000;
+
     struct ServerIdentity {
         const netdutils::IPSockAddr sockaddr;
         const std::string provider;
