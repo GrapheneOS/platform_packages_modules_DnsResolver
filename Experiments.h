@@ -62,6 +62,8 @@ class Experiments {
             "dot_validation_latency_factor",
             "dot_validation_latency_offset_ms",
             "doh",
+            "doh_query_timeout_ms",
+            "doh_probe_timeout_ms",
             "mdns_resolution",
     };
     // This value is used in updateInternal as the default value if any flags can't be found.
