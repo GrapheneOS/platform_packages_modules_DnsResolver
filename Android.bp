@@ -54,9 +54,9 @@ cc_library_headers {
 dnsresolver_aidl_interface_lateststable_version = "V9"
 
 cc_library_static {
-    name: "dnsresolver_aidl_interface-lateststable-ndk_platform",
+    name: "dnsresolver_aidl_interface-lateststable-ndk",
     whole_static_libs: [
-        "dnsresolver_aidl_interface-" + dnsresolver_aidl_interface_lateststable_version + "-ndk_platform",
+        "dnsresolver_aidl_interface-" + dnsresolver_aidl_interface_lateststable_version + "-ndk",
     ],
     apex_available: [
         "com.android.resolv",
@@ -189,7 +189,7 @@ cc_library {
     // Link most things statically to minimize our dependence on system ABIs.
     stl: "libc++_static",
     static_libs: [
-        "dnsresolver_aidl_interface-lateststable-ndk_platform",
+        "dnsresolver_aidl_interface-lateststable-ndk",
         "libbase",
         "libcutils",
         "libnetdutils",
@@ -198,7 +198,7 @@ cc_library {
         "libstatslog_resolv",
         "libstatspush_compat",
         "libsysutils",
-        "netd_event_listener_interface-lateststable-ndk_platform",
+        "netd_event_listener_interface-lateststable-ndk",
         "server_configurable_flags",
         "stats_proto",
     ],
