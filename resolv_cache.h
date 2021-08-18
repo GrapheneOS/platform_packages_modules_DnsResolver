@@ -50,8 +50,8 @@ void resolv_populate_res_for_net(ResState* statp);
 
 std::vector<unsigned> resolv_list_caches();
 
-std::vector<std::string> resolv_cache_dump_subsampling_map(unsigned netid);
-uint32_t resolv_cache_get_subsampling_denom(unsigned netid, int return_code);
+std::vector<std::string> resolv_cache_dump_subsampling_map(unsigned netid, bool is_mdns);
+uint32_t resolv_cache_get_subsampling_denom(unsigned netid, int return_code, bool is_mdns);
 
 typedef enum {
     RESOLV_CACHE_UNSUPPORTED, /* the cache can't handle that kind of queries */
