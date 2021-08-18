@@ -294,8 +294,6 @@ void ResolverController::stopPrefix64Discovery(int32_t netId) {
 int ResolverController::getPrefix64(unsigned netId, netdutils::IPPrefix* prefix) {
     netdutils::IPPrefix p = mDns64Configuration.getPrefix64(netId);
     if (p.family() != AF_INET6 || p.length() == 0) {
-        LOG(INFO) << "No valid NAT64 prefix (" << netId << ", " << p.toString().c_str() << ")";
-
         return -ENOENT;
     }
     *prefix = p;
