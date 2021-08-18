@@ -114,7 +114,6 @@
 #include <inttypes.h>
 #include <math.h>
 #include <netdb.h>
-#include <netdutils/Slice.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -132,7 +131,6 @@
 #endif
 
 using android::base::StringAppendF;
-using android::netdutils::Slice;
 
 struct res_sym {
     int number;            /* Identifying number, like T_MX */
@@ -233,18 +231,31 @@ static void do_section(ns_msg* handle, ns_sect section) {
     }
 }
 
+// Convert bytes to its hexadecimal representation.
+// The returned string is double the size of input.
+std::string bytesToHexStr(std::span<const uint8_t> bytes) {
+    static char const hex[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
+                                 '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+    std::string str;
+    str.reserve(bytes.size() * 2);
+    for (uint8_t ch : bytes) {
+        str.append({hex[(ch & 0xf0) >> 4], hex[ch & 0xf]});
+    }
+    return str;
+}
+
 /*
  * Print the contents of a query.
  * This is intended to be primarily a debugging routine.
  */
-void res_pquery(const uint8_t* msg, int len) {
+void res_pquery(std::span<const uint8_t> msg) {
     if (!WOULD_LOG(VERBOSE)) return;
 
     ns_msg handle;
     int qdcount, ancount, nscount, arcount;
     uint32_t opcode, rcode, id;
 
-    if (ns_initparse(msg, len, &handle) < 0) {
+    if (ns_initparse(msg.data(), msg.size(), &handle) < 0) {
         PLOG(VERBOSE) << "ns_initparse failed";
         return;
     }
@@ -287,7 +298,7 @@ void res_pquery(const uint8_t* msg, int len) {
     do_section(&handle, ns_s_ar);
 
     LOG(VERBOSE) << "Hex dump:";
-    LOG(VERBOSE) << android::netdutils::toHex(Slice(const_cast<uint8_t*>(msg), len), 32);
+    LOG(VERBOSE) << bytesToHexStr(msg);
 }
 
 /*

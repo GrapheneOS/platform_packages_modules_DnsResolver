@@ -443,7 +443,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         errno = EINVAL;
         return -EINVAL;
     }
-    res_pquery(buf, buflen);
+    res_pquery({buf, buflen});
 
     int anslen = 0;
     Stopwatch cacheStopwatch;
@@ -490,7 +490,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             return -terrno;
         }
         LOG(DEBUG) << __func__ << ": got answer:";
-        res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+        res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
 
         if (cache_status == RESOLV_CACHE_NOTFOUND) {
             resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
@@ -517,7 +517,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                                            Slice(ans, anssiz), rcode, &fallback);
         if (resplen > 0) {
             LOG(DEBUG) << __func__ << ": got answer from Private DNS";
-            res_pquery(ans, resplen);
+            res_pquery({ans, resplen});
             if (cache_status == RESOLV_CACHE_NOTFOUND) {
                 resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
             }
@@ -666,7 +666,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             }
 
             LOG(DEBUG) << __func__ << ": got answer:";
-            res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+            res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
 
             if (cache_status == RESOLV_CACHE_NOTFOUND) {
                 resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
@@ -903,7 +903,7 @@ read_len:
      */
     if (hp->id != anhp->id) {
         LOG(DEBUG) << __func__ << ": ld answer (unexpected):";
-        res_pquery(ans, resplen);
+        res_pquery({ans, resplen});
         goto read_len;
     }
 
@@ -1168,7 +1168,7 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
             if (needRetry =
                         ignoreInvalidAnswer(statp, from, buf, buflen, ans, anssiz, &receivedFromNs);
                 needRetry) {
-                res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+                res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
                 continue;
             }
 
@@ -1178,7 +1178,7 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
                 //  The case has to be captured here, as FORMERR packet do not
                 //  carry query section, hence res_queriesmatch() returns 0.
                 LOG(DEBUG) << __func__ << ": server rejected query with EDNS0:";
-                res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+                res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
                 // record the error
                 statp->flags |= RES_F_EDNS0ERR;
                 *terrno = EREMOTEIO;
@@ -1189,7 +1189,7 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
             *delay = res_stats_calculate_rtt(&done, &start_time);
             if (anhp->rcode == SERVFAIL || anhp->rcode == NOTIMP || anhp->rcode == REFUSED) {
                 LOG(DEBUG) << __func__ << ": server rejected query:";
-                res_pquery(ans, (resplen > anssiz) ? anssiz : resplen);
+                res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
                 *rcode = anhp->rcode;
                 continue;
             }
