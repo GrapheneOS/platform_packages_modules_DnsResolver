@@ -1199,7 +1199,7 @@ static void _cache_remove_oldest(Cache* cache) {
         return;
     }
     LOG(INFO) << __func__ << ": Cache full - removing oldest";
-    res_pquery(oldest->query, oldest->querylen);
+    res_pquery({oldest->query, oldest->querylen});
     _cache_remove_p(cache, lookup);
 }
 
@@ -1304,7 +1304,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     /* remove stale entries here */
     if (now >= e->expires) {
         LOG(INFO) << __func__ << ": NOT IN CACHE (STALE ENTRY " << *lookup << "DISCARDED)";
-        res_pquery(e->query, e->querylen);
+        res_pquery({e->query, e->querylen});
         _cache_remove_p(cache, lookup);
         return RESOLV_CACHE_NOTFOUND;
     }
