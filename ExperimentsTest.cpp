@@ -20,7 +20,6 @@
 #include <unordered_map>
 
 #include <android-base/format.h>
-#include <android-base/stringprintf.h>
 #include <android-base/test_utils.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
