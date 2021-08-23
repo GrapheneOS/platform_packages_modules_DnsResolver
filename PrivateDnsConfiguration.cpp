@@ -22,7 +22,6 @@
 
 #include <android-base/format.h>
 #include <android-base/logging.h>
-#include <android-base/stringprintf.h>
 #include <android/binder_ibinder.h>
 #include <netdutils/Slice.h>
 #include <netdutils/ThreadUtil.h>
@@ -37,7 +36,6 @@
 
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::PrivateDnsValidationEventParcel;
-using android::base::StringPrintf;
 using android::netdutils::IPAddress;
 using android::netdutils::IPSockAddr;
 using android::netdutils::setThreadName;
@@ -186,7 +184,7 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
     DnsTlsServer server = *static_cast<const DnsTlsServer*>(result.value());
 
     std::thread validate_thread([this, identity, server, netId, isRevalidation] {
-        setThreadName(StringPrintf("TlsVerify_%u", netId).c_str());
+        setThreadName(fmt::format("TlsVerify_{}", netId));
 
         // cat /proc/sys/net/ipv4/tcp_syn_retries yields "6".
         //

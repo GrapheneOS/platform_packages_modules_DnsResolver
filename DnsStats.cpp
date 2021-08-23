@@ -19,12 +19,11 @@
 
 #include "DnsStats.h"
 
+#include <android-base/format.h>
 #include <android-base/logging.h>
-#include <android-base/stringprintf.h>
 
 namespace android::net {
 
-using base::StringPrintf;
 using netdutils::DumpWriter;
 using netdutils::IPAddress;
 using netdutils::IPSockAddr;
@@ -54,7 +53,7 @@ std::string rcodeToName(int rcode) {
         case NS_R_NOTZONE: return "NOTZONE";
         case NS_R_INTERNAL_ERROR: return "INTERNAL_ERROR";
         case NS_R_TIMEOUT: return "TIMEOUT";
-        default: return StringPrintf("UNKNOWN(%d)", rcode);
+        default: return fmt::format("UNKNOWN({})", rcode);
     }
     // clang-format on
 }
@@ -82,18 +81,18 @@ int StatsData::averageLatencyMs() const {
 }
 
 std::string StatsData::toString() const {
-    if (total == 0) return StringPrintf("%s <no data>", sockAddr.ip().toString().c_str());
+    if (total == 0) return fmt::format("{} <no data>", sockAddr.ip().toString());
 
     const auto now = std::chrono::steady_clock::now();
     const int lastUpdateSec = duration_cast<seconds>(now - lastUpdate).count();
     std::string buf;
     for (const auto& [rcode, counts] : rcodeCounts) {
         if (counts != 0) {
-            buf += StringPrintf("%s:%d ", rcodeToName(rcode).c_str(), counts);
+            buf += fmt::format("{}:{} ", rcodeToName(rcode), counts);
         }
     }
-    return StringPrintf("%s (%d, %dms, [%s], %ds)", sockAddr.ip().toString().c_str(), total,
-                        averageLatencyMs(), buf.c_str(), lastUpdateSec);
+    return fmt::format("{} ({}, {}ms, [{}], {}s)", sockAddr.ip().toString(), total,
+                       averageLatencyMs(), buf, lastUpdateSec);
 }
 
 StatsRecords::StatsRecords(const IPSockAddr& ipSockAddr, size_t size)
@@ -273,8 +272,8 @@ void DnsStats::dump(DumpWriter& dw) {
         }
         for (const auto& [_, statsRecords] : statsMap) {
             const StatsData& data = statsRecords.getStatsData();
-            std::string str = data.toString();
-            str += StringPrintf(" score{%.1f}", statsRecords.score());
+            std::string str =
+                    fmt::format("{} score{{{:.1f}}}", data.toString(), statsRecords.score());
             dw.println("%s", str.c_str());
         }
     };

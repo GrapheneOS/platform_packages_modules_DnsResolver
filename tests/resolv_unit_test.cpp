@@ -17,8 +17,8 @@
 #define LOG_TAG "resolv"
 
 #include <aidl/android/net/IDnsResolver.h>
+#include <android-base/format.h>
 #include <android-base/logging.h>
-#include <android-base/stringprintf.h>
 #include <arpa/inet.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -39,7 +39,6 @@ namespace android {
 namespace net {
 
 using aidl::android::net::IDnsResolver;
-using android::base::StringPrintf;
 using android::net::NetworkDnsEventReported;
 using android::netdutils::ScopedAddrinfo;
 
@@ -247,9 +246,9 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters) {
         int expected_eai_error;
 
         std::string asParameters() const {
-            return StringPrintf("0x%x/%u/%s/%p/%p", ai_flags, ai_addrlen,
-                                ai_canonname ? ai_canonname : "(null)", (void*)ai_addr,
-                                (void*)ai_next);
+            return fmt::format("{:#x}/{}/{}/{}/{}", ai_flags, ai_addrlen,
+                               ai_canonname ? ai_canonname : "(null)", (void*)ai_addr,
+                               (void*)ai_next);
         }
     } testConfigs[]{
             {0, sizeof(in_addr) /*bad*/, nullptr, nullptr, nullptr, EAI_BADHINTS},
@@ -291,7 +290,7 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_Family) {
         if (family == AF_UNSPEC || family == AF_INET || family == AF_INET6) {
             continue;  // skip supported family
         }
-        SCOPED_TRACE(StringPrintf("family: %d", family));
+        SCOPED_TRACE(fmt::format("family: {}", family));
 
         addrinfo* result = nullptr;
         const addrinfo hints = {
@@ -321,9 +320,9 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_SocketType) {
                                             "ftp",
                                             "65536",  // out of valid port range from 0 to 65535
                                             "invalid"}) {
-                    SCOPED_TRACE(StringPrintf("family: %d, socktype: %d, protocol: %d, service: %s",
-                                              family, socktype, protocol,
-                                              service ? service : "service is nullptr"));
+                    SCOPED_TRACE(fmt::format("family: {}, socktype: {}, protocol: {}, service: {}",
+                                             family, socktype, protocol,
+                                             service ? service : "service is nullptr"));
                     addrinfo* result = nullptr;
                     NetworkDnsEventReported event;
                     int rv = resolv_getaddrinfo("localhost", service, &hints, &mNetcontext, &result,
@@ -351,8 +350,8 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_MeaningfulSocktypeAndProtocolCom
     for (const auto& family : families) {
         for (const auto& socktype : socktypes) {
             for (int protocol = 0; protocol < IPPROTO_MAX; ++protocol) {
-                SCOPED_TRACE(StringPrintf("family: %d, socktype: %d, protocol: %d", family,
-                                          socktype, protocol));
+                SCOPED_TRACE(fmt::format("family: {}, socktype: {}, protocol: {}", family, socktype,
+                                         protocol));
 
                 // Both socktype/protocol need to be specified.
                 if (!socktype || !protocol) continue;
@@ -403,8 +402,8 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_PortNameAndNumber) {
         int expected_eai_error;
 
         std::string asParameters() const {
-            return StringPrintf("0x%x/%d/%d/%s", ai_flags, ai_family, ai_socktype,
-                                servname ? servname : "(null)");
+            return fmt::format("{:#x}/{}/{}/{}", ai_flags, ai_family, ai_socktype,
+                               servname ? servname : "(null)");
         }
     } testConfigs[]{
             {0, AF_INET, SOCK_RAW /*bad*/, http_portno, EAI_SERVICE},
@@ -621,7 +620,7 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+        SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
         dns.clearQueries();
 
         addrinfo* result = nullptr;
@@ -665,7 +664,7 @@ TEST_F(ResolvGetAddrInfoTest, IllegalHostname) {
         dns.addMapping(hostname, ns_type::ns_t_aaaa, "2001:db8::42");
 
         for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
-            SCOPED_TRACE(StringPrintf("family: %d, config.name: %s", family, hostname));
+            SCOPED_TRACE(fmt::format("family: {}, config.name: {}", family, hostname));
 
             addrinfo* res = nullptr;
             const addrinfo hints = {.ai_family = family};
@@ -698,7 +697,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerResponseError) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(StringPrintf("rcode: %d", config.rcode));
+        SCOPED_TRACE(fmt::format("rcode: {}", config.rcode));
 
         test::DNSResponder dns(config.rcode);
         dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
@@ -1018,7 +1017,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+        SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
         mdnsv4.clearQueries();
         mdnsv6.clearQueries();
 
@@ -1077,7 +1076,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsIllegalHostname) {
     mdnsv6.addMapping(illegalHostname, ns_type::ns_t_aaaa, v6addr);
 
     for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
-        SCOPED_TRACE(StringPrintf("family: %d, illegalHostname: %s", family, illegalHostname));
+        SCOPED_TRACE(fmt::format("family: {}, illegalHostname: {}", family, illegalHostname));
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = family};
         NetworkDnsEventReported event;
@@ -1100,7 +1099,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsResponderTimeout) {
     ASSERT_EQ(0, SetResolvers());
 
     for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
-        SCOPED_TRACE(StringPrintf("family: %d, host_name: %s", family, host_name));
+        SCOPED_TRACE(fmt::format("family: {}, host_name: {}", family, host_name));
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = family};
         NetworkDnsEventReported event;
@@ -1134,8 +1133,7 @@ TEST_F(ResolvGetAddrInfoTest, CnamesNoIpAddress) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(
-                StringPrintf("config.family: %d, config.name: %s", config.family, config.name));
+        SCOPED_TRACE(fmt::format("config.family: {}, config.name: {}", config.family, config.name));
 
         addrinfo* res = nullptr;
         const addrinfo hints = {.ai_family = config.family};
@@ -1155,7 +1153,7 @@ TEST_F(ResolvGetAddrInfoTest, CnamesBrokenChainByIllegalCname) {
     static const struct TestConfig {
         const char* name;
         const char* cname;
-        std::string asHostName() const { return StringPrintf("%s.example.com.", name); }
+        std::string asHostName() const { return fmt::format("{}.example.com.", name); }
 
         // Illegal cname is verified by res_hnok() in system/netd/resolv/res_comp.cpp.
     } testConfigs[]{
@@ -1185,8 +1183,7 @@ TEST_F(ResolvGetAddrInfoTest, CnamesBrokenChainByIllegalCname) {
         dns.addMapping(config.cname, ns_type::ns_t_aaaa, "2001:db8::42");
 
         for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
-            SCOPED_TRACE(
-                    StringPrintf("family: %d, testHostName: %s", family, testHostName.c_str()));
+            SCOPED_TRACE(fmt::format("family: {}, testHostName: {}", family, testHostName));
 
             addrinfo* res = nullptr;
             const addrinfo hints = {.ai_family = family};
@@ -1207,7 +1204,7 @@ TEST_F(ResolvGetAddrInfoTest, CnamesInfiniteLoop) {
     ASSERT_EQ(0, SetResolvers());
 
     for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
-        SCOPED_TRACE(StringPrintf("family: %d", family));
+        SCOPED_TRACE(fmt::format("family: {}", family));
 
         addrinfo* res = nullptr;
         const addrinfo hints = {.ai_family = family};
@@ -1234,7 +1231,7 @@ TEST_F(ResolvGetAddrInfoTest, MultiAnswerSections) {
     ASSERT_EQ(0, SetResolvers());
 
     for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
-        SCOPED_TRACE(StringPrintf("family: %d", family));
+        SCOPED_TRACE(fmt::format("family: {}", family));
 
         addrinfo* res = nullptr;
         // If the socket type is not specified, every address will appear twice, once for
@@ -1373,7 +1370,7 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+        SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
         dns.clearQueries();
 
         addrinfo* result = nullptr;
@@ -1495,7 +1492,7 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+        SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
         dns.clearQueries();
 
         hostent* hp = nullptr;
@@ -1540,7 +1537,7 @@ TEST_F(GetHostByNameForNetContextTest, IllegalHostname) {
         dns.addMapping(hostname, ns_type::ns_t_aaaa, "2001:db8::42");
 
         for (const auto& family : {AF_INET, AF_INET6}) {
-            SCOPED_TRACE(StringPrintf("family: %d, config.name: %s", family, hostname));
+            SCOPED_TRACE(fmt::format("family: {}, config.name: {}", family, hostname));
 
             struct hostent* hp = nullptr;
             hostent hbuf;
@@ -1597,7 +1594,7 @@ TEST_F(GetHostByNameForNetContextTest, ServerResponseError) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(StringPrintf("rcode: %d", config.rcode));
+        SCOPED_TRACE(fmt::format("rcode: {}", config.rcode));
 
         test::DNSResponder dns(config.rcode);
         dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
@@ -1655,8 +1652,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesNoIpAddress) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(
-                StringPrintf("config.family: %d, config.name: %s", config.family, config.name));
+        SCOPED_TRACE(fmt::format("config.family: {}, config.name: {}", config.family, config.name));
 
         struct hostent* hp = nullptr;
         hostent hbuf;
@@ -1677,7 +1673,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesBrokenChainByIllegalCname) {
     static const struct TestConfig {
         const char* name;
         const char* cname;
-        std::string asHostName() const { return StringPrintf("%s.example.com.", name); }
+        std::string asHostName() const { return fmt::format("{}.example.com.", name); }
 
         // Illegal cname is verified by res_hnok() in system/netd/resolv/res_comp.cpp
     } testConfigs[]{
@@ -1707,8 +1703,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesBrokenChainByIllegalCname) {
         dns.addMapping(config.cname, ns_type::ns_t_aaaa, "2001:db8::42");
 
         for (const auto& family : {AF_INET, AF_INET6}) {
-            SCOPED_TRACE(
-                    StringPrintf("family: %d, testHostName: %s", family, testHostName.c_str()));
+            SCOPED_TRACE(fmt::format("family: {}, testHostName: {}", family, testHostName));
 
             struct hostent* hp = nullptr;
             hostent hbuf;
@@ -1730,7 +1725,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
     ASSERT_EQ(0, SetResolvers());
 
     for (const auto& family : {AF_INET, AF_INET6}) {
-        SCOPED_TRACE(StringPrintf("family: %d", family));
+        SCOPED_TRACE(fmt::format("family: {}", family));
 
         struct hostent* hp = nullptr;
         hostent hbuf;
@@ -1813,7 +1808,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+        SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
         hostent* result = nullptr;
         hostent hbuf;
         char tmpbuf[MAXPACKET];
@@ -1863,7 +1858,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsIllegalHostname) {
     mdnsv4.addMapping(illegalHostname, ns_type::ns_t_a, v4addr);
     mdnsv6.addMapping(illegalHostname, ns_type::ns_t_aaaa, v6addr);
 
-    SCOPED_TRACE(StringPrintf("family: %d, illegalHostname: %s", AF_INET6, illegalHostname));
+    SCOPED_TRACE(fmt::format("family: {}, illegalHostname: {}", AF_INET6, illegalHostname));
     struct hostent* result = nullptr;
     hostent hbuf;
     char tmpbuf[MAXPACKET];
@@ -1873,7 +1868,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsIllegalHostname) {
     EXPECT_EQ(nullptr, result);
     EXPECT_EQ(EAI_FAIL, rv);
 
-    SCOPED_TRACE(StringPrintf("family: %d, illegalHostname: %s", AF_INET, illegalHostname));
+    SCOPED_TRACE(fmt::format("family: {}, illegalHostname: {}", AF_INET, illegalHostname));
     rv = resolv_gethostbyname("hello^.local", AF_INET, &hbuf, tmpbuf, sizeof(tmpbuf), &mNetcontext,
                               &result, &event);
     EXPECT_EQ(nullptr, result);
@@ -1892,7 +1887,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsResponderTimeout) {
     ASSERT_EQ(0, SetResolvers());
 
     for (const auto& family : {AF_INET, AF_INET6}) {
-        SCOPED_TRACE(StringPrintf("family: %d, host_name: %s", family, host_name));
+        SCOPED_TRACE(fmt::format("family: {}, host_name: {}", family, host_name));
         hostent* result = nullptr;
         hostent hbuf;
         char tmpbuf[MAXPACKET];

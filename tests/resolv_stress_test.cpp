@@ -21,7 +21,6 @@
 #include <thread>
 
 #include <android-base/logging.h>
-#include <android-base/stringprintf.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -30,7 +29,6 @@
 #include "params.h"  // MAX_NS
 #include "resolv_test_utils.h"
 
-using android::base::StringPrintf;
 using android::net::ResolverStats;
 
 class ResolverStressTest : public ::testing::Test {
@@ -78,8 +76,8 @@ class ResolverStressTest : public ::testing::Test {
             thread.join();
         }
         auto t1 = std::chrono::steady_clock::now();
-        LOG(INFO) << StringPrintf("%u hosts, %u threads, %u queries, %Es", num_hosts, num_threads,
-                                  num_queries, std::chrono::duration<double>(t1 - t0).count());
+        LOG(INFO) << fmt::format("{} hosts, {} threads, {} queries, {:E}s", num_hosts, num_threads,
+                                 num_queries, std::chrono::duration<double>(t1 - t0).count());
 
         std::vector<std::string> res_servers;
         std::vector<std::string> res_domains;
