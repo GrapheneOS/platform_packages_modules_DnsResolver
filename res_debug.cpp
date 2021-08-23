@@ -108,7 +108,6 @@
 
 #include <aidl/android/net/IDnsResolver.h>
 #include <android-base/logging.h>
-#include <android-base/stringprintf.h>
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>

@@ -20,7 +20,6 @@
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/result.h>
-#include <android-base/stringprintf.h>
 #include <android-base/unique_fd.h>
 #include <android/multinetwork.h>  // ResNsendFlags
 #include <arpa/inet.h>
@@ -113,7 +112,6 @@ using android::base::Error;
 using android::base::GetProperty;
 using android::base::ParseInt;
 using android::base::Result;
-using android::base::StringPrintf;
 using android::base::unique_fd;
 using android::net::ResolverStats;
 using android::net::TunForwarder;
@@ -1118,7 +1116,7 @@ TEST_F(ResolverTest, GetAddrInfoV6_failing) {
     // TODO: This approach is implementation-dependent, change once metrics reporting is available.
     const addrinfo hints = {.ai_family = AF_INET6};
     for (int i = 0; i < sample_count; ++i) {
-        std::string domain = StringPrintf("nonexistent%d", i);
+        std::string domain = fmt::format("nonexistent{}", i);
         ScopedAddrinfo result = safe_getaddrinfo(domain.c_str(), nullptr, &hints);
     }
     // Due to 100% errors for all possible samples, the server should be ignored from now on and
@@ -1268,7 +1266,7 @@ TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
 
         // Start sending synchronized querying.
         for (int i = 0; i < 100; i++) {
-            std::string hostName = StringPrintf("hello%d.com.", counter++);
+            std::string hostName = fmt::format("hello{}.com.", counter++);
             dns.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
             const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
             EXPECT_TRUE(safe_getaddrinfo(hostName.c_str(), nullptr, &hints) != nullptr);
@@ -1322,7 +1320,7 @@ TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
 
         // Start sending synchronized querying.
         for (int i = 0; i < 100; i++) {
-            std::string hostName = StringPrintf("hello%d.com.", counter++);
+            std::string hostName = fmt::format("hello{}.com.", counter++);
             dns1.addMapping(hostName, ns_type::ns_t_a, "1.2.3.4");
             dns2.addMapping(hostName, ns_type::ns_t_a, "1.2.3.5");
             const addrinfo hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
@@ -1415,9 +1413,9 @@ TEST_F(ResolverTest, GetAddrInfoFromCustTable) {
         const std::vector<DnsRecord> dnsserverHosts;
         const std::vector<std::string> queryResult;
         std::string asParameters() const {
-            return StringPrintf("name: %s, customizedHosts: %s, dnsserverHosts: %s", name.c_str(),
-                                customizedHosts.empty() ? "No" : "Yes",
-                                dnsserverHosts.empty() ? "No" : "Yes");
+            return fmt::format("name: {}, customizedHosts: {}, dnsserverHosts: {}", name,
+                               customizedHosts.empty() ? "No" : "Yes",
+                               dnsserverHosts.empty() ? "No" : "Yes");
         }
     } testConfigs[]{
             // clang-format off
@@ -1620,7 +1618,7 @@ TEST_F(ResolverTest, SearchPathPrune) {
         // Fill up with invalid domain
         testDomains1.push_back(std::string(300, i + '0'));
         // Fill up with valid but duplicated domain
-        testDomains2.push_back(StringPrintf("domain%zu.org", i % DUPLICATED_DOMAIN_NUM));
+        testDomains2.push_back(fmt::format("domain{}.org", i % DUPLICATED_DOMAIN_NUM));
     }
 
     // Add valid domain used for query.
@@ -1695,7 +1693,7 @@ TEST_F(ResolverTest, MaxServerPrune_Binder) {
     std::vector<DnsResponderClient::Mapping> mappings;
 
     for (unsigned i = 0; i < MAXDNSRCH + 1; i++) {
-        domains.push_back(StringPrintf("example%u.com", i));
+        domains.push_back(fmt::format("example{}.com", i));
     }
     ASSERT_NO_FATAL_FAILURE(mDnsClient.SetupMappings(1, domains, &mappings));
     ASSERT_NO_FATAL_FAILURE(mDnsClient.SetupDNSServers(MAXNS + 1, mappings, &dns, &servers));
@@ -2115,8 +2113,8 @@ TEST_F(ResolverTest, TlsBypass) {
         const std::string method;
 
         std::string asHostName() const {
-            return StringPrintf("%s.%s.%s.", mode.c_str(), withWorkingTLS ? "tlsOn" : "tlsOff",
-                                method.c_str());
+            return fmt::format("{}.{}.{}.", mode, withWorkingTLS ? "tlsOn" : "tlsOff",
+                                method);
         }
     } testConfigs[]{
         {OFF,           true,  GETHOSTBYNAME},
@@ -2913,7 +2911,7 @@ TEST_F(ResolverTest, BrokenEdns) {
                     ednsString = "";
                     break;
             }
-            return StringPrintf("%s.%s.%s.", mode.c_str(), method.c_str(), ednsString);
+            return fmt::format("{}.{}.{}.", mode, method, ednsString);
         }
     } testConfigs[] = {
             // In OPPORTUNISTIC_TLS, if the DNS server doesn't support EDNS0 but TLS, the lookup
@@ -3287,7 +3285,7 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QuerySpecialUseIPv4Addresses) {
         std::string name;
         std::string addr;
 
-        std::string asHostName() const { return StringPrintf("%s.example.com.", name.c_str()); }
+        std::string asHostName() const { return fmt::format("{}.example.com.", name); }
     } testConfigs[]{
         {THIS_NETWORK,      ADDR_THIS_NETWORK},
         {LOOPBACK,          ADDR_LOOPBACK},
@@ -3398,8 +3396,8 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QueryNullArgumentNode) {
         std::string addr_v6;
 
         std::string asParameters() const {
-            return StringPrintf("flag=%d, addr_v4=%s, addr_v6=%s", flag, addr_v4.c_str(),
-                                addr_v6.c_str());
+            return fmt::format("flag={}, addr_v4={}, addr_v6={}", flag, addr_v4,
+                                addr_v6);
         }
     } testConfigs[]{
         {0 /* non-passive */, ADDR_LOCALHOST_V4, ADDR_LOCALHOST_V6},
@@ -3642,8 +3640,8 @@ TEST_F(ResolverTest, GetNameInfo_ReverseDnsQueryWithHavingNat64Prefix) {
         std::string host;
 
         std::string asParameters() const {
-            return StringPrintf("flag=%d, family=%d, addr=%s, host=%s", flag, family, addr.c_str(),
-                                host.c_str());
+            return fmt::format("flag={}, family={}, addr={}, host={}", flag, family, addr,
+                                host);
         }
     } testConfigs[]{
         {NI_NAMEREQD,    AF_INET,  "1.2.3.4",           "v4v6.example.com"},
@@ -3723,8 +3721,8 @@ TEST_F(ResolverTest, GetNameInfo_ReverseDns64Query) {
         std::string host;
 
         std::string asParameters() const {
-            return StringPrintf("hasSynthesizedPtrRecord=%d, flag=%d, addr=%s, host=%s",
-                                hasSynthesizedPtrRecord, flag, addr.c_str(), host.c_str());
+            return fmt::format("hasSynthesizedPtrRecord={}, flag={}, addr={}, host={}",
+                                hasSynthesizedPtrRecord, flag, addr, host);
         }
     } testConfigs[]{
         {false, NI_NAMEREQD,    "64:ff9b::102:304", "v4only.example.com"},
@@ -3930,7 +3928,7 @@ TEST_F(ResolverTest, GetHostByName2_Dns64QuerySpecialUseIPv4Addresses) {
         std::string addr;
 
         std::string asHostName() const {
-            return StringPrintf("%s.example.com.", name.c_str());
+            return fmt::format("{}.example.com.", name);
         }
     } testConfigs[]{
         {THIS_NETWORK,      ADDR_THIS_NETWORK},
@@ -5123,8 +5121,8 @@ TEST_F(ResolverTest, TruncatedRspMode) {
         const bool ret;
         const unsigned numQueries;
         std::string asParameters() const {
-            return StringPrintf("tcMode: %d, ret: %s, numQueries: %u", tcMode.value_or(-1),
-                                ret ? "true" : "false", numQueries);
+            return fmt::format("tcMode: {}, ret: {}, numQueries: {}", tcMode.value_or(-1),
+                               ret ? "true" : "false", numQueries);
         }
     } testConfigs[]{
             // clang-format off
@@ -5742,7 +5740,7 @@ TEST_P(ResolverParameterizedTest, MessageCompression) {
     };
 
     for (const auto& response : {kResponseAPointer, kResponseLabelEndingWithAPointer}) {
-        SCOPED_TRACE(StringPrintf("Hex dump: %s", toHex(makeSlice(response)).c_str()));
+        SCOPED_TRACE(fmt::format("Hex dump: {}", toHex(makeSlice(response))));
 
         test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
         dns.addMappingBinaryPacket(kHelloExampleComQueryV4, response);
@@ -6095,7 +6093,7 @@ TEST_F(ResolverTest, MdnsGetHostByName) {
         };
 
         for (const auto& config : testConfigs) {
-            SCOPED_TRACE(StringPrintf("family: %d", config.ai_family));
+            SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
             const hostent* result = nullptr;
 
             // No response for "nonexistent.local".
@@ -6498,10 +6496,10 @@ class ResolverMultinetworkTest : public ResolverTest {
         // Assuming mNetId is unique during ResolverMultinetworkTest, make the
         // address based on it to avoid conflicts.
         std::string makeIpv4AddrString(uint8_t n) const {
-            return StringPrintf("192.168.%u.%u", (mNetId - TEST_NETID_BASE), n);
+            return fmt::format("192.168.{}.{}", (mNetId - TEST_NETID_BASE), n);
         }
         std::string makeIpv6AddrString(uint8_t n) const {
-            return StringPrintf("2001:db8:%u::%u", (mNetId - TEST_NETID_BASE), n);
+            return fmt::format("2001:db8:{}::{}", (mNetId - TEST_NETID_BASE), n);
         }
     };
 
@@ -6799,7 +6797,7 @@ TEST_F(ResolverMultinetworkTest, GetAddrInfo_AI_ADDRCONFIG) {
             ConnectivityType::V4V6,
     };
     for (const auto& type : allTypes) {
-        SCOPED_TRACE(StringPrintf("ConnectivityType: %d", type));
+        SCOPED_TRACE(fmt::format("ConnectivityType: {}", type));
 
         // Create a network.
         ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(type);
@@ -6931,7 +6929,7 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
             {ConnectivityType::V4V6, {ipv6_addr, ipv4_addr}},
     };
     for (const auto& [type, result] : testPairs) {
-        SCOPED_TRACE(StringPrintf("ConnectivityType: %d", type));
+        SCOPED_TRACE(fmt::format("ConnectivityType: {}", type));
 
         // Create a network.
         ScopedPhysicalNetwork underlyingNetwork = CreateScopedPhysicalNetwork(type, "Underlying");
@@ -7051,7 +7049,7 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
             {ConnectivityType::V4V6, {ipv6_addr, ipv4_addr}},
     };
     for (const auto& [ipVersion, expectedDnsReply] : testPairs) {
-        SCOPED_TRACE(StringPrintf("ConnectivityType: %d", ipVersion));
+        SCOPED_TRACE(fmt::format("ConnectivityType: {}", ipVersion));
 
         // Create networks.
         ScopedPhysicalNetwork sysDefaultNetwork =

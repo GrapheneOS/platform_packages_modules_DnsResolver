@@ -23,7 +23,6 @@
 #include <android-base/format.h>
 #include <android-base/logging.h>
 #include <android-base/result.h>
-#include <android-base/stringprintf.h>
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
 #include <netdutils/Stopwatch.h>
@@ -37,7 +36,6 @@
 #include "resolv_private.h"
 #include "util.h"
 
-using android::base::StringPrintf;
 using android::netdutils::setThreadName;
 
 namespace android {
@@ -236,7 +234,7 @@ void DnsTlsTransport::onClosed() {
 
 void DnsTlsTransport::doReconnect() {
     std::lock_guard guard(mLock);
-    setThreadName(StringPrintf("TlsReconn_%u", mMark & 0xffff).c_str());
+    setThreadName(fmt::format("TlsReconn_{}", mMark & 0xffff));
     if (mClosing) {
         return;
     }
