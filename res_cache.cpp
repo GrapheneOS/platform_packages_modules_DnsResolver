@@ -52,7 +52,6 @@
 #include <aidl/android/net/IDnsResolver.h>
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
-#include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android-base/thread_annotations.h>
 #include <android/multinetwork.h>  // ResNsendFlags
@@ -1795,17 +1794,16 @@ int android_net_res_stats_get_info_for_net(unsigned netid, int* nscount,
 }
 
 std::vector<std::string> resolv_cache_dump_subsampling_map(unsigned netid) {
-    using android::base::StringPrintf;
     std::lock_guard guard(cache_mutex);
     NetConfig* netconfig = find_netconfig_locked(netid);
     if (netconfig == nullptr) return {};
     std::vector<std::string> result;
     for (const auto& pair : netconfig->dns_event_subsampling_map) {
-        result.push_back(StringPrintf("%s:%d",
-                                      (pair.first == DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY)
-                                              ? "default"
-                                              : std::to_string(pair.first).c_str(),
-                                      pair.second));
+        result.push_back(fmt::format("{}:{}",
+                                     (pair.first == DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY)
+                                             ? "default"
+                                             : std::to_string(pair.first),
+                                     pair.second));
     }
     return result;
 }
