@@ -34,7 +34,6 @@
 #include <algorithm>
 #include <vector>
 
-#include <android-base/stringprintf.h>
 #include <android/multinetwork.h>  // ResNsendFlags
 #include <cutils/misc.h>           // FIRST_APPLICATION_UID
 #include <cutils/multiuser.h>
@@ -560,7 +559,7 @@ bool getDns64Prefix(unsigned netId, netdutils::IPPrefix* prefix) {
 
 std::string makeThreadName(unsigned netId, uint32_t uid) {
     // The maximum of netId and app_id are 5-digit numbers.
-    return android::base::StringPrintf("Dns_%u_%u", netId, multiuser_get_app_id(uid));
+    return fmt::format("Dns_{}_{}", netId, multiuser_get_app_id(uid));
 }
 
 }  // namespace

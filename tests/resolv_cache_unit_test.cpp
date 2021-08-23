@@ -23,7 +23,6 @@
 #include <thread>
 
 #include <android-base/logging.h>
-#include <android-base/stringprintf.h>
 #include <android/multinetwork.h>
 #include <arpa/inet.h>
 #include <cutils/properties.h>
@@ -383,7 +382,7 @@ TEST_F(ResolvCacheTest, CacheLookup_Types) {
     };
 
     for (const auto& t : Types) {
-        std::string name = android::base::StringPrintf("cache.lookup.type.%s", t.rdata.c_str());
+        std::string name = fmt::format("cache.lookup.type.{}", t.rdata);
         SCOPED_TRACE(name);
 
         CacheEntry ce = makeCacheEntry(QUERY, name.data(), ns_c_in, t.type, t.rdata.data());
@@ -562,7 +561,7 @@ TEST_F(ResolvCacheTest, MaxEntries) {
     std::vector<CacheEntry> ces;
 
     for (int i = 0; i < 2 * MAX_ENTRIES; i++) {
-        std::string qname = android::base::StringPrintf("cache.%04d", i);
+        std::string qname = fmt::format("cache.{:04d}", i);
         SCOPED_TRACE(qname);
         CacheEntry ce = makeCacheEntry(QUERY, qname.data(), ns_c_in, ns_t_a, "1.2.3.4");
         EXPECT_EQ(0, cacheAdd(TEST_NETID, ce));
@@ -571,7 +570,7 @@ TEST_F(ResolvCacheTest, MaxEntries) {
     }
 
     for (int i = 0; i < 2 * MAX_ENTRIES; i++) {
-        std::string qname = android::base::StringPrintf("cache.%04d", i);
+        std::string qname = fmt::format("cache.{:04d}", i);
         SCOPED_TRACE(qname);
         if (i < MAX_ENTRIES) {
             // Because the cache is LRU, the oldest queries should have been purged,
@@ -596,7 +595,7 @@ TEST_F(ResolvCacheTest, CacheFull) {
 
     // Stuff the resolver cache.
     for (int i = 2; i < MAX_ENTRIES; i++) {
-        std::string qname = android::base::StringPrintf("cache.%04d", i);
+        std::string qname = fmt::format("cache.{:04d}", i);
         SCOPED_TRACE(qname);
         CacheEntry ce = makeCacheEntry(QUERY, qname.data(), ns_c_in, ns_t_a, "1.2.3.4", 50s);
         EXPECT_EQ(0, cacheAdd(TEST_NETID, ce));
