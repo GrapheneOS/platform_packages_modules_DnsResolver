@@ -910,11 +910,12 @@ namespace {
 constexpr int EAI_OK = 0;
 constexpr char DNS_EVENT_SUBSAMPLING_MAP_FLAG[] =
         "persist.device_config.netd_native.dns_event_subsample_map";
+constexpr char MDNS_EVENT_SUBSAMPLING_MAP_FLAG[] =
+        "persist.device_config.netd_native.mdns_event_subsample_map";
 
 class ScopedCacheCreate {
   public:
-    explicit ScopedCacheCreate(unsigned netid, const char* subsampling_map,
-                               const char* property = DNS_EVENT_SUBSAMPLING_MAP_FLAG)
+    explicit ScopedCacheCreate(unsigned netid, const char* subsampling_map, const char* property)
         : mStoredNetId(netid), mStoredProperty(property) {
         property_get(property, mStoredMap, "");
         property_set(property, subsampling_map);
@@ -936,45 +937,94 @@ class ScopedCacheCreate {
 TEST_F(ResolvCacheTest, DnsEventSubsampling) {
     // Test defaults, default flag is "default:8 0:400 2:110 7:110" if no experiment flag is set
     {
-        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "");
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_AGAIN), 110U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA), 110U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK), 400U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS),
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "", DNS_EVENT_SUBSAMPLING_MAP_FLAG);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_AGAIN, false), 110U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, false), 110U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, false), 400U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS, false),
                   8U);  // default
-        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID),
+        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID, false),
                     testing::UnorderedElementsAreArray({"default:8", "0:400", "2:110", "7:110"}));
     }
     // Now change the experiment flag to "0:42 default:666"
     {
-        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "0:42 default:666");
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK), 42U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA),
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "0:42 default:666",
+                                            DNS_EVENT_SUBSAMPLING_MAP_FLAG);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, false), 42U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, false),
                   666U);  // default
-        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID),
+        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID, false),
                     testing::UnorderedElementsAreArray({"default:666", "0:42"}));
     }
     // Now change the experiment flag to something illegal
     {
-        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "asvaxx");
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "asvaxx", DNS_EVENT_SUBSAMPLING_MAP_FLAG);
         // 0(disable log) is the default value if experiment flag is invalid.
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK), 0U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA), 0U);
-        EXPECT_TRUE(resolv_cache_dump_subsampling_map(TEST_NETID).empty());
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, false), 0U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, false), 0U);
+        EXPECT_TRUE(resolv_cache_dump_subsampling_map(TEST_NETID, false).empty());
     }
     // Test negative and zero denom
     {
-        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "0:-42 default:-666 7:10 10:0");
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "0:-42 default:-666 7:10 10:0",
+                                            DNS_EVENT_SUBSAMPLING_MAP_FLAG);
         // 0(disable log) is the default value if no valid denom is set
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK), 0U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS), 0U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA), 10U);
-        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_SOCKTYPE), 0U);
-        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID),
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, false), 0U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS, false), 0U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, false), 10U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_SOCKTYPE, false), 0U);
+        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID, false),
                     testing::UnorderedElementsAreArray({"7:10", "10:0"}));
     }
 }
 
+TEST_F(ResolvCacheTest, MdnsEventSubsampling) {
+    // Test defaults, DEFAULT_MDNS_SUBSAMPLING_MAP is "default:1" if no experiment flag is set
+    {
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "", MDNS_EVENT_SUBSAMPLING_MAP_FLAG);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_AGAIN, true),
+                  1U);  // default for all return_code
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, true), 1U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS, true), 1U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, true), 1U);
+        // not equal to DEFAULT_SUBSAMPLING_MAP[] = "default:8 0:400 2:110 7:110";
+        EXPECT_NE(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_AGAIN, true), 110U);
+        EXPECT_NE(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, true), 110U);
+        EXPECT_NE(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, true), 400U);
+        EXPECT_NE(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS, true), 8U);
+        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID, true),
+                    testing::UnorderedElementsAreArray({"default:1"}));
+    }
+    // Now change the experiment flag to "default:1 0:10"
+    {
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "0:10 default:1",
+                                            MDNS_EVENT_SUBSAMPLING_MAP_FLAG);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, true), 10U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, true), 1U);  // default
+        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID, true),
+                    testing::UnorderedElementsAreArray({"0:10", "default:1"}));
+    }
+    // Now change the experiment flag to something illegal
+    {
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "asvaxx", MDNS_EVENT_SUBSAMPLING_MAP_FLAG);
+        // 0(disable log) is the default value if experiment flag is invalid.
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, true), 0U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, true), 0U);
+        EXPECT_TRUE(resolv_cache_dump_subsampling_map(TEST_NETID, true).empty());
+    }
+    // Test negative and zero denom
+    {
+        ScopedCacheCreate scopedCacheCreate(TEST_NETID, "0:-42 default:-666 7:10 10:0",
+                                            MDNS_EVENT_SUBSAMPLING_MAP_FLAG);
+        // 0(disable log) is the default value if no valid denom is set
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_OK, true), 0U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_BADFLAGS, true), 0U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_NODATA, true), 10U);
+        EXPECT_EQ(resolv_cache_get_subsampling_denom(TEST_NETID, EAI_SOCKTYPE, true), 0U);
+        EXPECT_THAT(resolv_cache_dump_subsampling_map(TEST_NETID, true),
+                    testing::UnorderedElementsAreArray({"7:10", "10:0"}));
+    }
+}
 // TODO: Tests for NetConfig, including:
 //     - res_stats
 //         -- _resolv_cache_add_resolver_stats_sample()
