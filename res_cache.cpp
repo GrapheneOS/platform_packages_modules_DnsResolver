@@ -67,7 +67,6 @@
 
 using aidl::android::net::IDnsResolver;
 using aidl::android::net::ResolverOptionsParcel;
-using android::base::StringAppendF;
 using android::net::DnsQueryEvent;
 using android::net::DnsStats;
 using android::net::Experiments;
@@ -1121,11 +1120,9 @@ void _resolv_cache_query_failed(unsigned netid, const void* query, int querylen,
 }
 
 static void cache_dump_mru_locked(Cache* cache) {
-    std::string buf;
-
-    StringAppendF(&buf, "MRU LIST (%2d): ", cache->num_entries);
+    std::string buf = fmt::format("MRU LIST ({:2d}): ", cache->num_entries);
     for (Entry* e = cache->mru_list.mru_next; e != &cache->mru_list; e = e->mru_next) {
-        StringAppendF(&buf, " %d", e->id);
+        fmt::format_to(std::back_inserter(buf), " {}", e->id);
     }
 
     LOG(INFO) << __func__ << ": " << buf;
