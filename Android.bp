@@ -76,7 +76,7 @@ aidl_interface {
         "binder/android/net/resolv/aidl/**/*.aidl",
     ],
     imports: [
-        "netd_event_listener_interface",
+        "netd_event_listener_interface-V1",
     ],
     backend: {
         java: {
