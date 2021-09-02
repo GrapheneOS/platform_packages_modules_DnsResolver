@@ -357,7 +357,6 @@ impl DohConnection {
                     }
                 }
             }
-            // TODO: clean up the expired queries.
             self.recv_rx().await?;
             self.flush_tx().await?;
             if let Ok((stream_id, buf)) = self.recv_query() {
@@ -679,6 +678,19 @@ async fn handle_query_cmd(
         let _ = resp.send(Response::Error { error: QueryError::ServerNotReady });
     }
 }
+fn need_process_queries(doh_conn_map: &HashMap<u32, (ServerInfo, Option<DohConnection>)>) -> bool {
+    if doh_conn_map.is_empty() {
+        return false;
+    }
+    for (_, doh_conn) in doh_conn_map.values() {
+        if let Some(doh_conn) = doh_conn {
+            if !doh_conn.query_map.is_empty() || !doh_conn.pending_queries.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 async fn doh_handler(
     mut cmd_rx: CmdReceiver,
@@ -703,7 +715,7 @@ async fn doh_handler(
                     }
                 }
                 join_all(futures).await
-            } , if !doh_conn_map.is_empty() => {},
+            }, if need_process_queries(&doh_conn_map) => {},
             Some(result) = probe_futures.next() => {
                 let runtime_clone = runtime.clone();
                 handle_probe_result(result, &mut doh_conn_map, runtime_clone, validation_fn);
@@ -1015,12 +1027,11 @@ pub unsafe extern "C" fn doh_query(
                         response.copy_from_slice(&answer);
                         answer.len() as ssize_t
                     }
-                    Response::Error { error: QueryError::ServerNotReady } => RESULT_CAN_NOT_SEND,
-                    _ => RESULT_INTERNAL_ERROR,
+                    _ => RESULT_CAN_NOT_SEND,
                 },
                 Err(e) => {
                     error!("no result {}", e);
-                    RESULT_INTERNAL_ERROR
+                    RESULT_CAN_NOT_SEND
                 }
             },
             Err(e) => {
@@ -1029,7 +1040,7 @@ pub unsafe extern "C" fn doh_query(
             }
         }
     } else {
-        RESULT_INTERNAL_ERROR
+        RESULT_CAN_NOT_SEND
     }
 }
 
