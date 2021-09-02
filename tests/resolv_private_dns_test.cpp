@@ -285,7 +285,7 @@ TEST_P(TransportParameterizedTest, GetAddrInfo) {
     if (testParamHasDoh()) {
         EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
     } else {
-        EXPECT_NO_FAILURE(expectQueries(2 /* dns */, 0 /* dot */, 0 /* doh */));
+        EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 2 /* dot */, 0 /* doh */));
     }
 
     // Stop the private DNS servers. Since we are in opportunistic mode, queries will
@@ -298,7 +298,7 @@ TEST_P(TransportParameterizedTest, GetAddrInfo) {
     if (testParamHasDoh()) {
         EXPECT_NO_FAILURE(expectQueries(2 /* dns */, 0 /* dot */, 2 /* doh */));
     } else {
-        EXPECT_NO_FAILURE(expectQueries(4 /* dns */, 0 /* dot */, 0 /* doh */));
+        EXPECT_NO_FAILURE(expectQueries(2 /* dns */, 2 /* dot */, 0 /* doh */));
     }
 }
 
@@ -357,8 +357,7 @@ TEST_F(PrivateDnsDohTest, ValidationFail) {
 
 // Tests that DoH query fails and fallback happens.
 //   - Fallback to UDP if DoH query times out
-//   - Fallback to DoT if DoH validation is in progress.
-//   - Fallback to UDP if DoH validation has failed.
+//   - Fallback to DoT if DoH validation is in progress or has failed.
 TEST_F(PrivateDnsDohTest, QueryFailover) {
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
@@ -391,13 +390,6 @@ TEST_F(PrivateDnsDohTest, QueryFailover) {
 
     EXPECT_EQ(dot.queries(), 2);
     EXPECT_EQ(dns.queries().size(), 0U);
-    waitForDohValidationTimeout();
-    flushCache();
-
-    // Expect that this query fall back to UDP.
-    EXPECT_NO_FAILURE(sendQueryAndCheckResult());
-    EXPECT_EQ(dot.queries(), 2);
-    EXPECT_EQ(dns.queries().size(), 2U);
 }
 
 // Tests that the DnsResolver prioritizes IPv6 DoH servers over IPv4 DoH servers.
