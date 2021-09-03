@@ -150,19 +150,19 @@ using android::net::PROTO_UDP;
 using android::netdutils::IPSockAddr;
 using android::netdutils::Slice;
 using android::netdutils::Stopwatch;
+using std::span;
 
 const std::vector<IPSockAddr> mdns_addrs = {IPSockAddr::toIPSockAddr("ff02::fb", 5353),
                                             IPSockAddr::toIPSockAddr("224.0.0.251", 5353)};
 
 static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd_out, int* terrno);
-static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
-                   uint8_t* ans, int anssiz, int* terrno, size_t* ns, int* v_circuit,
-                   int* gotsomewhere, time_t* at, int* rcode, int* delay);
-static int send_vc(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
-                   uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
-                   int* delay);
-static int send_mdns(ResState* statp, std::span<const uint8_t> buf, uint8_t* ans, int anssiz,
-                     int* terrno, int* rcode);
+static int send_dg(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
+                   int* terrno, size_t* ns, int* v_circuit, int* gotsomewhere, time_t* at,
+                   int* rcode, int* delay);
+static int send_vc(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
+                   int* terrno, size_t ns, time_t* at, int* rcode, int* delay);
+static int send_mdns(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* terrno,
+                     int* rcode);
 static void dump_error(const char*, const struct sockaddr*);
 
 static int sock_eq(struct sockaddr*, struct sockaddr*);
@@ -175,10 +175,10 @@ static int res_tls_send(const std::list<DnsTlsServer>& tlsServers, ResState*, co
                         const Slice answer, int* rcode, PrivateDnsMode mode);
 static ssize_t res_doh_send(ResState*, const Slice query, const Slice answer, int* rcode);
 
-NsType getQueryType(const uint8_t* msg, size_t msgLen) {
+NsType getQueryType(span<const uint8_t> msg) {
     ns_msg handle;
     ns_rr rr;
-    if (ns_initparse((const uint8_t*)msg, msgLen, &handle) < 0 ||
+    if (ns_initparse(msg.data(), msg.size(), &handle) < 0 ||
         ns_parserr(&handle, ns_s_qd, 0, &rr) < 0) {
         return NS_T_INVALID;
     }
@@ -348,10 +348,10 @@ static int res_ourserver_p(ResState* statp, const sockaddr* sa) {
 }
 
 /* int
- * res_nameinquery(name, type, cl, buf, eom)
- *	look for (name, type, cl) in the query section of packet (buf, eom)
+ * res_nameinquery(name, type, cl, msg, eom)
+ *	look for (name, type, cl) in the query section of packet (msg, eom)
  * requires:
- *	buf + HFIXEDSZ <= eom
+ *	msg + HFIXEDSZ <= eom
  * returns:
  *	-1 : format error
  *	0  : not found
@@ -359,13 +359,13 @@ static int res_ourserver_p(ResState* statp, const sockaddr* sa) {
  * author:
  *	paul vixie, 29may94
  */
-int res_nameinquery(const char* name, int type, int cl, const uint8_t* buf, const uint8_t* eom) {
-    const uint8_t* cp = buf + HFIXEDSZ;
-    int qdcount = ntohs(((const HEADER*) (const void*) buf)->qdcount);
+int res_nameinquery(const char* name, int type, int cl, const uint8_t* msg, const uint8_t* eom) {
+    const uint8_t* cp = msg + HFIXEDSZ;
+    int qdcount = ntohs(((const HEADER*)(const void*)msg)->qdcount);
 
     while (qdcount-- > 0) {
         char tname[MAXDNAME + 1];
-        int n = dn_expand(buf, eom, cp, tname, sizeof tname);
+        int n = dn_expand(msg, eom, cp, tname, sizeof tname);
         if (n < 0) return (-1);
         cp += n;
         if (cp + 2 * INT16SZ > eom) return (-1);
@@ -433,30 +433,29 @@ static bool isNetworkRestricted(int terrno) {
     return (terrno == EPERM);
 }
 
-int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int anssiz, int* rcode,
+int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* rcode,
               uint32_t flags, std::chrono::milliseconds sleepTimeMs) {
     LOG(DEBUG) << __func__;
 
     // Should not happen
-    if (anssiz < HFIXEDSZ) {
+    if (ans.size() < HFIXEDSZ) {
         // TODO: Remove errno once callers stop using it
         errno = EINVAL;
         return -EINVAL;
     }
-    res_pquery({buf, buflen});
+    res_pquery(msg);
 
     int anslen = 0;
     Stopwatch cacheStopwatch;
-    ResolvCacheStatus cache_status =
-            resolv_cache_lookup(statp->netid, buf, buflen, ans, anssiz, &anslen, flags);
+    ResolvCacheStatus cache_status = resolv_cache_lookup(statp->netid, msg, ans, &anslen, flags);
     const int32_t cacheLatencyUs = saturate_cast<int32_t>(cacheStopwatch.timeTakenUs());
     if (cache_status == RESOLV_CACHE_FOUND) {
-        HEADER* hp = (HEADER*)(void*)ans;
+        HEADER* hp = (HEADER*)(void*)ans.data();
         *rcode = hp->rcode;
         DnsQueryEvent* dnsQueryEvent = addDnsQueryEvent(statp->event);
         dnsQueryEvent->set_latency_micros(cacheLatencyUs);
         dnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(cache_status));
-        dnsQueryEvent->set_type(getQueryType(buf, buflen));
+        dnsQueryEvent->set_type(getQueryType(msg));
         return anslen;
     } else if (cache_status != RESOLV_CACHE_UNSUPPORTED) {
         // had a cache miss for a known network, so populate the thread private
@@ -470,30 +469,29 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         int terrno = ETIME;
         int resplen = 0;
         *rcode = RCODE_INTERNAL_ERROR;
-        std::span<const uint8_t> buffer(buf, buflen);
         Stopwatch queryStopwatch;
-        resplen = send_mdns(statp, buffer, ans, anssiz, &terrno, rcode);
+        resplen = send_mdns(statp, msg, ans, &terrno, rcode);
         const IPSockAddr& receivedMdnsAddr =
-                (getQueryType(buf, buflen) == NS_T_AAAA) ? mdns_addrs[0] : mdns_addrs[1];
+                (getQueryType(msg) == NS_T_AAAA) ? mdns_addrs[0] : mdns_addrs[1];
         DnsQueryEvent* mDnsQueryEvent = addDnsQueryEvent(statp->event);
         mDnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(cache_status));
         mDnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
         mDnsQueryEvent->set_ip_version(ipFamilyToIPVersion(receivedMdnsAddr.family()));
         mDnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
         mDnsQueryEvent->set_protocol(PROTO_MDNS);
-        mDnsQueryEvent->set_type(getQueryType(buf, buflen));
+        mDnsQueryEvent->set_type(getQueryType(msg));
         mDnsQueryEvent->set_linux_errno(static_cast<LinuxErrno>(terrno));
         resolv_stats_add(statp->netid, receivedMdnsAddr, mDnsQueryEvent);
 
         if (resplen <= 0) {
-            _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
+            _resolv_cache_query_failed(statp->netid, msg, flags);
             return -terrno;
         }
         LOG(DEBUG) << __func__ << ": got answer:";
-        res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
+        res_pquery(ans.first(resplen));
 
         if (cache_status == RESOLV_CACHE_NOTFOUND) {
-            resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
+            resolv_cache_add(statp->netid, msg, {ans.data(), resplen});
         }
         return resplen;
     }
@@ -503,7 +501,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
         // point trying. Tell the cache the query failed, or any retries and anyone else
         // asking the same question will block for PENDING_REQUEST_TIMEOUT seconds instead
         // of failing fast.
-        _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
+        _resolv_cache_query_failed(statp->netid, msg, flags);
 
         // TODO: Remove errno once callers stop using it
         errno = ESRCH;
@@ -513,18 +511,19 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
     // Private DNS
     if (!(statp->netcontext_flags & NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS)) {
         bool fallback = false;
-        int resplen = res_private_dns_send(statp, Slice(const_cast<uint8_t*>(buf), buflen),
-                                           Slice(ans, anssiz), rcode, &fallback);
+        int resplen =
+                res_private_dns_send(statp, Slice(const_cast<uint8_t*>(msg.data()), msg.size()),
+                                     Slice(ans.data(), ans.size()), rcode, &fallback);
         if (resplen > 0) {
             LOG(DEBUG) << __func__ << ": got answer from Private DNS";
-            res_pquery({ans, resplen});
+            res_pquery(ans.first(resplen));
             if (cache_status == RESOLV_CACHE_NOTFOUND) {
-                resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
+                resolv_cache_add(statp->netid, msg, ans.first(resplen));
             }
             return resplen;
         }
         if (!fallback) {
-            _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
+            _resolv_cache_query_failed(statp->netid, msg, flags);
             return -ETIMEDOUT;
         }
     }
@@ -558,7 +557,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
 
     // TODO: Let it always choose the first nameserver when sort_nameservers is enabled.
     if ((flags & ANDROID_RESOLV_NO_RETRY) && usableServersCount > 1) {
-        auto hp = reinterpret_cast<const HEADER*>(buf);
+        auto hp = reinterpret_cast<const HEADER*>(msg.data());
 
         // Select a random server based on the query id
         int selectedServer = (hp->id % usableServersCount) + 1;
@@ -567,7 +566,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
 
     // Send request, RETRY times, or until successful.
     int retryTimes = (flags & ANDROID_RESOLV_NO_RETRY) ? 1 : params.retry_count;
-    int useTcp = buflen > PACKETSZ;
+    int useTcp = msg.size() > PACKETSZ;
     int gotsomewhere = 0;
 
     // Use an impossible error code as default value
@@ -598,10 +597,10 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             if (useTcp) {
                 // TCP; at most one attempt per server.
                 attempt = retryTimes;
-                resplen = send_vc(statp, &params, buf, buflen, ans, anssiz, &terrno, ns,
-                                  &query_time, rcode, &delay);
+                resplen =
+                        send_vc(statp, &params, msg, ans, &terrno, ns, &query_time, rcode, &delay);
 
-                if (buflen <= PACKETSZ && resplen <= 0 &&
+                if (msg.size() <= PACKETSZ && resplen <= 0 &&
                     statp->tc_mode == aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
                     // reset to UDP for next query on next DNS server if resolver is currently doing
                     // TCP fallback retry and current server does not support TCP connectin
@@ -610,8 +609,8 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                 LOG(INFO) << __func__ << ": used send_vc " << resplen << " terrno: " << terrno;
             } else {
                 // UDP
-                resplen = send_dg(statp, &params, buf, buflen, ans, anssiz, &terrno, &actualNs,
-                                  &useTcp, &gotsomewhere, &query_time, rcode, &delay);
+                resplen = send_dg(statp, &params, msg, ans, &terrno, &actualNs, &useTcp,
+                                  &gotsomewhere, &query_time, rcode, &delay);
                 fallbackTCP = useTcp ? true : false;
                 retry_count_for_event = attempt;
                 LOG(INFO) << __func__ << ": used send_dg " << resplen << " terrno: " << terrno;
@@ -631,7 +630,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
             dnsQueryEvent->set_retry_times(retry_count_for_event);
             dnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
             dnsQueryEvent->set_protocol(query_proto);
-            dnsQueryEvent->set_type(getQueryType(buf, buflen));
+            dnsQueryEvent->set_type(getQueryType(msg));
             dnsQueryEvent->set_linux_errno(static_cast<LinuxErrno>(terrno));
 
             // Only record stats the first time we try a query. This ensures that
@@ -660,16 +659,16 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                 continue;
             }
             if (resplen < 0) {
-                _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
+                _resolv_cache_query_failed(statp->netid, msg, flags);
                 statp->closeSockets();
                 return -terrno;
             }
 
             LOG(DEBUG) << __func__ << ": got answer:";
-            res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
+            res_pquery(ans.first(resplen));
 
             if (cache_status == RESOLV_CACHE_NOTFOUND) {
-                resolv_cache_add(statp->netid, buf, buflen, ans, resplen);
+                resolv_cache_add(statp->netid, msg, {ans.data(), resplen});
             }
             statp->closeSockets();
             return (resplen);
@@ -682,7 +681,7 @@ int res_nsend(ResState* statp, const uint8_t* buf, int buflen, uint8_t* ans, int
                    : gotsomewhere ? ETIMEDOUT /* no answer obtained */
                                   : ECONNREFUSED /* no nameservers found */;
 
-    _resolv_cache_query_failed(statp->netid, buf, buflen, flags);
+    _resolv_cache_query_failed(statp->netid, msg, flags);
     return -terrno;
 }
 
@@ -707,13 +706,12 @@ static struct timespec get_timeout(ResState* statp, const res_params* params, co
     return result;
 }
 
-static int send_vc(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
-                   uint8_t* ans, int anssiz, int* terrno, size_t ns, time_t* at, int* rcode,
-                   int* delay) {
+static int send_vc(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
+                   int* terrno, size_t ns, time_t* at, int* rcode, int* delay) {
     *at = time(NULL);
     *delay = 0;
-    const HEADER* hp = (const HEADER*) (const void*) buf;
-    HEADER* anhp = (HEADER*) (void*) ans;
+    const HEADER* hp = (const HEADER*)(const void*)msg.data();
+    HEADER* anhp = (HEADER*)(void*)ans.data();
     struct sockaddr* nsap;
     int nsaplen;
     int truncating, connreset, n;
@@ -807,12 +805,13 @@ same_ns:
     /*
      * Send length & message
      */
-    uint16_t len = htons(static_cast<uint16_t>(buflen));
+    uint16_t len = htons(static_cast<uint16_t>(msg.size()));
     const iovec iov[] = {
             {.iov_base = &len, .iov_len = INT16SZ},
-            {.iov_base = const_cast<uint8_t*>(buf), .iov_len = static_cast<size_t>(buflen)},
+            {.iov_base = const_cast<uint8_t*>(msg.data()),
+             .iov_len = static_cast<size_t>(msg.size())},
     };
-    if (writev(statp->tcp_nssock, iov, 2) != (INT16SZ + buflen)) {
+    if (writev(statp->tcp_nssock, iov, 2) != (INT16SZ + msg.size())) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": write failed: ";
         statp->closeSockets();
@@ -822,7 +821,7 @@ same_ns:
      * Receive length & response
      */
 read_len:
-    cp = ans;
+    cp = ans.data();
     len = INT16SZ;
     while ((n = read(statp->tcp_nssock, (char*)cp, (size_t)len)) > 0) {
         cp += n;
@@ -847,11 +846,11 @@ read_len:
         }
         return (0);
     }
-    uint16_t resplen = ntohs(*reinterpret_cast<const uint16_t*>(ans));
-    if (resplen > anssiz) {
+    uint16_t resplen = ntohs(*reinterpret_cast<const uint16_t*>(ans.data()));
+    if (resplen > ans.size()) {
         LOG(DEBUG) << __func__ << ": response truncated";
         truncating = 1;
-        len = anssiz;
+        len = ans.size();
     } else
         len = resplen;
     if (len < HFIXEDSZ) {
@@ -863,7 +862,7 @@ read_len:
         statp->closeSockets();
         return (0);
     }
-    cp = ans;
+    cp = ans.data();
     while (len != 0 && (n = read(statp->tcp_nssock, (char*)cp, (size_t)len)) > 0) {
         cp += n;
         len -= n;
@@ -880,7 +879,7 @@ read_len:
          * Flush rest of answer so connection stays in synch.
          */
         anhp->tc = 1;
-        len = resplen - anssiz;
+        len = resplen - ans.size();
         while (len != 0) {
             char junk[PACKETSZ];
 
@@ -890,9 +889,9 @@ read_len:
             else
                 break;
         }
-        LOG(WARNING) << __func__ << ": resplen " << resplen << " exceeds buf size " << anssiz;
+        LOG(WARNING) << __func__ << ": resplen " << resplen << " exceeds buf size " << ans.size();
         // return size should never exceed container size
-        resplen = anssiz;
+        resplen = ans.size();
     }
     /*
      * If the calling application has bailed out of
@@ -903,7 +902,7 @@ read_len:
      */
     if (hp->id != anhp->id) {
         LOG(DEBUG) << __func__ << ": ld answer (unexpected):";
-        res_pquery({ans, resplen});
+        res_pquery({ans.data(), resplen});
         goto read_len;
     }
 
@@ -1030,10 +1029,10 @@ static Result<std::vector<int>> udpRetryingPollWrapper(ResState* statp, int addr
     return std::vector<int>{statp->udpsocks[addrInfo]};
 }
 
-bool ignoreInvalidAnswer(ResState* statp, const sockaddr_storage& from, const uint8_t* buf,
-                         int buflen, uint8_t* ans, int anssiz, int* receivedFromNs) {
-    const HEADER* hp = (const HEADER*)(const void*)buf;
-    HEADER* anhp = (HEADER*)(void*)ans;
+bool ignoreInvalidAnswer(ResState* statp, const sockaddr_storage& from, span<const uint8_t> msg,
+                         span<uint8_t> ans, int* receivedFromNs) {
+    const HEADER* hp = (const HEADER*)(const void*)msg.data();
+    HEADER* anhp = (HEADER*)(void*)ans.data();
     if (hp->id != anhp->id) {
         // response from old query, ignore it.
         LOG(DEBUG) << __func__ << ": old answer:";
@@ -1044,7 +1043,8 @@ bool ignoreInvalidAnswer(ResState* statp, const sockaddr_storage& from, const ui
         LOG(DEBUG) << __func__ << ": not our server:";
         return true;
     }
-    if (!res_queriesmatch(buf, buf + buflen, ans, ans + anssiz)) {
+    if (!res_queriesmatch(msg.data(), msg.data() + msg.size(), ans.data(),
+                          ans.data() + ans.size())) {
         // response contains wrong query? ignore it.
         LOG(DEBUG) << __func__ << ": wrong query name:";
         return true;
@@ -1088,9 +1088,9 @@ static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd
     return 1;
 }
 
-static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int buflen,
-                   uint8_t* ans, int anssiz, int* terrno, size_t* ns, int* v_circuit,
-                   int* gotsomewhere, time_t* at, int* rcode, int* delay) {
+static int send_dg(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
+                   int* terrno, size_t* ns, int* v_circuit, int* gotsomewhere, time_t* at,
+                   int* rcode, int* delay) {
     // It should never happen, but just in case.
     if (*ns >= statp->nsaddrs.size()) {
         LOG(ERROR) << __func__ << ": Out-of-bound indexing: " << ns;
@@ -1119,7 +1119,7 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
         }
         LOG(DEBUG) << __func__ << ": new DG socket";
     }
-    if (send(statp->udpsocks[*ns], (const char*)buf, (size_t)buflen, 0) != buflen) {
+    if (send(statp->udpsocks[*ns], msg.data(), msg.size(), 0) != msg.size()) {
         *terrno = errno;
         PLOG(DEBUG) << __func__ << ": send: ";
         statp->closeSockets();
@@ -1150,7 +1150,7 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
             sockaddr_storage from;
             socklen_t fromlen = sizeof(from);
             int resplen =
-                    recvfrom(fd, (char*)ans, (size_t)anssiz, 0, (sockaddr*)(void*)&from, &fromlen);
+                    recvfrom(fd, ans.data(), ans.size(), 0, (sockaddr*)(void*)&from, &fromlen);
             if (resplen <= 0) {
                 *terrno = errno;
                 PLOG(DEBUG) << __func__ << ": recvfrom: ";
@@ -1165,20 +1165,19 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
             }
 
             int receivedFromNs = *ns;
-            if (needRetry =
-                        ignoreInvalidAnswer(statp, from, buf, buflen, ans, anssiz, &receivedFromNs);
+            if (needRetry = ignoreInvalidAnswer(statp, from, msg, ans, &receivedFromNs);
                 needRetry) {
-                res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
+                res_pquery({ans.data(), (resplen > ans.size()) ? ans.size() : resplen});
                 continue;
             }
 
-            HEADER* anhp = (HEADER*)(void*)ans;
+            HEADER* anhp = (HEADER*)(void*)ans.data();
             if (anhp->rcode == FORMERR && (statp->netcontext_flags & NET_CONTEXT_FLAG_USE_EDNS)) {
                 //  Do not retry if the server do not understand EDNS0.
                 //  The case has to be captured here, as FORMERR packet do not
                 //  carry query section, hence res_queriesmatch() returns 0.
                 LOG(DEBUG) << __func__ << ": server rejected query with EDNS0:";
-                res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
+                res_pquery({ans.data(), (resplen > ans.size()) ? ans.size() : resplen});
                 // record the error
                 statp->flags |= RES_F_EDNS0ERR;
                 *terrno = EREMOTEIO;
@@ -1189,7 +1188,7 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
             *delay = res_stats_calculate_rtt(&done, &start_time);
             if (anhp->rcode == SERVFAIL || anhp->rcode == NOTIMP || anhp->rcode == REFUSED) {
                 LOG(DEBUG) << __func__ << ": server rejected query:";
-                res_pquery({ans, (resplen > anssiz) ? anssiz : resplen});
+                res_pquery({ans.data(), (resplen > ans.size()) ? ans.size() : resplen});
                 *rcode = anhp->rcode;
                 continue;
             }
@@ -1215,16 +1214,15 @@ static int send_dg(ResState* statp, res_params* params, const uint8_t* buf, int 
 
 // return length - when receiving valid packets.
 // return 0      - when mdns packets transfer error.
-static int send_mdns(ResState* statp, std::span<const uint8_t> buf, uint8_t* ans, int anssiz,
-                     int* terrno, int* rcode) {
-    const sockaddr_storage ss =
-            (getQueryType(buf.data(), buf.size()) == NS_T_AAAA) ? mdns_addrs[0] : mdns_addrs[1];
+static int send_mdns(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* terrno,
+                     int* rcode) {
+    const sockaddr_storage ss = (getQueryType(msg) == NS_T_AAAA) ? mdns_addrs[0] : mdns_addrs[1];
     const sockaddr* mdnsap = reinterpret_cast<const sockaddr*>(&ss);
     unique_fd fd;
 
     if (setupUdpSocket(statp, mdnsap, &fd, terrno) <= 0) return 0;
 
-    if (sendto(fd, buf.data(), buf.size(), 0, mdnsap, sockaddrSize(mdnsap)) != buf.size()) {
+    if (sendto(fd, msg.data(), msg.size(), 0, mdnsap, sockaddrSize(mdnsap)) != msg.size()) {
         *terrno = errno;
         return 0;
     }
@@ -1241,7 +1239,7 @@ static int send_mdns(ResState* statp, std::span<const uint8_t> buf, uint8_t* ans
 
     sockaddr_storage from;
     socklen_t fromlen = sizeof(from);
-    int resplen = recvfrom(fd, (char*)ans, (size_t)anssiz, 0, (sockaddr*)(void*)&from, &fromlen);
+    int resplen = recvfrom(fd, ans.data(), ans.size(), 0, (sockaddr*)(void*)&from, &fromlen);
 
     if (resplen <= 0) {
         *terrno = errno;
@@ -1255,7 +1253,7 @@ static int send_mdns(ResState* statp, std::span<const uint8_t> buf, uint8_t* ans
         return 0;
     }
 
-    HEADER* anhp = (HEADER*)(void*)ans;
+    HEADER* anhp = (HEADER*)(void*)ans.data();
     if (anhp->tc) {
         LOG(DEBUG) << __func__ << ": truncated answer";
         *terrno = E2BIG;
@@ -1415,7 +1413,8 @@ ssize_t res_doh_send(ResState* statp, const Slice query, const Slice answer, int
     }
     dnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
     dnsQueryEvent->set_protocol(PROTO_DOH);
-    dnsQueryEvent->set_type(getQueryType(query.base(), query.size()));
+    span<const uint8_t> msg(query.base(), query.size());
+    dnsQueryEvent->set_type(getQueryType(msg));
     return result;
 }
 
@@ -1463,12 +1462,12 @@ int res_tls_send(const std::list<DnsTlsServer>& tlsServers, ResState* statp, con
     }
 }
 
-int resolv_res_nsend(const android_net_context* netContext, const uint8_t* msg, int msgLen,
-                     uint8_t* ans, int ansLen, int* rcode, uint32_t flags,
+int resolv_res_nsend(const android_net_context* netContext, span<const uint8_t> msg,
+                     span<uint8_t> ans, int* rcode, uint32_t flags,
                      NetworkDnsEventReported* event) {
     assert(event != nullptr);
     ResState res(netContext, event);
     resolv_populate_res_for_net(&res);
     *rcode = NOERROR;
-    return res_nsend(&res, msg, msgLen, ans, ansLen, rcode, flags);
+    return res_nsend(&res, msg, ans, rcode, flags);
 }
