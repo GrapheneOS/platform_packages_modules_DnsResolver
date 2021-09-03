@@ -39,7 +39,6 @@
 #include <cutils/multiuser.h>
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/ResponseCode.h>
-#include <netdutils/Slice.h>
 #include <netdutils/Stopwatch.h>
 #include <netdutils/ThreadUtil.h>
 #include <private/android_filesystem_config.h>  // AID_SYSTEM
@@ -65,6 +64,7 @@ using aidl::android::net::metrics::INetdEventListener;
 using aidl::android::net::resolv::aidl::DnsHealthEventParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using android::net::NetworkDnsEventReported;
+using std::span;
 
 namespace android {
 
@@ -147,11 +147,11 @@ void maybeFixupNetContext(android_net_context* ctx, pid_t pid) {
 void addIpAddrWithinLimit(std::vector<std::string>* ip_addrs, const sockaddr* addr,
                           socklen_t addrlen);
 
-int extractResNsendAnswers(const uint8_t* answer, size_t anslen, int ipType,
+int extractResNsendAnswers(std::span<const uint8_t> answer, int ipType,
                            std::vector<std::string>* ip_addrs) {
     int total_ip_addr_count = 0;
     ns_msg handle;
-    if (ns_initparse((const uint8_t*)answer, anslen, &handle) < 0) {
+    if (ns_initparse(answer.data(), answer.size(), &handle) < 0) {
         return 0;
     }
     int ancount = ns_msg_count(handle, ns_s_an);
@@ -250,21 +250,20 @@ bool simpleStrtoul(const char* input, IntegralType* output, int base = 10) {
     return true;
 }
 
-bool setQueryId(uint8_t* msg, size_t msgLen, uint16_t query_id) {
-    if (msgLen < sizeof(HEADER)) {
+bool setQueryId(span<uint8_t> msg, uint16_t query_id) {
+    if ((size_t)msg.size() < sizeof(HEADER)) {
         errno = EINVAL;
         return false;
     }
-    auto hp = reinterpret_cast<HEADER*>(msg);
+    auto hp = reinterpret_cast<HEADER*>(msg.data());
     hp->id = htons(query_id);
     return true;
 }
 
-bool parseQuery(const uint8_t* msg, size_t msgLen, uint16_t* query_id, int* rr_type,
-                std::string* rr_name) {
+bool parseQuery(span<const uint8_t> msg, uint16_t* query_id, int* rr_type, std::string* rr_name) {
     ns_msg handle;
     ns_rr rr;
-    if (ns_initparse((const uint8_t*)msg, msgLen, &handle) < 0 ||
+    if (ns_initparse(msg.data(), msg.size(), &handle) < 0 ||
         ns_parserr(&handle, ns_s_qd, 0, &rr) < 0) {
         return false;
     }
@@ -927,8 +926,8 @@ void DnsProxyListener::ResNSendHandler::run() {
     uint16_t original_query_id = 0;
 
     // TODO: Handle the case which is msg contains more than one query
-    if (!parseQuery(msg.data(), msgLen, &original_query_id, &rr_type, &rr_name) ||
-        !setQueryId(msg.data(), msgLen, arc4random_uniform(65536))) {
+    if (!parseQuery({msg.data(), msgLen}, &original_query_id, &rr_type, &rr_name) ||
+        !setQueryId({msg.data(), msgLen}, arc4random_uniform(65536))) {
         // If the query couldn't be parsed, block the request.
         LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid << ", invalid query";
         sendBE32(mClient, -EINVAL);
@@ -938,21 +937,21 @@ void DnsProxyListener::ResNSendHandler::run() {
     // Send DNS query
     std::vector<uint8_t> ansBuf(MAXPACKET, 0);
     int rcode = ns_r_noerror;
-    int nsendAns = -1;
+    int ansLen = -1;
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
         if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
-            nsendAns = resolv_res_nsend(&mNetContext, msg.data(), msgLen, ansBuf.data(), MAXPACKET,
-                                        &rcode, static_cast<ResNsendFlags>(mFlags), &event);
+            ansLen = resolv_res_nsend(&mNetContext, {msg.data(), msgLen}, ansBuf, &rcode,
+                                      static_cast<ResNsendFlags>(mFlags), &event);
         } else {
-            nsendAns = -EAI_SYSTEM;
+            ansLen = -EAI_SYSTEM;
         }
         queryLimiter.finish(uid);
     } else {
         LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid
                      << ", max concurrent queries reached";
-        nsendAns = -EBUSY;
+        ansLen = -EBUSY;
     }
 
     const int32_t latencyUs = saturate_cast<int32_t>(s.timeTakenUs());
@@ -961,14 +960,14 @@ void DnsProxyListener::ResNSendHandler::run() {
     event.set_res_nsend_flags(static_cast<ResNsendFlags>(mFlags));
 
     // Fail, send -errno
-    if (nsendAns < 0) {
-        if (!sendBE32(mClient, nsendAns)) {
+    if (ansLen < 0) {
+        if (!sendBE32(mClient, ansLen)) {
             PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send errno to uid " << uid
                           << " pid " << mClient->getPid();
         }
         if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
             reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
-                           resNSendToAiError(nsendAns, rcode), event, rr_name);
+                           resNSendToAiError(ansLen, rcode), event, rr_name);
         }
         return;
     }
@@ -981,8 +980,8 @@ void DnsProxyListener::ResNSendHandler::run() {
     }
 
     // Restore query id and send answer
-    if (!setQueryId(ansBuf.data(), nsendAns, original_query_id) ||
-        !sendLenAndData(mClient, nsendAns, ansBuf.data())) {
+    if (!setQueryId({ansBuf.data(), ansLen}, original_query_id) ||
+        !sendLenAndData(mClient, ansLen, ansBuf.data())) {
         PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send answer to uid " << uid
                       << " pid " << mClient->getPid();
         return;
@@ -991,9 +990,9 @@ void DnsProxyListener::ResNSendHandler::run() {
     if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
         std::vector<std::string> ip_addrs;
         const int total_ip_addr_count =
-                extractResNsendAnswers((uint8_t*)ansBuf.data(), nsendAns, rr_type, &ip_addrs);
+                extractResNsendAnswers({ansBuf.data(), ansLen}, rr_type, &ip_addrs);
         reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
-                       resNSendToAiError(nsendAns, rcode), event, rr_name, ip_addrs,
+                       resNSendToAiError(ansLen, rcode), event, rr_name, ip_addrs,
                        total_ip_addr_count);
     }
 }

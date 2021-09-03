@@ -1627,13 +1627,11 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
     LOG(DEBUG) << __func__ << ": (" << cl << ", " << type << ")";
 
     uint8_t buf[MAXPACKET];
-
-    int n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf, sizeof(buf),
-                         res->netcontext_flags);
+    int n = res_nmkquery(QUERY, name, cl, type, {}, buf, res->netcontext_flags);
 
     if (n > 0 &&
         (res->netcontext_flags & (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS))) {
-        n = res_nopt(res, n, buf, sizeof(buf), anslen);
+        n = res_nopt(res, n, buf, anslen);
     }
 
     NetworkDnsEventReported event;
@@ -1651,7 +1649,7 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
     ResState res_temp = res->clone(&event);
 
     int rcode = NOERROR;
-    n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0, sleepTimeMs);
+    n = res_nsend(&res_temp, {buf, n}, {t->answer.data(), anslen}, &rcode, 0, sleepTimeMs);
     if (n < 0 || hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
         // To ensure that the rcode handling is identical to res_queryN().
         if (rcode != RCODE_TIMEOUT) rcode = hp->rcode;
@@ -1660,9 +1658,8 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
             (res_temp.flags & RES_F_EDNS0ERR)) {
             LOG(DEBUG) << __func__ << ": retry without EDNS0";
-            n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf,
-                             sizeof(buf), res_temp.netcontext_flags);
-            n = res_nsend(&res_temp, buf, n, t->answer.data(), anslen, &rcode, 0);
+            n = res_nmkquery(QUERY, name, cl, type, {}, buf, res_temp.netcontext_flags);
+            n = res_nsend(&res_temp, {buf, n}, {t->answer.data(), anslen}, &rcode, 0);
         }
     }
 
@@ -1761,21 +1758,19 @@ static int res_queryN(const char* name, res_target* target, ResState* res, int* 
         const int anslen = t->answer.size();
 
         LOG(DEBUG) << __func__ << ": (" << cl << ", " << type << ")";
-
-        n = res_nmkquery(QUERY, name, cl, type, /*data=*/nullptr, /*datalen=*/0, buf, sizeof(buf),
-                         res->netcontext_flags);
+        n = res_nmkquery(QUERY, name, cl, type, {}, buf, res->netcontext_flags);
         if (n > 0 &&
             (res->netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
             !retried)  // TODO:  remove the retry flag and provide a sufficient test coverage.
-            n = res_nopt(res, n, buf, sizeof(buf), anslen);
+            n = res_nopt(res, n, buf, anslen);
         if (n <= 0) {
             LOG(ERROR) << __func__ << ": res_nmkquery failed";
             *herrno = NO_RECOVERY;
             return n;
         }
 
-        n = res_nsend(res, buf, n, t->answer.data(), anslen, &rcode, 0);
+        n = res_nsend(res, {buf, n}, {t->answer.data(), anslen}, &rcode, 0);
         if (n < 0 || hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
             // Record rcode from DNS response header only if no timeout.
             // Keep rcode timeout for reporting later if any.
