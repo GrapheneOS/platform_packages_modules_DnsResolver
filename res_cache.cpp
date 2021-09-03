@@ -78,6 +78,7 @@ using android::net::PROTO_UDP;
 using android::net::Protocol;
 using android::netdutils::DumpWriter;
 using android::netdutils::IPSockAddr;
+using std::span;
 
 /* This code implements a small and *simple* DNS resolver cache.
  *
@@ -773,14 +774,14 @@ static uint32_t answer_getNegativeTTL(ns_msg handle) {
  * In case of parse error zero (0) is returned which
  * indicates that the answer shall not be cached.
  */
-static uint32_t answer_getTTL(const void* answer, int answerlen) {
+static uint32_t answer_getTTL(span<const uint8_t> answer) {
     ns_msg handle;
     int ancount, n;
     uint32_t result, ttl;
     ns_rr rr;
 
     result = 0;
-    if (ns_initparse((const uint8_t*) answer, answerlen, &handle) >= 0) {
+    if (ns_initparse(answer.data(), answer.size(), &handle) >= 0) {
         // get number of answer records
         ancount = ns_msg_count(handle, ns_s_an);
 
@@ -840,13 +841,13 @@ static unsigned entry_hash(const Entry* e) {
 
 /* initialize an Entry as a search key, this also checks the input query packet
  * returns 1 on success, or 0 in case of unsupported/malformed data */
-static int entry_init_key(Entry* e, const void* query, int querylen) {
+static int entry_init_key(Entry* e, span<const uint8_t> query) {
     DnsPacket pack[1];
 
     memset(e, 0, sizeof(*e));
 
-    e->query = (const uint8_t*) query;
-    e->querylen = querylen;
+    e->query = query.data();
+    e->querylen = query.size();
     e->hash = entry_hash(e);
 
     _dnsPacket_init(pack, e->query, e->querylen);
@@ -855,11 +856,11 @@ static int entry_init_key(Entry* e, const void* query, int querylen) {
 }
 
 /* allocate a new entry as a cache node */
-static Entry* entry_alloc(const Entry* init, const void* answer, int answerlen) {
+static Entry* entry_alloc(const Entry* init, span<const uint8_t> answer) {
     Entry* e;
     int size;
 
-    size = sizeof(*e) + init->querylen + answerlen;
+    size = sizeof(*e) + init->querylen + answer.size();
     e = (Entry*) calloc(size, 1);
     if (e == NULL) return e;
 
@@ -870,9 +871,9 @@ static Entry* entry_alloc(const Entry* init, const void* answer, int answerlen) 
     memcpy((char*) e->query, init->query, e->querylen);
 
     e->answer = e->query + e->querylen;
-    e->answerlen = answerlen;
+    e->answerlen = answer.size();
 
-    memcpy((char*) e->answer, answer, e->answerlen);
+    memcpy((char*)e->answer, answer.data(), e->answerlen);
 
     return e;
 }
@@ -1101,14 +1102,14 @@ static void cache_notify_waiting_tid_locked(struct Cache* cache, const Entry* ke
     }
 }
 
-void _resolv_cache_query_failed(unsigned netid, const void* query, int querylen, uint32_t flags) {
+void _resolv_cache_query_failed(unsigned netid, span<const uint8_t> query, uint32_t flags) {
     // We should not notify with these flags.
     if (flags & (ANDROID_RESOLV_NO_CACHE_STORE | ANDROID_RESOLV_NO_CACHE_LOOKUP)) {
         return;
     }
     Entry key[1];
 
-    if (!entry_init_key(key, query, querylen)) return;
+    if (!entry_init_key(key, query)) return;
 
     std::lock_guard guard(cache_mutex);
 
@@ -1228,8 +1229,8 @@ static void _cache_remove_expired(Cache* cache) {
 // Get a NetConfig associated with a network, or nullptr if not found.
 static NetConfig* find_netconfig_locked(unsigned netid) REQUIRES(cache_mutex);
 
-ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int querylen, void* answer,
-                                      int answersize, int* answerlen, uint32_t flags) {
+ResolvCacheStatus resolv_cache_lookup(unsigned netid, span<const uint8_t> query,
+                                      span<uint8_t> answer, int* answerlen, uint32_t flags) {
     // Skip cache lookup, return RESOLV_CACHE_NOTFOUND directly so that it is
     // possible to cache the answer of this query.
     // If ANDROID_RESOLV_NO_CACHE_STORE is set, return RESOLV_CACHE_SKIP to skip possible cache
@@ -1247,7 +1248,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     LOG(INFO) << __func__ << ": lookup";
 
     /* we don't cache malformed queries */
-    if (!entry_init_key(&key, query, querylen)) {
+    if (!entry_init_key(&key, query)) {
         LOG(INFO) << __func__ << ": unsupported query";
         return RESOLV_CACHE_UNSUPPORTED;
     }
@@ -1310,13 +1311,13 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     }
 
     *answerlen = e->answerlen;
-    if (e->answerlen > answersize) {
+    if (e->answerlen > answer.size()) {
         /* NOTE: we return UNSUPPORTED if the answer buffer is too short */
         LOG(INFO) << __func__ << ": ANSWER TOO LONG";
         return RESOLV_CACHE_UNSUPPORTED;
     }
 
-    memcpy(answer, e->answer, e->answerlen);
+    memcpy(answer.data(), e->answer, e->answerlen);
 
     /* bump up this entry to the top of the MRU list */
     if (e != cache->mru_list.mru_next) {
@@ -1328,8 +1329,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, const void* query, int que
     return RESOLV_CACHE_FOUND;
 }
 
-int resolv_cache_add(unsigned netid, const void* query, int querylen, const void* answer,
-                     int answerlen) {
+int resolv_cache_add(unsigned netid, span<const uint8_t> query, span<const uint8_t> answer) {
     Entry key[1];
     Entry* e;
     Entry** lookup;
@@ -1338,7 +1338,7 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
 
     /* don't assume that the query has already been cached
      */
-    if (!entry_init_key(key, query, querylen)) {
+    if (!entry_init_key(key, query)) {
         LOG(INFO) << __func__ << ": passed invalid query?";
         return -EINVAL;
     }
@@ -1375,9 +1375,9 @@ int resolv_cache_add(unsigned netid, const void* query, int querylen, const void
         }
     }
 
-    ttl = answer_getTTL(answer, answerlen);
+    ttl = answer_getTTL(answer);
     if (ttl > 0) {
-        e = entry_alloc(key, answer, answerlen);
+        e = entry_alloc(key, answer);
         if (e != NULL) {
             e->expires = ttl + _time_now();
             _cache_add_p(cache, lookup, e);
@@ -1886,13 +1886,12 @@ bool has_named_cache(unsigned netid) {
     return find_named_cache_locked(netid) != nullptr;
 }
 
-int resolv_cache_get_expiration(unsigned netid, const std::vector<char>& query,
-                                time_t* expiration) {
+int resolv_cache_get_expiration(unsigned netid, span<const uint8_t> query, time_t* expiration) {
     Entry key;
     *expiration = -1;
 
     // A malformed query is not allowed.
-    if (!entry_init_key(&key, query.data(), query.size())) {
+    if (!entry_init_key(&key, query)) {
         LOG(WARNING) << __func__ << ": unsupported query";
         return -EINVAL;
     }
