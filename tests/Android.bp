@@ -276,10 +276,7 @@ cc_test {
     ],
     defaults: ["netd_defaults", "resolv_test_defaults"],
     test_suites: ["general-tests"],
-    test_mainline_modules: [
-        "CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex",
-        "CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex+com.google.android.tethering.apex"
-    ],
+    test_mainline_modules: ["CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex+com.google.android.tethering.apex"],
     static_libs: [
         "libgmock",
         "libprotobuf-cpp-lite",
