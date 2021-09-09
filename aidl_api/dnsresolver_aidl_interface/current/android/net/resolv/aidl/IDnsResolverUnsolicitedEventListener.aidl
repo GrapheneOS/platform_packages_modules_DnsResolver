@@ -28,4 +28,6 @@ interface IDnsResolverUnsolicitedEventListener {
   const int PREFIX_OPERATION_REMOVED = 2;
   const int VALIDATION_RESULT_SUCCESS = 1;
   const int VALIDATION_RESULT_FAILURE = 2;
+  const int PROTOCOL_DOT = 1;
+  const int PROTOCOL_DOH = 2;
 }

@@ -24,4 +24,5 @@ parcelable PrivateDnsValidationEventParcel {
   @utf8InCpp String ipAddress;
   @utf8InCpp String hostname;
   int validation;
+  int protocol;
 }
