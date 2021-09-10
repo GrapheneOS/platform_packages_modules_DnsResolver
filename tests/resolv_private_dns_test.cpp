@@ -422,15 +422,15 @@ TEST_F(PrivateDnsDohTest, PreferIpv6) {
     // To simplify the test, set the DoT server broken.
     dot.stopServer();
 
+    test::DNSResponder dns_ipv6{listen_ipv6_addr, "53"};
+    test::DohFrontend doh_ipv6{listen_ipv6_addr, "443", listen_ipv6_addr, "53"};
+    dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
+    dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
+    ASSERT_TRUE(dns_ipv6.startServer());
+    ASSERT_TRUE(doh_ipv6.startServer());
+
     for (const auto& serverList : testConfig) {
         SCOPED_TRACE(fmt::format("serverList: [{}]", fmt::join(serverList, ", ")));
-        test::DNSResponder dns_ipv6{listen_ipv6_addr, "53"};
-        test::DohFrontend doh_ipv6{listen_ipv6_addr, "443", listen_ipv6_addr, "53"};
-
-        dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
-        dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
-        ASSERT_TRUE(dns_ipv6.startServer());
-        ASSERT_TRUE(doh_ipv6.startServer());
 
         auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
         parcel.servers = serverList;
