@@ -284,6 +284,9 @@ void DnsStats::dump(DumpWriter& dw) {
     dw.println("over UDP");
     dumpStatsMap(mStats[PROTO_UDP]);
 
+    dw.println("over DOH");
+    dumpStatsMap(mStats[PROTO_DOH]);
+
     dw.println("over TLS");
     dumpStatsMap(mStats[PROTO_DOT]);
 

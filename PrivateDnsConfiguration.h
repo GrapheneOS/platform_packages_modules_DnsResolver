@@ -115,6 +115,9 @@ class PrivateDnsConfiguration {
     void onDohStatusUpdate(uint32_t netId, bool success, const char* ipAddr, const char* host)
             EXCLUDES(mPrivateDnsLock);
 
+    base::Result<netdutils::IPSockAddr> getDohServer(unsigned netId) const
+            EXCLUDES(mPrivateDnsLock);
+
   private:
     typedef std::map<ServerIdentity, std::unique_ptr<IPrivateDnsServer>> PrivateDnsTracker;
 
