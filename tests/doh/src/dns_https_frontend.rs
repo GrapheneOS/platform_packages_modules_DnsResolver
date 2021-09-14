@@ -298,6 +298,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                                     error!("flush_egress failed: {}", e);
                                 }
                             }
+                            client.process_pending_answers().unwrap();
                         }
                     }
                 }
