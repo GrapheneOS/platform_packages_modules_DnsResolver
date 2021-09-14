@@ -50,11 +50,22 @@ pub struct Client {
     /// Queues the DNS queries being processed in backend.
     /// <Query ID, Stream ID>
     in_flight_queries: HashMap<[u8; 2], u64>,
+
+    /// Queues the second part DNS answers needed to be sent after first part.
+    /// <Stream ID, ans>
+    pending_answers: Vec<(u64, Vec<u8>)>,
 }
 
 impl Client {
     fn new(conn: Pin<Box<quiche::Connection>>, addr: &SocketAddr, id: ConnectionID) -> Client {
-        Client { conn, h3_conn: None, addr: *addr, id, in_flight_queries: HashMap::new() }
+        Client {
+            conn,
+            h3_conn: None,
+            addr: *addr,
+            id,
+            in_flight_queries: HashMap::new(),
+            pending_answers: Vec::new(),
+        }
     }
 
     fn create_http3_connection(&mut self) -> Result<()> {
@@ -135,8 +146,23 @@ impl Client {
         info!("Preparing HTTP/3 response {:?} on stream {}", headers, stream_id);
 
         h3_conn.send_response(&mut self.conn, stream_id, &headers, false)?;
-        h3_conn.send_body(&mut self.conn, stream_id, response, true)?;
 
+        // In order to simulate the case that server send multiple packets for a DNS answer,
+        // only send half of the answer here. The remaining one will be cached here and then
+        // processed later in process_pending_answers().
+        let (first, second) = response.split_at(len / 2);
+        h3_conn.send_body(&mut self.conn, stream_id, first, false)?;
+        self.pending_answers.push((stream_id, second.to_vec()));
+
+        Ok(())
+    }
+
+    pub fn process_pending_answers(&mut self) -> Result<()> {
+        if let Some((stream_id, ans)) = self.pending_answers.pop() {
+            let h3_conn = self.h3_conn.as_mut().unwrap();
+            info!("process the remaining response for stream {}", stream_id);
+            h3_conn.send_body(&mut self.conn, stream_id, &ans, true)?;
+        }
         Ok(())
     }
 
