@@ -16,18 +16,10 @@
 // with such a backward incompatible change, it has a high risk of breaking
 // later when a module using the interface is updated, e.g., Mainline modules.
 
-package android.net.resolv.aidl;
+package android.net;
 /* @hide */
-interface IDnsResolverUnsolicitedEventListener {
-  oneway void onDnsHealthEvent(in android.net.resolv.aidl.DnsHealthEventParcel dnsHealthEvent);
-  oneway void onNat64PrefixEvent(in android.net.resolv.aidl.Nat64PrefixEventParcel nat64PrefixEvent);
-  oneway void onPrivateDnsValidationEvent(in android.net.resolv.aidl.PrivateDnsValidationEventParcel privateDnsValidationEvent);
-  const int DNS_HEALTH_RESULT_OK = 0;
-  const int DNS_HEALTH_RESULT_TIMEOUT = 255;
-  const int PREFIX_OPERATION_ADDED = 1;
-  const int PREFIX_OPERATION_REMOVED = 2;
-  const int VALIDATION_RESULT_SUCCESS = 1;
-  const int VALIDATION_RESULT_FAILURE = 2;
-  const int PROTOCOL_DOT = 1;
-  const int PROTOCOL_DOH = 2;
+parcelable ResolverOptionsParcel {
+  android.net.ResolverHostsParcel[] hosts = {};
+  int tcMode = 0;
+  boolean enforceDnsUid = false;
 }
