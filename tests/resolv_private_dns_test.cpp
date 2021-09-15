@@ -113,16 +113,30 @@ class BaseTest : public ::testing::Test {
 
     void flushCache() { mDnsClient.resolvService()->flushNetworkCache(TEST_NETID); }
 
-    bool WaitForPrivateDnsValidation(std::string serverAddr, bool validated) {
+    bool WaitForDotValidation(std::string serverAddr, bool validated) {
+        return WaitForPrivateDnsValidation(serverAddr, validated,
+                                           IDnsResolverUnsolicitedEventListener::PROTOCOL_DOT);
+    }
+
+    bool WaitForDohValidation(std::string serverAddr, bool validated) {
+        return WaitForPrivateDnsValidation(serverAddr, validated,
+                                           IDnsResolverUnsolicitedEventListener::PROTOCOL_DOH);
+    }
+
+    bool WaitForPrivateDnsValidation(std::string serverAddr, bool validated, int protocol) {
         return sUnsolicitedEventListener->waitForPrivateDnsValidation(
                 serverAddr,
                 validated ? IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_SUCCESS
-                          : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE);
+                          : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE,
+                protocol);
     }
 
     bool hasUncaughtPrivateDnsValidation(const std::string& serverAddr) {
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        return sUnsolicitedEventListener->findValidationRecord(serverAddr);
+        return sUnsolicitedEventListener->findValidationRecord(
+                       serverAddr, IDnsResolverUnsolicitedEventListener::PROTOCOL_DOT) ||
+               sUnsolicitedEventListener->findValidationRecord(
+                       serverAddr, IDnsResolverUnsolicitedEventListener::PROTOCOL_DOH);
     }
 
     DnsResponderClient mDnsClient;
@@ -263,9 +277,8 @@ TEST_P(TransportParameterizedTest, GetAddrInfo) {
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
-    // TODO: check that the validation is for DoT or for DoH.
-    if (testParamHasDoh()) EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, true));
-    if (testParamHasDot()) EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, true));
+    if (testParamHasDoh()) EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    if (testParamHasDot()) EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
 
     // This waiting time is expected to avoid that the DoH validation event interferes other tests.
     if (!testParamHasDoh()) waitForDohValidationFailed();
@@ -333,8 +346,8 @@ TEST_F(PrivateDnsDohTest, ValidationFail) {
     Stopwatch s;
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, false));
-    EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, false));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, false));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, false));
     EXPECT_LT(s.getTimeAndResetUs(),
               microseconds(kExpectedDohValidationTimeWhenServerUnreachable + TIMING_TOLERANCE)
                       .count());
@@ -346,8 +359,8 @@ TEST_F(PrivateDnsDohTest, ValidationFail) {
 
     s.getTimeAndResetUs();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, false));
-    EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, false));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, false));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, false));
     EXPECT_LT(s.getTimeAndResetUs(),
               microseconds(kExpectedDohValidationTimeWhenTimeout + TIMING_TOLERANCE).count());
 
@@ -361,8 +374,8 @@ TEST_F(PrivateDnsDohTest, ValidationFail) {
 TEST_F(PrivateDnsDohTest, QueryFailover) {
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     dns.clearQueries();
@@ -379,16 +392,22 @@ TEST_F(PrivateDnsDohTest, QueryFailover) {
     resetNetwork();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
-    // This event comes from DoT validation.
-    EXPECT_TRUE(WaitForPrivateDnsValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     dns.clearQueries();
 
-    // Expect that the query fall back to DoT.
+    // Expect that the query fall back to DoT as DoH validation is in progress.
     EXPECT_NO_FAILURE(sendQueryAndCheckResult());
 
     EXPECT_EQ(dot.queries(), 2);
+    EXPECT_EQ(dns.queries().size(), 0U);
+    waitForDohValidationTimeout();
+    flushCache();
+
+    // Expect that this query fall back to DoT as DoH validation has failed.
+    EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+    EXPECT_EQ(dot.queries(), 4);
     EXPECT_EQ(dns.queries().size(), 0U);
 }
 
@@ -403,15 +422,15 @@ TEST_F(PrivateDnsDohTest, PreferIpv6) {
     // To simplify the test, set the DoT server broken.
     dot.stopServer();
 
+    test::DNSResponder dns_ipv6{listen_ipv6_addr, "53"};
+    test::DohFrontend doh_ipv6{listen_ipv6_addr, "443", listen_ipv6_addr, "53"};
+    dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
+    dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
+    ASSERT_TRUE(dns_ipv6.startServer());
+    ASSERT_TRUE(doh_ipv6.startServer());
+
     for (const auto& serverList : testConfig) {
         SCOPED_TRACE(fmt::format("serverList: [{}]", fmt::join(serverList, ", ")));
-        test::DNSResponder dns_ipv6{listen_ipv6_addr, "53"};
-        test::DohFrontend doh_ipv6{listen_ipv6_addr, "443", listen_ipv6_addr, "53"};
-
-        dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
-        dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
-        ASSERT_TRUE(dns_ipv6.startServer());
-        ASSERT_TRUE(doh_ipv6.startServer());
 
         auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
         parcel.servers = serverList;
@@ -420,7 +439,7 @@ TEST_F(PrivateDnsDohTest, PreferIpv6) {
 
         // Currently, DnsResolver sorts the server list and did DoH validation only
         // for the first server.
-        EXPECT_TRUE(WaitForPrivateDnsValidation(listen_ipv6_addr, true));
+        EXPECT_TRUE(WaitForDohValidation(listen_ipv6_addr, true));
 
         doh.clearQueries();
         doh_ipv6.clearQueries();
