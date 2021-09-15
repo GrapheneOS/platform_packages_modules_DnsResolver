@@ -252,6 +252,9 @@ void PrivateDnsConfiguration::sendPrivateDnsValidationEvent(const ServerIdentity
             .hostname = identity.provider,
             .validation = success ? IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_SUCCESS
                                   : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE,
+            .protocol = (identity.sockaddr.port() == 853)
+                                ? IDnsResolverUnsolicitedEventListener::PROTOCOL_DOT
+                                : IDnsResolverUnsolicitedEventListener::PROTOCOL_DOH,
     };
     for (const auto& it : unsolEventListeners) {
         it->onPrivateDnsValidationEvent(validationEvent);
