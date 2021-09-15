@@ -262,12 +262,14 @@ class ResolverTest : public ::testing::Test {
                sUnsolicitedEventListener->waitForPrivateDnsValidation(
                        serverAddr,
                        validated ? IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_SUCCESS
-                                 : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE);
+                                 : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE,
+                       IDnsResolverUnsolicitedEventListener::PROTOCOL_DOT);
     }
 
     bool hasUncaughtPrivateDnsValidation(const std::string& serverAddr) {
         return sDnsMetricsListener->findValidationRecord(serverAddr) &&
-               sUnsolicitedEventListener->findValidationRecord(serverAddr);
+               sUnsolicitedEventListener->findValidationRecord(
+                       serverAddr, IDnsResolverUnsolicitedEventListener::PROTOCOL_DOT);
     }
 
     void ExpectDnsEvent(int32_t eventType, int32_t returnCode, const std::string& hostname,

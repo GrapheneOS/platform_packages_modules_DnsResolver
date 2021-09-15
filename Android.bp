@@ -53,7 +53,7 @@ cc_library_headers {
     ],
 }
 
-dnsresolver_aidl_interface_lateststable_version = "V9"
+dnsresolver_aidl_interface_lateststable_version = "V10"
 
 cc_library_static {
     name: "dnsresolver_aidl_interface-lateststable-ndk",
@@ -107,6 +107,7 @@ aidl_interface {
         "7",
         "8",
         "9",
+        "10",
     ],
     dumpapi: {
         no_license: true,
@@ -266,7 +267,7 @@ genrule {
     name: "statslog_resolv.h",
     tools: ["stats-log-api-gen"],
     cmd: "$(location stats-log-api-gen) --header $(genDir)/statslog_resolv.h --module resolv" +
-         " --namespace android,net,stats --minApiLevel 29",
+        " --namespace android,net,stats --minApiLevel 29",
     out: [
         "statslog_resolv.h",
     ],
@@ -276,7 +277,7 @@ genrule {
     name: "statslog_resolv.cpp",
     tools: ["stats-log-api-gen"],
     cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_resolv.cpp --module resolv" +
-         " --namespace android,net,stats --importHeader statslog_resolv.h --minApiLevel 29",
+        " --namespace android,net,stats --importHeader statslog_resolv.h --minApiLevel 29",
     out: [
         "statslog_resolv.cpp",
     ],
@@ -350,8 +351,8 @@ rust_ffi_static {
     ],
 
     apex_available: [
-        "//apex_available:platform",  // Needed by doh_ffi_test
-        "com.android.resolv"
+        "//apex_available:platform", // Needed by doh_ffi_test
+        "com.android.resolv",
     ],
     min_sdk_version: "29",
 }
@@ -405,8 +406,8 @@ rust_ffi_static {
     // libunwind must be statically linked.
     whole_static_libs: ["libunwind"],
     apex_available: [
-        "//apex_available:platform",  // Needed by doh_ffi_test
-        "com.android.resolv"
+        "//apex_available:platform", // Needed by doh_ffi_test
+        "com.android.resolv",
     ],
     min_sdk_version: "29",
 }
