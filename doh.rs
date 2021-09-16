@@ -31,7 +31,7 @@ use std::ops::Deref;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::{Arc, Once};
+use std::sync::{Arc, Mutex, Once};
 use std::{ptr, slice};
 use tokio::net::UdpSocket;
 use tokio::runtime::{Builder, Runtime};
@@ -80,7 +80,6 @@ type CmdSender = mpsc::Sender<DohCommand>;
 type CmdReceiver = mpsc::Receiver<DohCommand>;
 type QueryResponder = oneshot::Sender<Response>;
 type DnsRequest = Vec<quiche::h3::Header>;
-type DnsRequestArg = [quiche::h3::Header];
 type ValidationCallback =
     extern "C" fn(net_id: uint32_t, success: bool, ip_addr: *const c_char, host: *const c_char);
 
@@ -116,12 +115,24 @@ enum DohCommand {
     Exit,
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
-enum ConnectionStatus {
+#[allow(clippy::large_enum_variant)]
+enum ConnectionState {
     Idle,
-    Ready,
-    Pending,
-    Fail,
+    Connecting {
+        quic_conn: Option<Pin<Box<quiche::Connection>>>,
+        udp_sk: Option<UdpSocket>,
+        expired_time: Option<BootTime>,
+    },
+    Connected {
+        quic_conn: Pin<Box<quiche::Connection>>,
+        udp_sk: UdpSocket,
+        h3_conn: Option<h3::Connection>,
+        query_map: HashMap<u64, (Vec<u8>, QueryResponder)>,
+        expired_time: Option<BootTime>,
+    },
+    /// Indicate that the Connection can't be used due to
+    /// network or unexpected reasons.
+    Error,
 }
 
 enum H3Result {
@@ -207,102 +218,225 @@ impl DohDispatcher {
 }
 
 struct DohConnection {
-    net_id: u32,
+    info: ServerInfo,
+    shared_config: Arc<Mutex<QuicheConfigCache>>,
     scid: SCID,
-    quic_conn: Pin<Box<quiche::Connection>>,
-    udp_sk: UdpSocket,
-    h3_conn: Option<h3::Connection>,
-    status: ConnectionStatus,
-    query_map: HashMap<u64, (Vec<u8>, QueryResponder)>,
+    state: ConnectionState,
     pending_queries: Vec<(DnsRequest, QueryResponder, Instant)>,
     cached_session: Option<Vec<u8>>,
-    expired_time: Option<BootTime>,
 }
 
 impl DohConnection {
-    fn new(info: &ServerInfo, config: &mut quiche::Config) -> Result<DohConnection> {
-        let udp_sk_std = make_doh_udp_socket(info.peer_addr, info.sk_mark)?;
-        let udp_sk = UdpSocket::from_std(udp_sk_std)?;
+    fn new(
+        info: &ServerInfo,
+        shared_config: Arc<Mutex<QuicheConfigCache>>,
+    ) -> Result<DohConnection> {
         let mut scid = [0; quiche::MAX_CONN_ID_LEN];
         ring::rand::SystemRandom::new().fill(&mut scid).context("failed to generate scid")?;
-        let connid = quiche::ConnectionId::from_ref(&scid);
-        let quic_conn = quiche::connect(info.domain.as_deref(), &connid, info.peer_addr, config)?;
-
         Ok(DohConnection {
-            net_id: info.net_id,
+            info: info.clone(),
+            shared_config,
             scid,
-            quic_conn,
-            udp_sk,
-            h3_conn: None,
-            status: ConnectionStatus::Pending,
-            query_map: HashMap::new(),
+            state: ConnectionState::Idle,
             pending_queries: Vec::new(),
             cached_session: None,
-            expired_time: None,
         })
     }
 
-    fn handle_if_connection_expired(&mut self) {
-        if let Some(expired_time) = self.expired_time {
-            if let Some(elapsed) = expired_time.elapsed() {
-                warn!(
-                    "Change the status to Idle due to connection timeout, {:?}, {}",
-                    elapsed, self.net_id
-                );
-                self.quic_conn.on_timeout();
-                self.status = ConnectionStatus::Idle;
-            }
-        }
-    }
-
-    async fn probe(&mut self, req: DnsRequest) -> Result<()> {
-        self.connect().await?;
-        info!("probe start for {}", self.net_id);
-        // Send the probe query.
-        let req_id = self.send_dns_query(&req).await?;
-        loop {
-            self.recv_rx().await?;
-            self.flush_tx().await?;
-            loop {
-                match self.recv_h3() {
-                    Ok((stream_id, H3Result::Finished)) => {
-                        if stream_id == req_id {
-                            return Ok(());
-                        }
+    fn state_to_connecting(&mut self) -> Result<()> {
+        self.state = match self.state {
+            ConnectionState::Idle => {
+                let udp_sk_std = make_doh_udp_socket(self.info.peer_addr, self.info.sk_mark)?;
+                let udp_sk = UdpSocket::from_std(udp_sk_std)?;
+                let connid = quiche::ConnectionId::from_ref(&self.scid);
+                let mut cache = self.shared_config.lock().unwrap();
+                let config =
+                    cache.get(&self.info.cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
+                debug!("init the connection for Network {}", self.info.net_id);
+                let mut quic_conn = quiche::connect(
+                    self.info.domain.as_deref(),
+                    &connid,
+                    self.info.peer_addr,
+                    config,
+                )?;
+                if let Some(session) = &self.cached_session {
+                    if quic_conn.set_session(session).is_err() {
+                        warn!("can't restore session for network {}", self.info.net_id);
                     }
-                    // TODO: Verify the answer
-                    Ok((_stream_id, H3Result::Data { .. })) => {}
-                    Ok((_stream_id, H3Result::Ignore)) => {}
-                    Err(_) => break,
+                }
+                ConnectionState::Connecting {
+                    quic_conn: Some(quic_conn),
+                    udp_sk: Some(udp_sk),
+                    expired_time: None,
                 }
             }
-        }
-    }
-
-    async fn connect(&mut self) -> Result<()> {
-        debug!("connecting to Network {}", self.net_id);
-        while !self.quic_conn.is_established() {
-            self.flush_tx().await?;
-            self.recv_rx().await?;
-        }
-        self.cached_session = self.quic_conn.session();
-        let h3_config = h3::Config::new()?;
-        self.h3_conn =
-            Some(quiche::h3::Connection::with_transport(&mut self.quic_conn, &h3_config)?);
-        self.status = ConnectionStatus::Ready;
-        info!("connected to Network {}", self.net_id);
+            ConnectionState::Error => {
+                self.state_to_idle();
+                return self.state_to_connecting();
+            }
+            ConnectionState::Connecting { .. } => return Ok(()),
+            ConnectionState::Connected { .. } => {
+                panic!("Invalid state transition to Connecting state!")
+            }
+        };
         Ok(())
     }
 
-    async fn send_dns_query(&mut self, req: &DnsRequestArg) -> Result<u64> {
-        if !self.quic_conn.is_established() {
-            bail!("quic connection is not ready");
+    fn state_to_connected(&mut self) -> Result<()> {
+        self.state = match &mut self.state {
+            // Only Connecting -> Connected is valid.
+            ConnectionState::Connecting { quic_conn, udp_sk, .. } => {
+                if let (Some(mut quic_conn), Some(udp_sk)) = (quic_conn.take(), udp_sk.take()) {
+                    let h3_config = h3::Config::new()?;
+                    let h3_conn =
+                        quiche::h3::Connection::with_transport(&mut quic_conn, &h3_config)?;
+                    ConnectionState::Connected {
+                        quic_conn,
+                        udp_sk,
+                        h3_conn: Some(h3_conn),
+                        query_map: HashMap::new(),
+                        expired_time: None,
+                    }
+                } else {
+                    bail!("state transition fail!");
+                }
+            }
+            // The rest should fail.
+            _ => panic!("Invalid state transition to Connected state!"),
+        };
+        Ok(())
+    }
+
+    fn state_to_idle(&mut self) {
+        self.state = match self.state {
+            // Only either Connected or Error -> Idle is valid.
+            // TODO: Error -> Idle is the re-probing case, add the relevant statistic.
+            ConnectionState::Connected { .. } | ConnectionState::Error => ConnectionState::Idle,
+            // The rest should fail.
+            _ => panic!("Invalid state transition to Idle state!"),
         }
-        let h3_conn = self.h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
-        let stream_id = h3_conn.send_request(&mut self.quic_conn, req, true /*fin*/)?;
-        self.flush_tx().await?;
-        debug!("send dns query successfully to Network {}, stream id: {}", self.net_id, stream_id);
-        Ok(stream_id)
+    }
+
+    fn state_to_error(&mut self) {
+        self.pending_queries.clear();
+        self.state = ConnectionState::Error
+    }
+
+    fn is_reprobe_required(&self) -> bool {
+        matches!(self.state, ConnectionState::Error)
+    }
+
+    fn has_not_handled_queries(&self) -> bool {
+        match &self.state {
+            ConnectionState::Connecting { .. } | ConnectionState::Idle => {
+                !self.pending_queries.is_empty()
+            }
+            ConnectionState::Connected { query_map, .. } => {
+                !query_map.is_empty() || !self.pending_queries.is_empty()
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_if_connection_expired(&mut self) {
+        let expired_time = match &mut self.state {
+            ConnectionState::Connecting { expired_time, .. } => expired_time,
+            ConnectionState::Connected { expired_time, .. } => expired_time,
+            // ignore
+            _ => return,
+        };
+
+        if let Some(expired_time) = expired_time {
+            if let Some(elapsed) = expired_time.elapsed() {
+                warn!(
+                    "Change the state to Idle due to connection timeout, {:?}, {}",
+                    elapsed, self.info.net_id
+                );
+                self.state_to_idle();
+            }
+        }
+    }
+
+    async fn probe(&mut self, t: Duration) -> Result<()> {
+        match timeout(t, async {
+            self.try_connect().await?;
+            info!("probe start for {}", self.info.net_id);
+            if let ConnectionState::Connected { quic_conn, udp_sk, h3_conn, expired_time, .. } =
+                &mut self.state
+            {
+                let h3_conn = h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
+                let req = match make_probe_query() {
+                    Ok(q) => match make_dns_request(&q, &self.info.url) {
+                        Ok(req) => req,
+                        Err(e) => bail!(e),
+                    },
+                    Err(e) => bail!(e),
+                };
+                // Send the probe query.
+                let req_id = h3_conn.send_request(quic_conn, &req, true /*fin*/)?;
+                loop {
+                    flush_tx(quic_conn, udp_sk).await?;
+                    recv_rx(quic_conn, udp_sk, expired_time).await?;
+                    loop {
+                        match recv_h3(quic_conn, h3_conn) {
+                            Ok((stream_id, H3Result::Finished)) => {
+                                if stream_id == req_id {
+                                    return Ok(());
+                                }
+                            }
+                            // TODO: Verify the answer
+                            Ok((_stream_id, H3Result::Data { .. })) => {}
+                            Ok((_stream_id, H3Result::Ignore)) => {}
+                            Err(_) => break,
+                        }
+                    }
+                }
+            } else {
+                bail!("state error while performing probe()");
+            }
+        })
+        .await
+        {
+            Ok(v) => match v {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    self.state_to_error();
+                    bail!(e);
+                }
+            },
+            Err(e) => {
+                self.state_to_error();
+                bail!(e);
+            }
+        }
+    }
+
+    async fn try_connect(&mut self) -> Result<()> {
+        if matches!(self.state, ConnectionState::Connected { .. }) {
+            return Ok(());
+        }
+        self.state_to_connecting()?;
+        debug!("connecting to Network {}", self.info.net_id);
+
+        let (quic_conn, udp_sk, expired_time) = match &mut self.state {
+            ConnectionState::Connecting { quic_conn, udp_sk, expired_time, .. } => {
+                if let (Some(quic_conn), Some(udp_sk)) = (quic_conn.as_mut(), udp_sk.as_mut()) {
+                    (quic_conn, udp_sk, expired_time)
+                } else {
+                    bail!("unexpected error while performing connect()");
+                }
+            }
+            _ => bail!("state error while performing try_connect()"),
+        };
+
+        while !quic_conn.is_established() {
+            flush_tx(quic_conn, udp_sk).await?;
+            recv_rx(quic_conn, udp_sk, expired_time).await?;
+        }
+        self.cached_session = quic_conn.session();
+        self.state_to_connected()?;
+        info!("connected to Network {}", self.info.net_id);
+        Ok(())
     }
 
     async fn try_send_doh_query(
@@ -311,210 +445,264 @@ impl DohConnection {
         resp: QueryResponder,
         expired_time: Instant,
     ) -> Result<()> {
-        match self.status {
-            ConnectionStatus::Ready => match self.send_dns_query(&req).await {
-                Ok(req_id) => {
-                    self.query_map.insert(req_id, (Vec::new(), resp));
-                }
-                Err(e) => {
-                    if let Ok(quiche::h3::Error::StreamBlocked) = e.downcast::<quiche::h3::Error>()
-                    {
-                        warn!("try to send query but error on StreamBlocked");
-                        self.pending_queries.push((req, resp, expired_time));
-                        bail!(quiche::h3::Error::StreamBlocked);
-                    } else {
-                        resp.send(Response::Error { error: QueryError::ConnectionError }).ok();
-                    }
-                }
-            },
-            ConnectionStatus::Pending => {
-                self.pending_queries.push((req, resp, expired_time));
+        self.handle_if_connection_expired();
+        match &mut self.state {
+            ConnectionState::Connected { quic_conn, udp_sk, h3_conn, query_map, .. } => {
+                let h3_conn = h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
+                send_dns_query(
+                    quic_conn,
+                    udp_sk,
+                    h3_conn,
+                    query_map,
+                    &mut self.pending_queries,
+                    resp,
+                    expired_time,
+                    req,
+                )
+                .await?
             }
-            // Should not happen
-            _ => {
-                error!("Try to send query but status error {}", self.net_id);
+            ConnectionState::Connecting { .. } | ConnectionState::Idle => {
+                self.pending_queries.push((req, resp, expired_time))
+            }
+            ConnectionState::Error => {
+                error!(
+                    "state is error while performing try_send_doh_query(), network: {}",
+                    self.info.net_id
+                );
+                let _ = resp.send(Response::Error { error: QueryError::BrokenServer });
             }
         }
         Ok(())
-    }
-
-    fn resume_connection(&mut self, quic_conn: Pin<Box<quiche::Connection>>) {
-        self.quic_conn = quic_conn;
-        if let Some(session) = &self.cached_session {
-            if self.quic_conn.set_session(session).is_err() {
-                warn!("can't restore session for network {}", self.net_id);
-            }
-        }
-        self.status = ConnectionStatus::Pending;
-        debug!("resume the connection for Network {}", self.net_id);
-        // TODO: Also do a re-probe?
     }
 
     async fn process_queries(&mut self) -> Result<()> {
-        debug!("process_queries entry, Network {}", self.net_id);
-        if self.status == ConnectionStatus::Pending {
-            self.connect().await?;
-        }
-
-        loop {
-            while !self.pending_queries.is_empty() {
-                if let Some((req, resp, exp_time)) = self.pending_queries.pop() {
-                    // Ignore the expired queries.
-                    if Instant::now().checked_duration_since(exp_time).is_some() {
-                        warn!("Drop the obsolete query for network {}", self.net_id);
-                        continue;
-                    }
-                    if self.try_send_doh_query(req, resp, exp_time).await.is_err() {
-                        break;
-                    }
-                }
-            }
-            self.recv_rx().await?;
-            self.flush_tx().await?;
+        debug!("process_queries entry, Network {}", self.info.net_id);
+        self.try_connect().await?;
+        if let ConnectionState::Connected { quic_conn, udp_sk, h3_conn, query_map, expired_time } =
+            &mut self.state
+        {
+            let h3_conn = h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
             loop {
-                match self.recv_h3() {
-                    Ok((stream_id, H3Result::Data { mut data })) => {
-                        if let Some((answer, _)) = self.query_map.get_mut(&stream_id) {
-                            answer.append(&mut data);
-                        } else {
-                            // Should not happen
-                            warn!("No associated receiver found while receiving Data, Network {}, stream id: {}", self.net_id, stream_id);
+                while !self.pending_queries.is_empty() {
+                    if let Some((req, resp, exp_time)) = self.pending_queries.pop() {
+                        // Ignore the expired queries.
+                        if Instant::now().checked_duration_since(exp_time).is_some() {
+                            warn!("Drop the obsolete query for network {}", self.info.net_id);
+                            continue;
                         }
-                    }
-                    Ok((stream_id, H3Result::Finished)) => {
-                        if let Some((answer, resp)) = self.query_map.remove(&stream_id) {
-                            debug!(
-                                "sending answer back to resolv, Network {}, stream id: {}",
-                                self.net_id, stream_id
-                            );
-                            resp.send(Response::Success { answer }).unwrap_or_else(|e| {
-                                trace!("the receiver dropped {:?}, stream id: {}", e, stream_id);
-                            });
-                        } else {
-                            // Should not happen
-                            warn!("No associated receiver found while receiving Finished, Network {}, stream id: {}", self.net_id, stream_id);
-                        }
-                    }
-                    Ok((_stream_id, H3Result::Ignore)) => {}
-                    Err(_) => break,
-                }
-            }
-            if self.quic_conn.is_closed() || !self.quic_conn.is_established() {
-                self.status = ConnectionStatus::Idle;
-                bail!("connection become idle");
-            }
-        }
-    }
-
-    fn recv_h3(&mut self) -> Result<(u64, H3Result)> {
-        let h3_conn = self.h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
-        match h3_conn.poll(&mut self.quic_conn) {
-            // Process HTTP/3 events.
-            Ok((stream_id, quiche::h3::Event::Data)) => {
-                debug!("quiche::h3::Event::Data");
-                let mut buf = vec![0; MAX_DATAGRAM_SIZE];
-                match h3_conn.recv_body(&mut self.quic_conn, stream_id, &mut buf) {
-                    Ok(read) => {
-                        trace!(
-                            "got {} bytes of response data on stream {}: {:x?}",
-                            read,
-                            stream_id,
-                            &buf[..read]
-                        );
-                        buf.truncate(read);
-                        Ok((stream_id, H3Result::Data { data: buf }))
-                    }
-                    Err(e) => {
-                        warn!("recv_h3::recv_body {:?}", e);
-                        bail!(e);
+                        send_dns_query(
+                            quic_conn,
+                            udp_sk,
+                            h3_conn,
+                            query_map,
+                            &mut self.pending_queries,
+                            resp,
+                            exp_time,
+                            req,
+                        )
+                        .await?;
                     }
                 }
-            }
-            Ok((stream_id, quiche::h3::Event::Headers { list, has_body })) => {
-                debug!(
-                    "got response headers {:?} on stream id {} has_body {}",
-                    list, stream_id, has_body
-                );
-                Ok((stream_id, H3Result::Ignore))
-            }
-            Ok((stream_id, quiche::h3::Event::Finished)) => {
-                debug!("quiche::h3::Event::Finished on stream id {}", stream_id);
-                Ok((stream_id, H3Result::Finished))
-            }
-            Ok((stream_id, quiche::h3::Event::Datagram)) => {
-                debug!("quiche::h3::Event::Datagram on stream id {}", stream_id);
-                Ok((stream_id, H3Result::Ignore))
-            }
-            // TODO: Check if it's necessary to handle GoAway event.
-            Ok((stream_id, quiche::h3::Event::GoAway)) => {
-                debug!("quiche::h3::Event::GoAway on stream id {}", stream_id);
-                Ok((stream_id, H3Result::Ignore))
-            }
-            Err(e) => {
-                debug!("recv_h3 {:?}", e);
-                bail!(e);
-            }
-        }
-    }
-
-    async fn recv_rx(&mut self) -> Result<()> {
-        // TODO: Evaluate if we could make the buffer smaller.
-        let mut buf = [0; 65535];
-        let ts = self
-            .quic_conn
-            .timeout()
-            .unwrap_or_else(|| Duration::from_millis(QUICHE_IDLE_TIMEOUT_MS));
-
-        self.expired_time = BootTime::now().checked_add(ts);
-        debug!("recv_rx entry next timeout {:?} {:?}, {}", ts, self.expired_time, self.net_id);
-        match timeout(ts, self.udp_sk.recv_from(&mut buf)).await {
-            Ok(v) => match v {
-                Ok((size, from)) => {
-                    let recv_info = quiche::RecvInfo { from };
-                    let processed = match self.quic_conn.recv(&mut buf[..size], recv_info) {
-                        Ok(l) => l,
-                        Err(e) => {
-                            debug!("recv_rx error {:?}", e);
-                            bail!("quic recv failed: {:?}", e);
+                flush_tx(quic_conn, udp_sk).await?;
+                recv_rx(quic_conn, udp_sk, expired_time).await?;
+                loop {
+                    match recv_h3(quic_conn, h3_conn) {
+                        Ok((stream_id, H3Result::Data { mut data })) => {
+                            if let Some((answer, _)) = query_map.get_mut(&stream_id) {
+                                answer.append(&mut data);
+                            } else {
+                                // Should not happen
+                                warn!("No associated receiver found while receiving Data, Network {}, stream id: {}", self.info.net_id, stream_id);
+                            }
                         }
-                    };
-                    debug!("processed {} bytes", processed);
-                    Ok(())
+                        Ok((stream_id, H3Result::Finished)) => {
+                            if let Some((answer, resp)) = query_map.remove(&stream_id) {
+                                debug!(
+                                    "sending answer back to resolv, Network {}, stream id: {}",
+                                    self.info.net_id, stream_id
+                                );
+                                resp.send(Response::Success { answer }).unwrap_or_else(|e| {
+                                    trace!(
+                                        "the receiver dropped {:?}, stream id: {}",
+                                        e,
+                                        stream_id
+                                    );
+                                });
+                            } else {
+                                // Should not happen
+                                warn!("No associated receiver found while receiving Finished, Network {}, stream id: {}", self.info.net_id, stream_id);
+                            }
+                        }
+                        Ok((_stream_id, H3Result::Ignore)) => {}
+                        Err(_) => break,
+                    }
                 }
-                Err(e) => bail!("socket recv failed: {:?}", e),
-            },
-            Err(_) => {
-                warn!("timeout did not receive value within {:?}, {}", ts, self.net_id);
-                self.quic_conn.on_timeout();
-                Ok(())
+                if quic_conn.is_closed() || !quic_conn.is_established() {
+                    self.state_to_idle();
+                    bail!("connection become idle");
+                }
             }
+        } else {
+            self.state_to_error();
+            bail!("state error while performing process_queries(), network: {}", self.info.net_id);
         }
     }
+}
 
-    async fn flush_tx(&mut self) -> Result<()> {
-        let mut out = [0; MAX_DATAGRAM_SIZE];
-        loop {
-            let (write, _) = match self.quic_conn.send(&mut out) {
-                Ok(v) => v,
-                Err(quiche::Error::Done) => {
-                    debug!("done writing");
-                    break;
+fn recv_h3(
+    quic_conn: &mut Pin<Box<quiche::Connection>>,
+    h3_conn: &mut h3::Connection,
+) -> Result<(u64, H3Result)> {
+    match h3_conn.poll(quic_conn) {
+        // Process HTTP/3 events.
+        Ok((stream_id, quiche::h3::Event::Data)) => {
+            debug!("quiche::h3::Event::Data");
+            let mut buf = vec![0; MAX_DATAGRAM_SIZE];
+            match h3_conn.recv_body(quic_conn, stream_id, &mut buf) {
+                Ok(read) => {
+                    trace!(
+                        "got {} bytes of response data on stream {}: {:x?}",
+                        read,
+                        stream_id,
+                        &buf[..read]
+                    );
+                    buf.truncate(read);
+                    Ok((stream_id, H3Result::Data { data: buf }))
                 }
                 Err(e) => {
-                    self.quic_conn.close(false, 0x1, b"fail").ok();
+                    warn!("recv_h3::recv_body {:?}", e);
                     bail!(e);
                 }
-            };
-            self.udp_sk.send(&out[..write]).await?;
-            debug!("written {}", write);
+            }
         }
-        Ok(())
+        Ok((stream_id, quiche::h3::Event::Headers { list, has_body })) => {
+            trace!(
+                "got response headers {:?} on stream id {} has_body {}",
+                list,
+                stream_id,
+                has_body
+            );
+            Ok((stream_id, H3Result::Ignore))
+        }
+        Ok((stream_id, quiche::h3::Event::Finished)) => {
+            debug!("quiche::h3::Event::Finished on stream id {}", stream_id);
+            Ok((stream_id, H3Result::Finished))
+        }
+        Ok((stream_id, quiche::h3::Event::Datagram)) => {
+            debug!("quiche::h3::Event::Datagram on stream id {}", stream_id);
+            Ok((stream_id, H3Result::Ignore))
+        }
+        // TODO: Check if it's necessary to handle GoAway event.
+        Ok((stream_id, quiche::h3::Event::GoAway)) => {
+            debug!("quiche::h3::Event::GoAway on stream id {}", stream_id);
+            Ok((stream_id, H3Result::Ignore))
+        }
+        Err(e) => {
+            debug!("recv_h3 {:?}", e);
+            bail!(e);
+        }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_dns_query(
+    quic_conn: &mut Pin<Box<quiche::Connection>>,
+    udp_sk: &mut UdpSocket,
+    h3_conn: &mut h3::Connection,
+    query_map: &mut HashMap<u64, (Vec<u8>, QueryResponder)>,
+    pending_queries: &mut Vec<(DnsRequest, QueryResponder, Instant)>,
+    resp: QueryResponder,
+    expired_time: Instant,
+    req: DnsRequest,
+) -> Result<()> {
+    if !quic_conn.is_established() {
+        bail!("quic connection is not ready");
+    }
+    match h3_conn.send_request(quic_conn, &req, true /*fin*/) {
+        Ok(stream_id) => {
+            query_map.insert(stream_id, (Vec::new(), resp));
+            flush_tx(quic_conn, udp_sk).await?;
+            debug!("send dns query successfully stream id: {}", stream_id);
+            Ok(())
+        }
+        Err(quiche::h3::Error::StreamBlocked) => {
+            warn!("try to send query but error on StreamBlocked");
+            pending_queries.push((req, resp, expired_time));
+            Ok(())
+        }
+        Err(e) => {
+            resp.send(Response::Error { error: QueryError::ConnectionError }).ok();
+            bail!(e);
+        }
+    }
+}
+
+async fn recv_rx(
+    quic_conn: &mut Pin<Box<quiche::Connection>>,
+    udp_sk: &mut UdpSocket,
+    expired_time: &mut Option<BootTime>,
+) -> Result<()> {
+    // TODO: Evaluate if we could make the buffer smaller.
+    let mut buf = [0; 65535];
+    let quic_idle_timeout_ms = Duration::from_millis(QUICHE_IDLE_TIMEOUT_MS);
+    let ts = quic_conn.timeout().unwrap_or(quic_idle_timeout_ms);
+
+    if let Some(next_expired) = BootTime::now().checked_add(quic_idle_timeout_ms) {
+        expired_time.replace(next_expired);
+    } else {
+        expired_time.take();
+    }
+    debug!("recv_rx entry next timeout {:?} {:?}", ts, expired_time);
+    match timeout(ts, udp_sk.recv_from(&mut buf)).await {
+        Ok(v) => match v {
+            Ok((size, from)) => {
+                let recv_info = quiche::RecvInfo { from };
+                let processed = match quic_conn.recv(&mut buf[..size], recv_info) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        debug!("recv_rx error {:?}", e);
+                        bail!("quic recv failed: {:?}", e);
+                    }
+                };
+                debug!("processed {} bytes", processed);
+                Ok(())
+            }
+            Err(e) => bail!("socket recv failed: {:?}", e),
+        },
+        Err(_) => {
+            warn!("timeout did not receive value within {:?}", ts);
+            quic_conn.on_timeout();
+            Ok(())
+        }
+    }
+}
+
+async fn flush_tx(
+    quic_conn: &mut Pin<Box<quiche::Connection>>,
+    udp_sk: &mut UdpSocket,
+) -> Result<()> {
+    let mut out = [0; MAX_DATAGRAM_SIZE];
+    loop {
+        let (write, _) = match quic_conn.send(&mut out) {
+            Ok(v) => v,
+            Err(quiche::Error::Done) => {
+                debug!("done writing");
+                break;
+            }
+            Err(e) => {
+                quic_conn.close(false, 0x1, b"fail").ok();
+                bail!(e);
+            }
+        };
+        udp_sk.send(&out[..write]).await?;
+        debug!("written {}", write);
+    }
+    Ok(())
 }
 
 fn report_private_dns_validation(
     info: &ServerInfo,
-    status: &ConnectionStatus,
+    state: &ConnectionState,
     runtime: Arc<Runtime>,
     validation_fn: ValidationCallback,
 ) {
@@ -529,10 +717,9 @@ fn report_private_dns_validation(
         }
     };
     let netd_id = info.net_id;
-    let status = status.clone();
-    runtime.spawn_blocking(move || {
-        validation_fn(netd_id, status == ConnectionStatus::Ready, ip_addr.as_ptr(), domain.as_ptr())
-    });
+    let success = matches!(state, ConnectionState::Connected { .. });
+    runtime
+        .spawn_blocking(move || validation_fn(netd_id, success, ip_addr.as_ptr(), domain.as_ptr()));
 }
 
 fn handle_probe_result(
@@ -546,9 +733,8 @@ fn handle_probe_result(
             info!("probing_task success on net_id: {}", info.net_id);
             (info, doh_conn)
         }
-        (info, Err((e, mut doh_conn))) => {
+        (info, Err((e, doh_conn))) => {
             error!("probe failed on network {}, {:?}", e, info.net_id);
-            doh_conn.status = ConnectionStatus::Fail;
             (info, doh_conn)
             // TODO: Retry probe?
         }
@@ -570,7 +756,7 @@ fn handle_probe_result(
             return;
         }
     }
-    report_private_dns_validation(&info, &doh_conn.status, runtime, validation_fn);
+    report_private_dns_validation(&info, &doh_conn.state, runtime, validation_fn);
     doh_conn_map.insert(info.net_id, (info, Some(doh_conn)));
 }
 
@@ -579,18 +765,8 @@ async fn probe_task(
     mut doh: DohConnection,
     t: Duration,
 ) -> (ServerInfo, Result<DohConnection, (anyhow::Error, DohConnection)>) {
-    let req = match make_probe_query() {
-        Ok(q) => match make_dns_request(&q, &info.url) {
-            Ok(req) => req,
-            Err(e) => return (info, Err((anyhow!(e), doh))),
-        },
-        Err(e) => return (info, Err((anyhow!(e), doh))),
-    };
-    match timeout(t, doh.probe(req)).await {
-        Ok(v) => match v {
-            Ok(_) => (info, Ok(doh)),
-            Err(e) => (info, Err((e, doh))),
-        },
+    match doh.probe(t).await {
+        Ok(_) => (info, Ok(doh)),
         Err(e) => (info, Err((anyhow!(e), doh))),
     }
 }
@@ -598,14 +774,12 @@ async fn probe_task(
 fn make_connection_if_needed(
     info: &ServerInfo,
     doh_conn_map: &mut HashMap<u32, (ServerInfo, Option<DohConnection>)>,
-    config_cache: &mut QuicheConfigCache,
+    shared_config: Arc<Mutex<QuicheConfigCache>>,
 ) -> Result<Option<DohConnection>> {
     // Check if connection exists.
     match doh_conn_map.get(&info.net_id) {
         // The connection exists but has failed. Re-probe.
-        Some((server_info, Some(doh)))
-            if *server_info == *info && doh.status == ConnectionStatus::Fail =>
-        {
+        Some((server_info, Some(doh))) if *server_info == *info && doh.is_reprobe_required() => {
             let (_, doh) = doh_conn_map
                 .insert(info.net_id, (info.clone(), None))
                 .ok_or_else(|| anyhow!("unexpected error, missing connection"))?;
@@ -616,23 +790,9 @@ fn make_connection_if_needed(
         // TODO: change the inner connection instead of removing?
         _ => doh_conn_map.remove(&info.net_id),
     };
-    match &info.cert_path {
-        // The cert path is not either empty or SYSTEM_CERT_PATH, which means it's used by tests,
-        // it's not necessary to cache the config.
-        Some(cert_path) if cert_path != SYSTEM_CERT_PATH => {
-            let mut config = create_quiche_config(Some(cert_path))?;
-            let doh = DohConnection::new(info, &mut config)?;
-            doh_conn_map.insert(info.net_id, (info.clone(), None));
-            Ok(Some(doh))
-        }
-        // The normal cases, get the config from config cache.
-        cert_path => {
-            let config = config_cache.get(cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
-            let doh = DohConnection::new(info, config)?;
-            doh_conn_map.insert(info.net_id, (info.clone(), None));
-            Ok(Some(doh))
-        }
-    }
+    let doh = DohConnection::new(info, shared_config)?;
+    doh_conn_map.insert(info.net_id, (info.clone(), None));
+    Ok(Some(doh))
 }
 
 struct QuicheConfigCache {
@@ -642,9 +802,6 @@ struct QuicheConfigCache {
 
 impl QuicheConfigCache {
     fn get(&mut self, cert_path: &Option<String>) -> Result<Option<&mut quiche::Config>> {
-        if !cert_path.as_ref().map_or(true, |path| path == SYSTEM_CERT_PATH) {
-            bail!("Custom cert_path is not allowed for config cache");
-        }
         // No config is cached or the cached config isn't matched with the input cert_path
         // Create it with the input cert_path.
         if self.config.is_none() || self.cert_path != *cert_path {
@@ -655,30 +812,12 @@ impl QuicheConfigCache {
     }
 }
 
-fn resume_connection_if_needed(
-    info: &ServerInfo,
-    quic_conn: &mut DohConnection,
-    config_cache: &mut QuicheConfigCache,
-) -> Result<()> {
-    quic_conn.handle_if_connection_expired();
-    if quic_conn.status == ConnectionStatus::Idle {
-        let mut c =
-            config_cache.get(&info.cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
-        let connid = quiche::ConnectionId::from_ref(&quic_conn.scid);
-        let new_quic_conn =
-            quiche::connect(info.domain.as_deref(), &connid, info.peer_addr, &mut c)?;
-        quic_conn.resume_connection(new_quic_conn);
-    }
-    Ok(())
-}
-
 async fn handle_query_cmd(
     net_id: u32,
     base64_query: Base64Query,
     expired_time: Instant,
     resp: QueryResponder,
     doh_conn_map: &mut HashMap<u32, (ServerInfo, Option<DohConnection>)>,
-    config_cache: &mut QuicheConfigCache,
 ) {
     if let Some((info, quic_conn)) = doh_conn_map.get_mut(&net_id) {
         match (&info.domain, quic_conn) {
@@ -692,15 +831,6 @@ async fn handle_query_cmd(
             }
             // Connection is ready
             (_, Some(quic_conn)) => {
-                if quic_conn.status == ConnectionStatus::Fail {
-                    let _ = resp.send(Response::Error { error: QueryError::BrokenServer });
-                    return;
-                }
-                if let Err(e) = resume_connection_if_needed(info, quic_conn, config_cache) {
-                    error!("resume_connection failed {:?}", e);
-                    let _ = resp.send(Response::Error { error: QueryError::BrokenServer });
-                    return;
-                }
                 if let Ok(req) = make_dns_request(&base64_query, &info.url) {
                     let _ = quic_conn.try_send_doh_query(req, resp, expired_time).await;
                 } else {
@@ -719,7 +849,7 @@ fn need_process_queries(doh_conn_map: &HashMap<u32, (ServerInfo, Option<DohConne
     }
     for (_, doh_conn) in doh_conn_map.values() {
         if let Some(doh_conn) = doh_conn {
-            if !doh_conn.query_map.is_empty() || !doh_conn.pending_queries.is_empty() {
+            if doh_conn.has_not_handled_queries() {
                 return true;
             }
         }
@@ -733,7 +863,7 @@ async fn doh_handler(
     validation_fn: ValidationCallback,
 ) -> Result<()> {
     info!("doh_dispatcher entry");
-    let mut config_cache: QuicheConfigCache = QuicheConfigCache { cert_path: None, config: None };
+    let config_cache = Arc::new(Mutex::new(QuicheConfigCache { cert_path: None, config: None }));
 
     // Currently, only support 1 server per network.
     let mut doh_conn_map: HashMap<u32, (ServerInfo, Option<DohConnection>)> = HashMap::new();
@@ -744,9 +874,7 @@ async fn doh_handler(
                 let mut futures = vec![];
                 for (_, doh_conn) in doh_conn_map.values_mut() {
                     if let Some(doh_conn) = doh_conn {
-                        if doh_conn.status != ConnectionStatus::Fail {
-                            futures.push(doh_conn.process_queries());
-                        }
+                        futures.push(doh_conn.process_queries());
                     }
                 }
                 join_all(futures).await
@@ -760,11 +888,11 @@ async fn doh_handler(
                 trace!("recv {:?}", cmd);
                 match cmd {
                     DohCommand::Probe { info, timeout: t } => {
-                        match make_connection_if_needed(&info, &mut doh_conn_map, &mut config_cache) {
+                        match make_connection_if_needed(&info, &mut doh_conn_map, config_cache.clone()) {
                             Ok(Some(doh)) => {
                                 // Create a new async task associated to the DoH connection.
                                 probe_futures.push(probe_task(info, doh, t));
-                                debug!("probe_map size: {}", probe_futures.len());
+                                debug!("probe_futures size: {}", probe_futures.len());
                             }
                             Ok(None) => {
                                 // No further probe is needed.
@@ -773,12 +901,12 @@ async fn doh_handler(
                             }
                             Err(e) => {
                                 error!("create connection for network {} error {:?}", info.net_id, e);
-                                report_private_dns_validation(&info, &ConnectionStatus::Fail, runtime.clone(), validation_fn);
+                                report_private_dns_validation(&info, &ConnectionState::Error, runtime.clone(), validation_fn);
                             }
                         }
                     },
                     DohCommand::Query { net_id, base64_query, expired_time, resp } => {
-                        handle_query_cmd(net_id, base64_query, expired_time, resp, &mut doh_conn_map, &mut config_cache).await;
+                        handle_query_cmd(net_id, base64_query, expired_time, resp, &mut doh_conn_map).await;
                     },
                     DohCommand::Clear { net_id } => {
                         doh_conn_map.remove(&net_id);
@@ -823,7 +951,7 @@ fn make_doh_udp_socket(peer_addr: SocketAddr, mark: u32) -> Result<std::net::Udp
     }
     udp_sk.connect(peer_addr)?;
 
-    debug!("connecting to {:} from {:}", peer_addr, udp_sk.local_addr()?);
+    trace!("connecting to {:} from {:}", peer_addr, udp_sk.local_addr()?);
     Ok(udp_sk)
 }
 
@@ -1108,7 +1236,7 @@ mod tests {
     fn make_testing_variables() -> (
         ServerInfo,
         HashMap<u32, (ServerInfo, Option<DohConnection>)>,
-        QuicheConfigCache,
+        Arc<Mutex<QuicheConfigCache>>,
         Arc<Runtime>,
     ) {
         let test_map: HashMap<u32, (ServerInfo, Option<DohConnection>)> = HashMap::new();
@@ -1120,7 +1248,8 @@ mod tests {
             sk_mark: 0,
             cert_path: None,
         };
-        let config: QuicheConfigCache = QuicheConfigCache { cert_path: None, config: None };
+        let config_cache =
+            Arc::new(Mutex::new(QuicheConfigCache { cert_path: None, config: None }));
 
         let rt = Arc::new(
             Builder::new_current_thread()
@@ -1129,31 +1258,31 @@ mod tests {
                 .build()
                 .expect("Failed to create testing tokio runtime"),
         );
-        (info, test_map, config, rt)
+        (info, test_map, config_cache, rt)
     }
 
     #[test]
     fn make_connection_if_needed() {
-        let (info, mut test_map, mut config, rt) = make_testing_variables();
+        let (info, mut test_map, config, rt) = make_testing_variables();
         rt.block_on(async {
             // Expect to make a new connection.
-            let mut doh = super::make_connection_if_needed(&info, &mut test_map, &mut config)
+            let mut doh = super::make_connection_if_needed(&info, &mut test_map, config.clone())
                 .unwrap()
                 .unwrap();
-            assert_eq!(doh.net_id, info.net_id);
-            assert_eq!(doh.status, ConnectionStatus::Pending);
-            doh.status = ConnectionStatus::Fail;
+            assert_eq!(doh.info.net_id, info.net_id);
+            assert!(matches!(doh.state, ConnectionState::Idle));
+            doh.state = ConnectionState::Error;
             test_map.insert(info.net_id, (info.clone(), Some(doh)));
             // Expect that we will get a connection with fail status that we added to the map before.
-            let mut doh = super::make_connection_if_needed(&info, &mut test_map, &mut config)
+            let mut doh = super::make_connection_if_needed(&info, &mut test_map, config.clone())
                 .unwrap()
                 .unwrap();
-            assert_eq!(doh.net_id, info.net_id);
-            assert_eq!(doh.status, ConnectionStatus::Fail);
-            doh.status = ConnectionStatus::Ready;
+            assert_eq!(doh.info.net_id, info.net_id);
+            assert!(matches!(doh.state, ConnectionState::Error));
+            doh.state = make_dummy_connected_state();
             test_map.insert(info.net_id, (info.clone(), Some(doh)));
             // Expect that we will get None because the map contains a connection with ready status.
-            assert!(super::make_connection_if_needed(&info, &mut test_map, &mut config)
+            assert!(super::make_connection_if_needed(&info, &mut test_map, config.clone())
                 .unwrap()
                 .is_none());
         });
@@ -1161,7 +1290,7 @@ mod tests {
 
     #[test]
     fn handle_query_cmd() {
-        let (info, mut test_map, mut config, rt) = make_testing_variables();
+        let (info, mut test_map, config, rt) = make_testing_variables();
         let t = Duration::from_millis(100);
 
         rt.block_on(async {
@@ -1174,7 +1303,6 @@ mod tests {
                 Instant::now().checked_add(t).unwrap(),
                 resp_tx,
                 &mut test_map,
-                &mut config,
             )
             .await;
             assert_eq!(
@@ -1190,7 +1318,6 @@ mod tests {
                 Instant::now().checked_add(t).unwrap(),
                 resp_tx,
                 &mut test_map,
-                &mut config,
             )
             .await;
             assert_eq!(
@@ -1201,10 +1328,10 @@ mod tests {
             // Test the connection broken case.
             test_map.clear();
             let (resp_tx, resp_rx) = oneshot::channel();
-            let mut doh = super::make_connection_if_needed(&info, &mut test_map, &mut config)
+            let mut doh = super::make_connection_if_needed(&info, &mut test_map, config.clone())
                 .unwrap()
                 .unwrap();
-            doh.status = ConnectionStatus::Fail;
+            doh.state = ConnectionState::Error;
             test_map.insert(info.net_id, (info.clone(), Some(doh)));
             super::handle_query_cmd(
                 info.net_id,
@@ -1212,7 +1339,6 @@ mod tests {
                 Instant::now().checked_add(t).unwrap(),
                 resp_tx,
                 &mut test_map,
-                &mut config,
             )
             .await;
             assert_eq!(
@@ -1261,6 +1387,38 @@ mod tests {
         assert_eq!(host, "");
     }
 
+    fn make_testing_connection_variables() -> (Pin<Box<quiche::Connection>>, UdpSocket) {
+        let sk = super::make_doh_udp_socket(LOOPBACK_ADDR.parse().unwrap(), TEST_MARK).unwrap();
+        let udp_sk = UdpSocket::from_std(sk).unwrap();
+        let mut scid = [0; quiche::MAX_CONN_ID_LEN];
+        ring::rand::SystemRandom::new().fill(&mut scid).context("failed to generate scid").unwrap();
+        let connid = quiche::ConnectionId::from_ref(&scid);
+        let mut config = super::create_quiche_config(None).unwrap();
+        let quic_conn =
+            quiche::connect(None, &connid, LOOPBACK_ADDR.parse().unwrap(), &mut config).unwrap();
+        (quic_conn, udp_sk)
+    }
+
+    fn make_dummy_connected_state() -> super::ConnectionState {
+        let (quic_conn, udp_sk) = make_testing_connection_variables();
+        ConnectionState::Connected {
+            quic_conn,
+            udp_sk,
+            h3_conn: None,
+            query_map: HashMap::new(),
+            expired_time: None,
+        }
+    }
+
+    fn make_dummy_connecting_state() -> super::ConnectionState {
+        let (quic_conn, udp_sk) = make_testing_connection_variables();
+        ConnectionState::Connecting {
+            quic_conn: Some(quic_conn),
+            udp_sk: Some(udp_sk),
+            expired_time: None,
+        }
+    }
+
     #[test]
     fn report_private_dns_validation() {
         let info = ServerInfo {
@@ -1274,6 +1432,7 @@ mod tests {
         let rt = Arc::new(
             Builder::new_current_thread()
                 .thread_name("test-runtime")
+                .enable_io()
                 .build()
                 .expect("Failed to create testing tokio runtime"),
         );
@@ -1283,20 +1442,32 @@ mod tests {
             default_panic(info);
             std::process::exit(1);
         }));
-        super::report_private_dns_validation(
-            &info,
-            &ConnectionStatus::Ready,
-            rt.clone(),
-            success_cb,
-        );
-        super::report_private_dns_validation(&info, &ConnectionStatus::Fail, rt.clone(), fail_cb);
-        super::report_private_dns_validation(
-            &info,
-            &ConnectionStatus::Pending,
-            rt.clone(),
-            fail_cb,
-        );
-        super::report_private_dns_validation(&info, &ConnectionStatus::Idle, rt, fail_cb);
+        rt.block_on(async {
+            super::report_private_dns_validation(
+                &info,
+                &make_dummy_connected_state(),
+                rt.clone(),
+                success_cb,
+            );
+            super::report_private_dns_validation(
+                &info,
+                &ConnectionState::Error,
+                rt.clone(),
+                fail_cb,
+            );
+            super::report_private_dns_validation(
+                &info,
+                &make_dummy_connecting_state(),
+                rt.clone(),
+                fail_cb,
+            );
+            super::report_private_dns_validation(
+                &info,
+                &ConnectionState::Idle,
+                rt.clone(),
+                fail_cb,
+            );
+        });
     }
 
     #[test]
