@@ -195,6 +195,7 @@ cc_library {
         "libcutils",
         "libnetdutils",
         "libdoh_ffi",
+        "libmodules-utils-build",
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
         "libstatspush_compat",
