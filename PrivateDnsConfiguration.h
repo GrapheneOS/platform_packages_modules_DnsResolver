@@ -147,6 +147,7 @@ class PrivateDnsConfiguration {
                                                          unsigned netId) REQUIRES(mPrivateDnsLock);
 
     void initDohLocked() REQUIRES(mPrivateDnsLock);
+    void clearDohLocked(unsigned netId) REQUIRES(mPrivateDnsLock);
 
     mutable std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);

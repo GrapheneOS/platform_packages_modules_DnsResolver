@@ -424,10 +424,13 @@ void PrivateDnsConfiguration::initDohLocked() {
 int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
                                     const std::vector<std::string>& servers,
                                     const std::string& name, const std::string& caCert) {
-    if (servers.empty()) return 0;
     LOG(DEBUG) << "PrivateDnsConfiguration::setDoh(" << netId << ", 0x" << std::hex << mark
                << std::dec << ", " << servers.size() << ", " << name << ")";
     std::lock_guard guard(mPrivateDnsLock);
+    if (servers.empty()) {
+        clearDohLocked(netId);
+        return 0;
+    }
 
     // Sort the input servers to ensure that we could get the server vector at the same order.
     std::vector<std::string> sortedServers = servers;
@@ -473,14 +476,19 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
     }
 
     LOG(INFO) << __func__ << ": No suitable DoH server found";
+    clearDohLocked(netId);
     return 0;
 }
 
-void PrivateDnsConfiguration::clearDoh(unsigned netId) {
-    LOG(DEBUG) << "PrivateDnsConfiguration::clearDoh (" << netId << ")";
-    std::lock_guard guard(mPrivateDnsLock);
+void PrivateDnsConfiguration::clearDohLocked(unsigned netId) {
+    LOG(DEBUG) << "PrivateDnsConfiguration::clearDohLocked (" << netId << ")";
     if (mDohDispatcher != nullptr) doh_net_delete(mDohDispatcher, netId);
     mDohTracker.erase(netId);
+}
+
+void PrivateDnsConfiguration::clearDoh(unsigned netId) {
+    std::lock_guard guard(mPrivateDnsLock);
+    clearDohLocked(netId);
 }
 
 ssize_t PrivateDnsConfiguration::dohQuery(unsigned netId, const Slice query, const Slice answer,
