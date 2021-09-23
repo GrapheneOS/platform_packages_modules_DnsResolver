@@ -180,6 +180,7 @@ cc_test {
         "libbpf_android",
         "libcrypto_static",
         "libgmock",
+        "libmodules-utils-build",
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_metrics_listener",
         "libnetd_test_resolv_utils",
