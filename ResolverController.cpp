@@ -208,32 +208,41 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     // through a different network. For example, on a VPN with no DNS servers (Do53), if the VPN
     // applies to UID 0, dns_mark is assigned for default network rathan the VPN. (note that it's
     // possible that a VPN doesn't have any DNS servers but DoT servers in DNS strict mode)
-    int err = PrivateDnsConfiguration::getInstance().set(resolverParams.netId, netcontext.app_mark,
-                                                         tlsServers, resolverParams.tlsName,
-                                                         resolverParams.caCertificate);
+    auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
+    int err = privateDnsConfiguration.set(resolverParams.netId, netcontext.app_mark, tlsServers,
+                                          resolverParams.tlsName, resolverParams.caCertificate);
 
     if (err != 0) {
         return err;
     }
 
-    if (int err = resolv_stats_set_addrs(resolverParams.netId, PROTO_DOT, tlsServers, 853);
+    if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_DOT, tlsServers, 853);
         err != 0) {
         return err;
     }
 
-    if (int err = resolv_stats_set_addrs(resolverParams.netId, PROTO_MDNS,
-                                         {"ff02::fb", "224.0.0.251"}, 5353);
+    if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_MDNS, {"ff02::fb", "224.0.0.251"},
+                                     5353);
         err != 0) {
         return err;
     }
 
-    if (isDoHEnabled())
-        err = PrivateDnsConfiguration::getInstance().setDoh(
-                resolverParams.netId, netcontext.app_mark, tlsServers, resolverParams.tlsName,
-                resolverParams.caCertificate);
-
-    if (err != 0) {
-        return err;
+    if (isDoHEnabled()) {
+        if (err = privateDnsConfiguration.setDoh(resolverParams.netId, netcontext.app_mark,
+                                                 tlsServers, resolverParams.tlsName,
+                                                 resolverParams.caCertificate);
+            err != 0) {
+            return err;
+        }
+        auto result = privateDnsConfiguration.getDohServer(resolverParams.netId);
+        if (result.ok()) {
+            const netdutils::IPSockAddr sockAddr = result.value();
+            if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_DOH,
+                                             {sockAddr.ip().toString()}, sockAddr.port());
+                err != 0) {
+                return err;
+            }
+        }
     }
 
     res_params res_params = {};
