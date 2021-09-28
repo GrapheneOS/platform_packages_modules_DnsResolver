@@ -386,6 +386,16 @@ void PrivateDnsConfiguration::setObserver(PrivateDnsValidationObserver* observer
     mObserver = observer;
 }
 
+base::Result<netdutils::IPSockAddr> PrivateDnsConfiguration::getDohServer(unsigned netId) const {
+    std::lock_guard guard(mPrivateDnsLock);
+    auto it = mDohTracker.find(netId);
+    if (it != mDohTracker.end()) {
+        return netdutils::IPSockAddr::toIPSockAddr(it->second.ipAddr, 443);
+    }
+
+    return Errorf("Failed to get DoH Server: netId {} not found", netId);
+}
+
 void PrivateDnsConfiguration::notifyValidationStateUpdate(const netdutils::IPSockAddr& sockaddr,
                                                           Validation validation,
                                                           uint32_t netId) const {
