@@ -34,6 +34,7 @@
 #include "tests/unsolicited_listener/unsolicited_event_listener.h"
 
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using android::base::unique_fd;
 using android::net::resolv::aidl::UnsolicitedEventListener;
 using android::netdutils::ScopedAddrinfo;
 using android::netdutils::Stopwatch;
@@ -189,6 +190,7 @@ class BasePrivateDnsTest : public BaseTest {
     }
 
     void TearDown() override {
+        DumpResolverService();
         mDohScopedProp.reset();
         BaseTest::TearDown();
     }
@@ -214,6 +216,14 @@ class BasePrivateDnsTest : public BaseTest {
     // Used when a DoH probe is sent while the DoH server is not listening on the port.
     void waitForDohValidationFailed() {
         std::this_thread::sleep_for(kExpectedDohValidationTimeWhenServerUnreachable);
+    }
+
+    void DumpResolverService() {
+        unique_fd fd(open("/dev/null", O_WRONLY));
+        EXPECT_EQ(mDnsClient.resolvService()->dump(fd, nullptr, 0), 0);
+
+        const char* querylogCmd[] = {"querylog"};  // Keep it sync with DnsQueryLog::DUMP_KEYWORD.
+        EXPECT_EQ(mDnsClient.resolvService()->dump(fd, querylogCmd, std::size(querylogCmd)), 0);
     }
 
     static constexpr milliseconds kExpectedDohValidationTimeWhenTimeout{1000};
