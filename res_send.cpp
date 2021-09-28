@@ -1415,6 +1415,12 @@ ssize_t res_doh_send(ResState* statp, const Slice query, const Slice answer, int
     dnsQueryEvent->set_protocol(PROTO_DOH);
     span<const uint8_t> msg(query.base(), query.size());
     dnsQueryEvent->set_type(getQueryType(msg));
+
+    auto dohServerAddr = privateDnsConfiguration.getDohServer(netId);
+    if (dohServerAddr.ok()) {
+        resolv_stats_add(netId, dohServerAddr.value(), dnsQueryEvent);
+    }
+
     return result;
 }
 
