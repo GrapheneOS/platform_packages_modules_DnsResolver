@@ -40,14 +40,17 @@ TEST(DoHFFITest, SmokeTest) {
     // To ensure that we have a real network.
     ASSERT_GE(dnsNetId, MINIMAL_NET_ID) << "No available networks";
 
-    auto callback = [](uint32_t netId, bool success, const char* ip_addr, const char* host) {
+    auto validation_cb = [](uint32_t netId, bool success, const char* ip_addr, const char* host) {
         EXPECT_EQ(netId, dnsNetId);
         EXPECT_TRUE(success);
         EXPECT_STREQ(ip_addr, GOOGLE_SERVER_IP);
         EXPECT_STREQ(host, "");
         cv.notify_one();
     };
-    DohDispatcher* doh = doh_dispatcher_new(callback);
+
+    auto tag_socket_cb = [](int32_t sock) { EXPECT_GE(sock, 0); };
+
+    DohDispatcher* doh = doh_dispatcher_new(validation_cb, tag_socket_cb);
     EXPECT_TRUE(doh != nullptr);
 
     // TODO: Use a local server instead of dns.google.
