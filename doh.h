@@ -20,7 +20,7 @@
 
 #pragma once
 
-/* Generated with cbindgen:0.17.0 */
+/* Generated with cbindgen:0.20.0 */
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -55,6 +55,8 @@ struct DohDispatcher;
 using ValidationCallback = void (*)(uint32_t net_id, bool success, const char* ip_addr,
                                     const char* host);
 
+using TagSocketCallback = void (*)(int32_t sock);
+
 extern "C" {
 
 /// Performs static initialization for android logger.
@@ -65,7 +67,8 @@ void doh_set_log_level(uint32_t level);
 
 /// Performs the initialization for the DoH engine.
 /// Creates and returns a DoH engine instance.
-DohDispatcher* doh_dispatcher_new(ValidationCallback ptr);
+DohDispatcher* doh_dispatcher_new(ValidationCallback validation_fn,
+                                  TagSocketCallback tag_socket_fn);
 
 /// Deletes a DoH engine created by doh_dispatcher_new().
 /// # Safety
