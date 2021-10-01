@@ -228,20 +228,11 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     }
 
     if (isDoHEnabled()) {
-        if (err = privateDnsConfiguration.setDoh(resolverParams.netId, netcontext.app_mark,
-                                                 tlsServers, resolverParams.tlsName,
-                                                 resolverParams.caCertificate);
-            err != 0) {
+        err = privateDnsConfiguration.setDoh(resolverParams.netId, netcontext.app_mark, tlsServers,
+                                             resolverParams.tlsName, resolverParams.caCertificate);
+
+        if (err != 0) {
             return err;
-        }
-        auto result = privateDnsConfiguration.getDohServer(resolverParams.netId);
-        if (result.ok()) {
-            const netdutils::IPSockAddr sockAddr = result.value();
-            if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_DOH,
-                                             {sockAddr.ip().toString()}, sockAddr.port());
-                err != 0) {
-                return err;
-            }
         }
     }
 
