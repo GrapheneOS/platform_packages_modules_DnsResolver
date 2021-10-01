@@ -428,7 +428,8 @@ void PrivateDnsConfiguration::initDohLocked() {
             [](uint32_t net_id, bool success, const char* ip_addr, const char* host) {
                 android::net::PrivateDnsConfiguration::getInstance().onDohStatusUpdate(
                         net_id, success, ip_addr, host);
-            });
+            },
+            [](int32_t sock) { resolv_tag_socket(sock, AID_DNS, NET_CONTEXT_INVALID_PID); });
 }
 
 int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
