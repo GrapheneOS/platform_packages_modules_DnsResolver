@@ -329,7 +329,7 @@ filegroup {
 rust_ffi_static {
     name: "libdoh_ffi",
     crate_name: "doh",
-    srcs: ["doh.rs"],
+    srcs: ["doh/doh.rs"],
     edition: "2018",
 
     rlibs: [
@@ -361,7 +361,7 @@ rust_ffi_static {
 rust_test {
     name: "doh_unit_test",
     crate_name: "doh",
-    srcs: ["doh.rs"],
+    srcs: ["doh/doh.rs"],
     edition: "2018",
     test_suites: ["general-tests"],
     auto_gen_config: true,
@@ -387,7 +387,7 @@ rust_test {
 rust_ffi_static {
     name: "libdoh_ffi_for_test",
     crate_name: "doh",
-    srcs: ["doh.rs"],
+    srcs: ["doh/doh.rs"],
     edition: "2018",
 
     rlibs: [
