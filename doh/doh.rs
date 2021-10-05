@@ -174,7 +174,7 @@ impl DohDispatcher {
     fn new(
         validation_fn: ValidationCallback,
         tag_socket_fn: TagSocketCallback,
-    ) -> Result<Box<DohDispatcher>> {
+    ) -> Result<DohDispatcher> {
         let (cmd_sender, cmd_receiver) = mpsc::channel::<DohCommand>(MAX_BUFFERED_CMD_SIZE);
         let runtime = Arc::new(
             Builder::new_multi_thread()
@@ -186,7 +186,7 @@ impl DohDispatcher {
         );
         let join_handle =
             runtime.spawn(doh_handler(cmd_receiver, runtime.clone(), validation_fn, tag_socket_fn));
-        Ok(Box::new(DohDispatcher { cmd_sender, join_handle, runtime }))
+        Ok(DohDispatcher { cmd_sender, join_handle, runtime })
     }
 
     fn send_cmd(&self, cmd: DohCommand) -> Result<()> {
