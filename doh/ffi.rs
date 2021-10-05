@@ -19,17 +19,25 @@
 use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};
 use log::error;
 use std::net::{IpAddr, SocketAddr};
+use std::ops::DerefMut;
 use std::str::FromStr;
+use std::sync::Mutex;
 use std::{ptr, slice};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::task;
 use tokio::time::{timeout, Duration, Instant};
 
-use super::{
-    DohCommand, DohDispatcher, Response, ServerInfo, TagSocketCallback, ValidationCallback,
-    DOH_PORT,
-};
+use super::DohDispatcher as Dispatcher;
+use super::{DohCommand, Response, ServerInfo, TagSocketCallback, ValidationCallback, DOH_PORT};
+
+pub struct DohDispatcher(Mutex<Dispatcher>);
+
+impl DohDispatcher {
+    fn lock(&self) -> impl DerefMut<Target = Dispatcher> + '_ {
+        self.0.lock().unwrap()
+    }
+}
 
 const SYSTEM_CERT_PATH: &str = "/system/etc/security/cacerts";
 
@@ -82,8 +90,8 @@ pub extern "C" fn doh_dispatcher_new(
     validation_fn: ValidationCallback,
     tag_socket_fn: TagSocketCallback,
 ) -> *mut DohDispatcher {
-    match DohDispatcher::new(validation_fn, tag_socket_fn) {
-        Ok(c) => Box::into_raw(c),
+    match Dispatcher::new(validation_fn, tag_socket_fn) {
+        Ok(c) => Box::into_raw(Box::new(DohDispatcher(Mutex::new(c)))),
         Err(e) => {
             error!("doh_dispatcher_new: failed: {:?}", e);
             ptr::null_mut()
@@ -97,7 +105,7 @@ pub extern "C" fn doh_dispatcher_new(
 /// and not yet deleted by `doh_dispatcher_delete()`.
 #[no_mangle]
 pub unsafe extern "C" fn doh_dispatcher_delete(doh: *mut DohDispatcher) {
-    Box::from_raw(doh).exit_handler()
+    Box::from_raw(doh).lock().exit_handler()
 }
 
 /// Probes and stores the DoH server with the given configurations.
@@ -108,7 +116,7 @@ pub unsafe extern "C" fn doh_dispatcher_delete(doh: *mut DohDispatcher) {
 /// `url`, `domain`, `ip_addr`, `cert_path` are null terminated strings.
 #[no_mangle]
 pub unsafe extern "C" fn doh_net_new(
-    doh: &mut DohDispatcher,
+    doh: &DohDispatcher,
     net_id: uint32_t,
     url: *const c_char,
     domain: *const c_char,
@@ -161,7 +169,7 @@ pub unsafe extern "C" fn doh_net_new(
         },
         timeout: Duration::from_millis(timeout_ms),
     };
-    if let Err(e) = doh.send_cmd(cmd) {
+    if let Err(e) = doh.lock().send_cmd(cmd) {
         error!("Failed to send the probe: {:?}", e);
         return -libc::EPIPE;
     }
@@ -178,7 +186,7 @@ pub unsafe extern "C" fn doh_net_new(
 /// `response` must point to a buffer at least `response_len` in size.
 #[no_mangle]
 pub unsafe extern "C" fn doh_query(
-    doh: &mut DohDispatcher,
+    doh: &DohDispatcher,
     net_id: uint32_t,
     dns_query: *mut u8,
     dns_query_len: size_t,
@@ -198,7 +206,7 @@ pub unsafe extern "C" fn doh_query(
             resp: resp_tx,
         };
 
-        if let Err(e) = doh.send_cmd(cmd) {
+        if let Err(e) = doh.lock().send_cmd(cmd) {
             error!("Failed to send the query: {:?}", e);
             return RESULT_CAN_NOT_SEND;
         }
@@ -242,8 +250,8 @@ pub unsafe extern "C" fn doh_query(
 /// `doh` must be a non-null pointer previously created by `doh_dispatcher_new()`
 /// and not yet deleted by `doh_dispatcher_delete()`.
 #[no_mangle]
-pub extern "C" fn doh_net_delete(doh: &mut DohDispatcher, net_id: uint32_t) {
-    if let Err(e) = doh.send_cmd(DohCommand::Clear { net_id }) {
+pub extern "C" fn doh_net_delete(doh: &DohDispatcher, net_id: uint32_t) {
+    if let Err(e) = doh.lock().send_cmd(DohCommand::Clear { net_id }) {
         error!("Failed to send the query: {:?}", e);
     }
 }
