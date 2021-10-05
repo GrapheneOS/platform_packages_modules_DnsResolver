@@ -16,6 +16,7 @@
 
 //! C API for the DoH backend for the Android DnsResolver module.
 
+use crate::boot_time::{timeout, BootTime, Duration};
 use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};
 use log::error;
 use std::net::{IpAddr, SocketAddr};
@@ -26,7 +27,6 @@ use std::{ptr, slice};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::task;
-use tokio::time::{timeout, Duration, Instant};
 
 use super::DohDispatcher as Dispatcher;
 use super::{DohCommand, Response, ServerInfo, TagSocketCallback, ValidationCallback, DOH_PORT};
@@ -205,7 +205,7 @@ pub unsafe extern "C" fn doh_query(
 
     let (resp_tx, resp_rx) = oneshot::channel();
     let t = Duration::from_millis(timeout_ms);
-    if let Some(expired_time) = Instant::now().checked_add(t) {
+    if let Some(expired_time) = BootTime::now().checked_add(t) {
         let cmd = DohCommand::Query {
             net_id,
             base64_query: base64::encode_config(q, base64::URL_SAFE_NO_PAD),
