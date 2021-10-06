@@ -37,6 +37,7 @@ use url::Url;
 
 pub mod boot_time;
 mod config;
+mod encoding;
 mod ffi;
 
 use boot_time::{timeout, BootTime, Duration};
@@ -44,12 +45,6 @@ use config::Config;
 
 const MAX_BUFFERED_CMD_SIZE: usize = 400;
 const DOH_PORT: u16 = 443;
-const NS_T_AAAA: u8 = 28;
-const NS_C_IN: u8 = 1;
-// Used to randomly generate query prefix and query id.
-const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
-                         abcdefghijklmnopqrstuvwxyz\
-                         0123456789";
 
 type SCID = [u8; quiche::MAX_CONN_ID_LEN];
 type Base64Query = String;
@@ -306,8 +301,8 @@ impl DohConnection {
                 &mut self.state
             {
                 let h3_conn = h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
-                let req = match make_probe_query() {
-                    Ok(q) => match make_dns_request(&q, &self.info.url) {
+                let req = match encoding::probe_query() {
+                    Ok(q) => match encoding::dns_request(&q, &self.info.url) {
                         Ok(req) => req,
                         Err(e) => bail!(e),
                     },
@@ -758,7 +753,7 @@ async fn handle_query_cmd(
             }
             // Connection is ready
             (_, Some(quic_conn)) => {
-                if let Ok(req) = make_dns_request(&base64_query, &info.url) {
+                if let Ok(req) = encoding::dns_request(&base64_query, &info.url) {
                     let _ = quic_conn.try_send_doh_query(req, resp, expired_time).await;
                 } else {
                     let _ = resp.send(Response::Error { error: QueryError::Unexpected });
@@ -846,26 +841,6 @@ async fn doh_handler(
     }
 }
 
-fn make_dns_request(base64_query: &str, url: &url::Url) -> Result<DnsRequest> {
-    let mut path = String::from(url.path());
-    path.push_str("?dns=");
-    path.push_str(base64_query);
-    let req = vec![
-        quiche::h3::Header::new(b":method", b"GET"),
-        quiche::h3::Header::new(b":scheme", b"https"),
-        quiche::h3::Header::new(
-            b":authority",
-            url.host_str().ok_or_else(|| anyhow!("failed to get host"))?.as_bytes(),
-        ),
-        quiche::h3::Header::new(b":path", path.as_bytes()),
-        quiche::h3::Header::new(b"user-agent", b"quiche"),
-        quiche::h3::Header::new(b"accept", b"application/dns-message"),
-        // TODO: is content-length required?
-    ];
-
-    Ok(req)
-}
-
 fn make_doh_udp_socket(peer_addr: SocketAddr, mark: u32) -> Result<std::net::UdpSocket> {
     let bind_addr = match peer_addr {
         std::net::SocketAddr::V4(_) => "0.0.0.0:0",
@@ -901,38 +876,12 @@ fn mark_socket(fd: RawFd, mark: u32) -> Result<()> {
     }
 }
 
-#[rustfmt::skip]
-fn make_probe_query() -> Result<String> {
-    let mut rnd = [0; 8];
-    ring::rand::SystemRandom::new().fill(&mut rnd).context("failed to generate probe rnd")?;
-    let c = |byte| CHARSET[(byte as usize) % CHARSET.len()];
-    let query = vec![
-        rnd[6], rnd[7],  // [0-1]   query ID
-        1,      0,       // [2-3]   flags; query[2] = 1 for recursion desired (RD).
-        0,      1,       // [4-5]   QDCOUNT (number of queries)
-        0,      0,       // [6-7]   ANCOUNT (number of answers)
-        0,      0,       // [8-9]   NSCOUNT (number of name server records)
-        0,      0,       // [10-11] ARCOUNT (number of additional records)
-        19,     c(rnd[0]), c(rnd[1]), c(rnd[2]), c(rnd[3]), c(rnd[4]), c(rnd[5]), b'-', b'd', b'n',
-        b's',   b'o',      b'h',      b't',      b't',      b'p',      b's',      b'-', b'd', b's',
-        6,      b'm',      b'e',      b't',      b'r',      b'i',      b'c',      7,    b'g', b's',
-        b't',   b'a',      b't',      b'i',      b'c',      3,         b'c',      b'o', b'm',
-        0,                  // null terminator of FQDN (root TLD)
-        0,      NS_T_AAAA,  // QTYPE
-        0,      NS_C_IN     // QCLASS
-    ];
-    Ok(base64::encode_config(query, base64::URL_SAFE_NO_PAD))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quiche::h3::NameValue;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
     const TEST_NET_ID: u32 = 50;
-    const PROBE_QUERY_SIZE: usize = 56;
-    const H3_DNS_REQUEST_HEADER_SIZE: usize = 6;
     const TEST_MARK: u32 = 0xD0033;
     const LOOPBACK_ADDR: &str = "127.0.0.1:443";
     const LOCALHOST_URL: &str = "https://mylocal.com/dns-query";
@@ -1014,7 +963,7 @@ mod tests {
         rt.block_on(async {
             // Test no available server cases.
             let (resp_tx, resp_rx) = oneshot::channel();
-            let query = super::make_probe_query().unwrap();
+            let query = encoding::probe_query().unwrap();
             super::handle_query_cmd(
                 info.net_id,
                 query.clone(),
@@ -1172,33 +1121,6 @@ mod tests {
                 .await;
             super::report_private_dns_validation(&info, &ConnectionState::Idle, fail_cb).await;
         });
-    }
-
-    #[test]
-    fn make_probe_query_and_request() {
-        let probe_query = super::make_probe_query().unwrap();
-        let url = Url::parse(LOCALHOST_URL).unwrap();
-        let request = make_dns_request(&probe_query, &url).unwrap();
-        // Verify H3 DNS request.
-        assert_eq!(request.len(), H3_DNS_REQUEST_HEADER_SIZE);
-        assert_eq!(request[0].name(), b":method");
-        assert_eq!(request[0].value(), b"GET");
-        assert_eq!(request[1].name(), b":scheme");
-        assert_eq!(request[1].value(), b"https");
-        assert_eq!(request[2].name(), b":authority");
-        assert_eq!(request[2].value(), url.host_str().unwrap().as_bytes());
-        assert_eq!(request[3].name(), b":path");
-        let mut path = String::from(url.path());
-        path.push_str("?dns=");
-        path.push_str(&probe_query);
-        assert_eq!(request[3].value(), path.as_bytes());
-        assert_eq!(request[5].name(), b"accept");
-        assert_eq!(request[5].value(), b"application/dns-message");
-
-        // Verify DNS probe packet.
-        let bytes = base64::decode_config(probe_query, base64::URL_SAFE_NO_PAD).unwrap();
-        assert_eq!(bytes.len(), PROBE_QUERY_SIZE);
-        // TODO: Parse the result to ensure it's a valid DNS packet.
     }
 
     #[test]
