@@ -495,11 +495,11 @@ int resolv_set_log_severity(uint32_t logSeverity) {
     switch (logSeverity) {
         case aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_VERBOSE:
             logSeverity = android::base::VERBOSE;
-            doh_set_log_level(LOG_LEVEL_TRACE);
+            doh_set_log_level(DOH_LOG_LEVEL_TRACE);
             // *** enable verbose logging only when DBG is set. It prints sensitive data ***
             if (RESOLV_ALLOW_VERBOSE_LOGGING == false) {
                 logSeverity = android::base::DEBUG;
-                doh_set_log_level(LOG_LEVEL_DEBUG);
+                doh_set_log_level(DOH_LOG_LEVEL_DEBUG);
                 LOG(ERROR) << "Refusing to set VERBOSE logging in non-debuggable build";
                 // TODO: Return EACCES then callers could know if the log
                 // severity is acceptable
@@ -507,19 +507,19 @@ int resolv_set_log_severity(uint32_t logSeverity) {
             break;
         case aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_DEBUG:
             logSeverity = android::base::DEBUG;
-            doh_set_log_level(LOG_LEVEL_DEBUG);
+            doh_set_log_level(DOH_LOG_LEVEL_DEBUG);
             break;
         case aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_INFO:
             logSeverity = android::base::INFO;
-            doh_set_log_level(LOG_LEVEL_INFO);
+            doh_set_log_level(DOH_LOG_LEVEL_INFO);
             break;
         case aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_WARNING:
             logSeverity = android::base::WARNING;
-            doh_set_log_level(LOG_LEVEL_WARN);
+            doh_set_log_level(DOH_LOG_LEVEL_WARN);
             break;
         case aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_ERROR:
             logSeverity = android::base::ERROR;
-            doh_set_log_level(LOG_LEVEL_ERROR);
+            doh_set_log_level(DOH_LOG_LEVEL_ERROR);
             break;
         default:
             LOG(ERROR) << __func__ << ": invalid log severity: " << logSeverity;
