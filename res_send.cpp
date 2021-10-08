@@ -1339,7 +1339,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
             *fallback = true;
             if (enableDoH) {
                 result = res_doh_send(statp, query, answer, rcode);
-                if (result != RESULT_CAN_NOT_SEND) return result;
+                if (result != DOH_RESULT_CAN_NOT_SEND) return result;
             }
             return res_tls_send(privateDnsStatus.validatedServers(), statp, query, answer, rcode,
                                 privateDnsStatus.mode);
@@ -1348,7 +1348,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
             *fallback = false;
             if (enableDoH) {
                 result = res_doh_send(statp, query, answer, rcode);
-                if (result != RESULT_CAN_NOT_SEND) return result;
+                if (result != DOH_RESULT_CAN_NOT_SEND) return result;
             }
             if (privateDnsStatus.validatedServers().empty()) {
                 // Sleep and iterate some small number of times checking for the
@@ -1368,7 +1368,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     if (enableDoH) {
                         result = res_doh_send(statp, query, answer, rcode);
-                        if (result != RESULT_CAN_NOT_SEND) return result;
+                        if (result != DOH_RESULT_CAN_NOT_SEND) return result;
                     }
                     // Calling getStatus() to merely check if there's any validated server seems
                     // wasteful. Consider adding a new method in PrivateDnsConfiguration for speed
@@ -1400,7 +1400,7 @@ ssize_t res_doh_send(ResState* statp, const Slice query, const Slice answer, int
     ssize_t result = privateDnsConfiguration.dohQuery(netId, query, answer, queryTimeout);
     LOG(INFO) << __func__ << ": Https query result: " << result;
 
-    if (result == RESULT_CAN_NOT_SEND) return RESULT_CAN_NOT_SEND;
+    if (result == DOH_RESULT_CAN_NOT_SEND) return DOH_RESULT_CAN_NOT_SEND;
 
     DnsQueryEvent* dnsQueryEvent = statp->event->mutable_dns_query_events()->add_dns_query_event();
     dnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
