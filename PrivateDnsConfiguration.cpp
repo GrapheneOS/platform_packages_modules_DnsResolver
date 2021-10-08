@@ -510,7 +510,7 @@ ssize_t PrivateDnsConfiguration::dohQuery(unsigned netId, const Slice query, con
     {
         std::lock_guard guard(mPrivateDnsLock);
         // It's safe because mDohDispatcher won't be deleted after initializing.
-        if (mDohDispatcher == nullptr) return RESULT_CAN_NOT_SEND;
+        if (mDohDispatcher == nullptr) return DOH_RESULT_CAN_NOT_SEND;
     }
     return doh_query(mDohDispatcher, netId, query.base(), query.size(), answer.base(),
                      answer.size(), timeoutMs);
