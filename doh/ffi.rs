@@ -16,6 +16,7 @@
 
 //! C API for the DoH backend for the Android DnsResolver module.
 
+use crate::boot_time::{timeout, BootTime, Duration};
 use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};
 use log::error;
 use std::net::{IpAddr, SocketAddr};
@@ -26,7 +27,6 @@ use std::{ptr, slice};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::task;
-use tokio::time::{timeout, Duration, Instant};
 
 use super::DohDispatcher as Dispatcher;
 use super::{DohCommand, Response, ServerInfo, TagSocketCallback, ValidationCallback, DOH_PORT};
@@ -42,45 +42,52 @@ impl DohDispatcher {
 const SYSTEM_CERT_PATH: &str = "/system/etc/security/cacerts";
 
 /// The return code of doh_query means that there is no answer.
-pub const RESULT_INTERNAL_ERROR: ssize_t = -1;
+pub const DOH_RESULT_INTERNAL_ERROR: ssize_t = -1;
 /// The return code of doh_query means that query can't be sent.
-pub const RESULT_CAN_NOT_SEND: ssize_t = -2;
+pub const DOH_RESULT_CAN_NOT_SEND: ssize_t = -2;
 /// The return code of doh_query to indicate that the query timed out.
-pub const RESULT_TIMEOUT: ssize_t = -255;
+pub const DOH_RESULT_TIMEOUT: ssize_t = -255;
+
 /// The error log level.
-pub const LOG_LEVEL_ERROR: u32 = 0;
+pub const DOH_LOG_LEVEL_ERROR: u32 = 0;
 /// The warning log level.
-pub const LOG_LEVEL_WARN: u32 = 1;
+pub const DOH_LOG_LEVEL_WARN: u32 = 1;
 /// The info log level.
-pub const LOG_LEVEL_INFO: u32 = 2;
+pub const DOH_LOG_LEVEL_INFO: u32 = 2;
 /// The debug log level.
-pub const LOG_LEVEL_DEBUG: u32 = 3;
+pub const DOH_LOG_LEVEL_DEBUG: u32 = 3;
 /// The trace log level.
-pub const LOG_LEVEL_TRACE: u32 = 4;
+pub const DOH_LOG_LEVEL_TRACE: u32 = 4;
+
+fn level_from_u32(level: u32) -> Option<log::Level> {
+    use log::Level::*;
+    match level {
+        DOH_LOG_LEVEL_ERROR => Some(Error),
+        DOH_LOG_LEVEL_WARN => Some(Warn),
+        DOH_LOG_LEVEL_INFO => Some(Info),
+        DOH_LOG_LEVEL_DEBUG => Some(Debug),
+        DOH_LOG_LEVEL_TRACE => Some(Trace),
+        _ => None,
+    }
+}
 
 /// Performs static initialization for android logger.
+/// If an invalid level is passed, defaults to logging errors only.
+/// If called more than once, it will have no effect on subsequent calls.
 #[no_mangle]
 pub extern "C" fn doh_init_logger(level: u32) {
-    let level = match level {
-        LOG_LEVEL_WARN => log::Level::Warn,
-        LOG_LEVEL_DEBUG => log::Level::Debug,
-        _ => log::Level::Error,
-    };
-    android_logger::init_once(android_logger::Config::default().with_min_level(level));
+    let log_level = level_from_u32(level).unwrap_or(log::Level::Error);
+    android_logger::init_once(android_logger::Config::default().with_min_level(log_level));
 }
 
 /// Set the log level.
+/// If an invalid level is passed, defaults to logging errors only.
 #[no_mangle]
 pub extern "C" fn doh_set_log_level(level: u32) {
-    let level = match level {
-        LOG_LEVEL_ERROR => log::LevelFilter::Error,
-        LOG_LEVEL_WARN => log::LevelFilter::Warn,
-        LOG_LEVEL_INFO => log::LevelFilter::Info,
-        LOG_LEVEL_DEBUG => log::LevelFilter::Debug,
-        LOG_LEVEL_TRACE => log::LevelFilter::Trace,
-        _ => log::LevelFilter::Off,
-    };
-    log::set_max_level(level);
+    let level_filter = level_from_u32(level)
+        .map(|level| level.to_level_filter())
+        .unwrap_or(log::LevelFilter::Error);
+    log::set_max_level(level_filter);
 }
 
 /// Performs the initialization for the DoH engine.
@@ -177,8 +184,8 @@ pub unsafe extern "C" fn doh_net_new(
 }
 
 /// Sends a DNS query via the network associated to the given |net_id| and waits for the response.
-/// The return code should be either one of the public constant RESULT_* to indicate the error or
-/// the size of the answer.
+/// The return code should be either one of the public constant DOH_RESULT_* to indicate the error
+/// or the size of the answer.
 /// # Safety
 /// `doh` must be a non-null pointer previously created by `doh_dispatcher_new()`
 /// and not yet deleted by `doh_dispatcher_delete()`.
@@ -198,7 +205,7 @@ pub unsafe extern "C" fn doh_query(
 
     let (resp_tx, resp_rx) = oneshot::channel();
     let t = Duration::from_millis(timeout_ms);
-    if let Some(expired_time) = Instant::now().checked_add(t) {
+    if let Some(expired_time) = BootTime::now().checked_add(t) {
         let cmd = DohCommand::Query {
             net_id,
             base64_query: base64::encode_config(q, base64::URL_SAFE_NO_PAD),
@@ -208,11 +215,11 @@ pub unsafe extern "C" fn doh_query(
 
         if let Err(e) = doh.lock().send_cmd(cmd) {
             error!("Failed to send the query: {:?}", e);
-            return RESULT_CAN_NOT_SEND;
+            return DOH_RESULT_CAN_NOT_SEND;
         }
     } else {
         error!("Bad timeout parameter: {}", timeout_ms);
-        return RESULT_CAN_NOT_SEND;
+        return DOH_RESULT_CAN_NOT_SEND;
     }
 
     if let Ok(rt) = Runtime::new() {
@@ -222,26 +229,26 @@ pub unsafe extern "C" fn doh_query(
                 Ok(v) => match v {
                     Response::Success { answer } => {
                         if answer.len() > response_len || answer.len() > isize::MAX as usize {
-                            return RESULT_INTERNAL_ERROR;
+                            return DOH_RESULT_INTERNAL_ERROR;
                         }
                         let response = slice::from_raw_parts_mut(response, answer.len());
                         response.copy_from_slice(&answer);
                         answer.len() as ssize_t
                     }
-                    _ => RESULT_CAN_NOT_SEND,
+                    _ => DOH_RESULT_CAN_NOT_SEND,
                 },
                 Err(e) => {
                     error!("no result {}", e);
-                    RESULT_CAN_NOT_SEND
+                    DOH_RESULT_CAN_NOT_SEND
                 }
             },
             Err(e) => {
                 error!("timeout: {}", e);
-                RESULT_TIMEOUT
+                DOH_RESULT_TIMEOUT
             }
         }
     } else {
-        RESULT_CAN_NOT_SEND
+        DOH_RESULT_CAN_NOT_SEND
     }
 }
 
