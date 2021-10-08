@@ -26,28 +26,28 @@
 #include <sys/types.h>
 
 /// The return code of doh_query means that there is no answer.
-static const ssize_t RESULT_INTERNAL_ERROR = -1;
+static const ssize_t DOH_RESULT_INTERNAL_ERROR = -1;
 
 /// The return code of doh_query means that query can't be sent.
-static const ssize_t RESULT_CAN_NOT_SEND = -2;
+static const ssize_t DOH_RESULT_CAN_NOT_SEND = -2;
 
 /// The return code of doh_query to indicate that the query timed out.
-static const ssize_t RESULT_TIMEOUT = -255;
+static const ssize_t DOH_RESULT_TIMEOUT = -255;
 
 /// The error log level.
-static const uint32_t LOG_LEVEL_ERROR = 0;
+static const uint32_t DOH_LOG_LEVEL_ERROR = 0;
 
 /// The warning log level.
-static const uint32_t LOG_LEVEL_WARN = 1;
+static const uint32_t DOH_LOG_LEVEL_WARN = 1;
 
 /// The info log level.
-static const uint32_t LOG_LEVEL_INFO = 2;
+static const uint32_t DOH_LOG_LEVEL_INFO = 2;
 
 /// The debug log level.
-static const uint32_t LOG_LEVEL_DEBUG = 3;
+static const uint32_t DOH_LOG_LEVEL_DEBUG = 3;
 
 /// The trace log level.
-static const uint32_t LOG_LEVEL_TRACE = 4;
+static const uint32_t DOH_LOG_LEVEL_TRACE = 4;
 
 /// Context for a running DoH engine.
 struct DohDispatcher;
@@ -60,9 +60,12 @@ using TagSocketCallback = void (*)(int32_t sock);
 extern "C" {
 
 /// Performs static initialization for android logger.
+/// If an invalid level is passed, defaults to logging errors only.
+/// If called more than once, it will have no effect on subsequent calls.
 void doh_init_logger(uint32_t level);
 
 /// Set the log level.
+/// If an invalid level is passed, defaults to logging errors only.
 void doh_set_log_level(uint32_t level);
 
 /// Performs the initialization for the DoH engine.
