@@ -35,10 +35,12 @@ use tokio::net::UdpSocket;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
-use tokio::time::{timeout, Duration, Instant};
 use url::Url;
 
+pub mod boot_time;
 mod ffi;
+
+use boot_time::{timeout, BootTime, Duration};
 
 const MAX_BUFFERED_CMD_SIZE: usize = 400;
 const MAX_INCOMING_BUFFER_SIZE_WHOLE: u64 = 10000000;
@@ -91,7 +93,7 @@ enum Response {
 #[derive(Debug)]
 enum DohCommand {
     Probe { info: ServerInfo, timeout: Duration },
-    Query { net_id: u32, base64_query: Base64Query, expired_time: Instant, resp: QueryResponder },
+    Query { net_id: u32, base64_query: Base64Query, expired_time: BootTime, resp: QueryResponder },
     Clear { net_id: u32 },
     Exit,
 }
@@ -129,35 +131,6 @@ trait OptionDeref<T: Deref> {
 impl<T: Deref> OptionDeref<T> for Option<T> {
     fn as_deref(&self) -> Option<&T::Target> {
         self.as_ref().map(Deref::deref)
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-struct BootTime {
-    d: Duration,
-}
-
-impl BootTime {
-    fn now() -> BootTime {
-        unsafe {
-            let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-            if libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut t as *mut libc::timespec) != 0 {
-                panic!("get boot time failed: {:?}", std::io::Error::last_os_error());
-            }
-            BootTime { d: Duration::new(t.tv_sec as u64, t.tv_nsec as u32) }
-        }
-    }
-
-    fn elapsed(&self) -> Option<Duration> {
-        BootTime::now().duration_since(*self)
-    }
-
-    fn checked_add(&self, duration: Duration) -> Option<BootTime> {
-        Some(BootTime { d: self.d.checked_add(duration)? })
-    }
-
-    fn duration_since(&self, earlier: BootTime) -> Option<Duration> {
-        self.d.checked_sub(earlier.d)
     }
 }
 
@@ -204,7 +177,7 @@ struct DohConnection {
     shared_config: Arc<Mutex<QuicheConfigCache>>,
     scid: SCID,
     state: ConnectionState,
-    pending_queries: Vec<(DnsRequest, QueryResponder, Instant)>,
+    pending_queries: Vec<(DnsRequest, QueryResponder, BootTime)>,
     cached_session: Option<Vec<u8>>,
     tag_socket_fn: TagSocketCallback,
 }
@@ -333,7 +306,7 @@ impl DohConnection {
         };
 
         if let Some(expired_time) = expired_time {
-            if let Some(elapsed) = expired_time.elapsed() {
+            if let Some(elapsed) = BootTime::now().checked_duration_since(*expired_time) {
                 warn!(
                     "Change the state to Idle due to connection timeout, {:?}, {}",
                     elapsed, self.info.net_id
@@ -429,7 +402,7 @@ impl DohConnection {
         &mut self,
         req: DnsRequest,
         resp: QueryResponder,
-        expired_time: Instant,
+        expired_time: BootTime,
     ) -> Result<()> {
         self.handle_if_connection_expired();
         match &mut self.state {
@@ -472,7 +445,7 @@ impl DohConnection {
                 while !self.pending_queries.is_empty() {
                     if let Some((req, resp, exp_time)) = self.pending_queries.pop() {
                         // Ignore the expired queries.
-                        if Instant::now().checked_duration_since(exp_time).is_some() {
+                        if BootTime::now().checked_duration_since(exp_time).is_some() {
                             warn!("Drop the obsolete query for network {}", self.info.net_id);
                             continue;
                         }
@@ -596,9 +569,9 @@ async fn send_dns_query(
     udp_sk: &mut UdpSocket,
     h3_conn: &mut h3::Connection,
     query_map: &mut HashMap<u64, (Vec<u8>, QueryResponder)>,
-    pending_queries: &mut Vec<(DnsRequest, QueryResponder, Instant)>,
+    pending_queries: &mut Vec<(DnsRequest, QueryResponder, BootTime)>,
     resp: QueryResponder,
-    expired_time: Instant,
+    expired_time: BootTime,
     req: DnsRequest,
 ) -> Result<()> {
     if !quic_conn.is_established() {
@@ -803,7 +776,7 @@ impl QuicheConfigCache {
 async fn handle_query_cmd(
     net_id: u32,
     base64_query: Base64Query,
-    expired_time: Instant,
+    expired_time: BootTime,
     resp: QueryResponder,
     doh_conn_map: &mut HashMap<u32, (ServerInfo, Option<DohConnection>)>,
 ) {
@@ -1107,7 +1080,7 @@ mod tests {
             super::handle_query_cmd(
                 info.net_id,
                 query.clone(),
-                Instant::now().checked_add(t).unwrap(),
+                BootTime::now().checked_add(t).unwrap(),
                 resp_tx,
                 &mut test_map,
             )
@@ -1122,7 +1095,7 @@ mod tests {
             super::handle_query_cmd(
                 info.net_id,
                 query.clone(),
-                Instant::now().checked_add(t).unwrap(),
+                BootTime::now().checked_add(t).unwrap(),
                 resp_tx,
                 &mut test_map,
             )
@@ -1148,7 +1121,7 @@ mod tests {
             super::handle_query_cmd(
                 info.net_id,
                 query.clone(),
-                Instant::now().checked_add(t).unwrap(),
+                BootTime::now().checked_add(t).unwrap(),
                 resp_tx,
                 &mut test_map,
             )
