@@ -17,20 +17,17 @@
 //! DoH backend for the Android DnsResolver module.
 
 use anyhow::{anyhow, bail, Context, Result};
-use futures::future::join_all;
+use futures::future::{join_all, BoxFuture};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use libc::{c_char, int32_t, uint32_t};
 use log::{debug, error, info, trace, warn};
 use quiche::h3;
 use ring::rand::SecureRandom;
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::{mpsc, oneshot};
@@ -38,23 +35,18 @@ use tokio::task;
 use url::Url;
 
 pub mod boot_time;
+mod config;
+mod encoding;
 mod ffi;
 
 use boot_time::{timeout, BootTime, Duration};
+use config::Config;
 
 const MAX_BUFFERED_CMD_SIZE: usize = 400;
-const MAX_INCOMING_BUFFER_SIZE_WHOLE: u64 = 10000000;
-const MAX_INCOMING_BUFFER_SIZE_EACH: u64 = 1000000;
-const MAX_CONCURRENT_STREAM_SIZE: u64 = 100;
-const MAX_DATAGRAM_SIZE: usize = 1350;
 const DOH_PORT: u16 = 443;
-const QUICHE_IDLE_TIMEOUT_MS: u64 = 180000;
-const NS_T_AAAA: u8 = 28;
-const NS_C_IN: u8 = 1;
-// Used to randomly generate query prefix and query id.
-const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
-                         abcdefghijklmnopqrstuvwxyz\
-                         0123456789";
+
+type ValidationReporter = Box<dyn Fn(&ServerInfo, bool) -> BoxFuture<()> + Send + Sync>;
+type SocketTagger = Arc<dyn Fn(&std::net::UdpSocket) -> BoxFuture<()> + Send + Sync>;
 
 type SCID = [u8; quiche::MAX_CONN_ID_LEN];
 type Base64Query = String;
@@ -62,9 +54,6 @@ type CmdSender = mpsc::Sender<DohCommand>;
 type CmdReceiver = mpsc::Receiver<DohCommand>;
 type QueryResponder = oneshot::Sender<Response>;
 type DnsRequest = Vec<quiche::h3::Header>;
-type ValidationCallback =
-    extern "C" fn(net_id: uint32_t, success: bool, ip_addr: *const c_char, host: *const c_char);
-type TagSocketCallback = extern "C" fn(sock: int32_t);
 
 #[derive(Eq, PartialEq, Debug)]
 enum QueryError {
@@ -118,20 +107,19 @@ enum ConnectionState {
     Error,
 }
 
+impl ConnectionState {
+    fn is_connected(&self) -> bool {
+        matches!(*self, Self::Connected { .. })
+    }
+    fn is_error(&self) -> bool {
+        matches!(*self, Self::Error)
+    }
+}
+
 enum H3Result {
     Data { data: Vec<u8> },
     Finished,
     Ignore,
-}
-
-trait OptionDeref<T: Deref> {
-    fn as_deref(&self) -> Option<&T::Target>;
-}
-
-impl<T: Deref> OptionDeref<T> for Option<T> {
-    fn as_deref(&self) -> Option<&T::Target> {
-        self.as_ref().map(Deref::deref)
-    }
 }
 
 /// Context for a running DoH engine.
@@ -144,10 +132,7 @@ pub struct DohDispatcher {
 
 // DoH dispatcher
 impl DohDispatcher {
-    fn new(
-        validation_fn: ValidationCallback,
-        tag_socket_fn: TagSocketCallback,
-    ) -> Result<DohDispatcher> {
+    fn new(validation: ValidationReporter, tag_socket: SocketTagger) -> Result<DohDispatcher> {
         let (cmd_sender, cmd_receiver) = mpsc::channel::<DohCommand>(MAX_BUFFERED_CMD_SIZE);
         let runtime = Builder::new_multi_thread()
             .worker_threads(2)
@@ -155,7 +140,7 @@ impl DohDispatcher {
             .thread_name("doh-handler")
             .build()
             .expect("Failed to create tokio runtime");
-        let join_handle = runtime.spawn(doh_handler(cmd_receiver, validation_fn, tag_socket_fn));
+        let join_handle = runtime.spawn(doh_handler(cmd_receiver, validation, tag_socket));
         Ok(DohDispatcher { cmd_sender, join_handle, runtime })
     }
 
@@ -174,49 +159,45 @@ impl DohDispatcher {
 
 struct DohConnection {
     info: ServerInfo,
-    shared_config: Arc<Mutex<QuicheConfigCache>>,
+    config: Config,
     scid: SCID,
     state: ConnectionState,
     pending_queries: Vec<(DnsRequest, QueryResponder, BootTime)>,
     cached_session: Option<Vec<u8>>,
-    tag_socket_fn: TagSocketCallback,
+    tag_socket: SocketTagger,
 }
 
 impl DohConnection {
-    fn new(
-        info: &ServerInfo,
-        shared_config: Arc<Mutex<QuicheConfigCache>>,
-        tag_socket_fn: TagSocketCallback,
-    ) -> Result<DohConnection> {
+    fn new(info: &ServerInfo, config: Config, tag_socket: SocketTagger) -> Result<DohConnection> {
         let mut scid = [0; quiche::MAX_CONN_ID_LEN];
         ring::rand::SystemRandom::new().fill(&mut scid).context("failed to generate scid")?;
         Ok(DohConnection {
             info: info.clone(),
-            shared_config,
+            config,
             scid,
             state: ConnectionState::Idle,
             pending_queries: Vec::new(),
             cached_session: None,
-            tag_socket_fn,
+            tag_socket,
         })
     }
 
-    fn state_to_connecting(&mut self) -> Result<()> {
+    async fn state_to_connecting(&mut self) -> Result<()> {
+        if self.state.is_error() {
+            self.state_to_idle();
+        }
         self.state = match self.state {
             ConnectionState::Idle => {
                 let udp_sk_std = make_doh_udp_socket(self.info.peer_addr, self.info.sk_mark)?;
-                (self.tag_socket_fn)(udp_sk_std.as_raw_fd());
+                (self.tag_socket)(&udp_sk_std).await;
                 let udp_sk = UdpSocket::from_std(udp_sk_std)?;
                 let connid = quiche::ConnectionId::from_ref(&self.scid);
-                let mut cache = self.shared_config.lock().unwrap();
-                let config =
-                    cache.get(&self.info.cert_path)?.ok_or_else(|| anyhow!("no quiche config"))?;
                 debug!("init the connection for Network {}", self.info.net_id);
                 let mut quic_conn = quiche::connect(
                     self.info.domain.as_deref(),
                     &connid,
                     self.info.peer_addr,
-                    config,
+                    &mut self.config.take(),
                 )?;
                 if let Some(session) = &self.cached_session {
                     if quic_conn.set_session(session).is_err() {
@@ -229,10 +210,7 @@ impl DohConnection {
                     expired_time: None,
                 }
             }
-            ConnectionState::Error => {
-                self.state_to_idle();
-                return self.state_to_connecting();
-            }
+            ConnectionState::Error => panic!("state_to_idle did not transition"),
             ConnectionState::Connecting { .. } => return Ok(()),
             ConnectionState::Connected { .. } => {
                 panic!("Invalid state transition to Connecting state!")
@@ -324,8 +302,8 @@ impl DohConnection {
                 &mut self.state
             {
                 let h3_conn = h3_conn.as_mut().ok_or_else(|| anyhow!("h3 conn isn't available"))?;
-                let req = match make_probe_query() {
-                    Ok(q) => match make_dns_request(&q, &self.info.url) {
+                let req = match encoding::probe_query() {
+                    Ok(q) => match encoding::dns_request(&q, &self.info.url) {
                         Ok(req) => req,
                         Err(e) => bail!(e),
                     },
@@ -374,7 +352,7 @@ impl DohConnection {
         if matches!(self.state, ConnectionState::Connected { .. }) {
             return Ok(());
         }
-        self.state_to_connecting()?;
+        self.state_to_connecting().await?;
         debug!("connecting to Network {}", self.info.net_id);
 
         let (quic_conn, udp_sk, expired_time) = match &mut self.state {
@@ -516,7 +494,7 @@ fn recv_h3(
         // Process HTTP/3 events.
         Ok((stream_id, quiche::h3::Event::Data)) => {
             debug!("quiche::h3::Event::Data");
-            let mut buf = vec![0; MAX_DATAGRAM_SIZE];
+            let mut buf = vec![0; config::MAX_DATAGRAM_SIZE];
             match h3_conn.recv_body(quic_conn, stream_id, &mut buf) {
                 Ok(read) => {
                     trace!(
@@ -603,7 +581,7 @@ async fn recv_rx(
 ) -> Result<()> {
     // TODO: Evaluate if we could make the buffer smaller.
     let mut buf = [0; 65535];
-    let quic_idle_timeout_ms = Duration::from_millis(QUICHE_IDLE_TIMEOUT_MS);
+    let quic_idle_timeout_ms = Duration::from_millis(config::QUICHE_IDLE_TIMEOUT_MS);
     let ts = quic_conn.timeout().unwrap_or(quic_idle_timeout_ms);
 
     if let Some(next_expired) = BootTime::now().checked_add(quic_idle_timeout_ms) {
@@ -640,7 +618,7 @@ async fn flush_tx(
     quic_conn: &mut Pin<Box<quiche::Connection>>,
     udp_sk: &mut UdpSocket,
 ) -> Result<()> {
-    let mut out = [0; MAX_DATAGRAM_SIZE];
+    let mut out = [0; config::MAX_DATAGRAM_SIZE];
     loop {
         let (write, _) = match quic_conn.send(&mut out) {
             Ok(v) => v,
@@ -659,34 +637,10 @@ async fn flush_tx(
     Ok(())
 }
 
-async fn report_private_dns_validation(
-    info: &ServerInfo,
-    state: &ConnectionState,
-    validation_fn: ValidationCallback,
-) {
-    let (ip_addr, domain) = match (
-        CString::new(info.peer_addr.ip().to_string()),
-        CString::new(info.domain.clone().unwrap_or_default()),
-    ) {
-        (Ok(ip_addr), Ok(domain)) => (ip_addr, domain),
-        _ => {
-            error!("report_private_dns_validation bad input");
-            return;
-        }
-    };
-    let netd_id = info.net_id;
-    let success = matches!(state, ConnectionState::Connected { .. });
-    task::spawn_blocking(move || {
-        validation_fn(netd_id, success, ip_addr.as_ptr(), domain.as_ptr())
-    })
-    .await
-    .unwrap_or_else(|e| warn!("Validation function task failed: {}", e));
-}
-
 async fn handle_probe_result(
     result: (ServerInfo, Result<DohConnection, (anyhow::Error, DohConnection)>),
     doh_conn_map: &mut HashMap<u32, (ServerInfo, Option<DohConnection>)>,
-    validation_fn: ValidationCallback,
+    validation: &ValidationReporter,
 ) {
     let (info, doh_conn) = match result {
         (info, Ok(doh_conn)) => {
@@ -716,7 +670,7 @@ async fn handle_probe_result(
             return;
         }
     }
-    report_private_dns_validation(&info, &doh_conn.state, validation_fn).await;
+    validation(&info, doh_conn.state.is_connected()).await;
     doh_conn_map.insert(info.net_id, (info, Some(doh_conn)));
 }
 
@@ -734,8 +688,8 @@ async fn probe_task(
 fn make_connection_if_needed(
     info: &ServerInfo,
     doh_conn_map: &mut HashMap<u32, (ServerInfo, Option<DohConnection>)>,
-    shared_config: Arc<Mutex<QuicheConfigCache>>,
-    tag_socket_fn: TagSocketCallback,
+    config_cache: &config::Cache,
+    tag_socket: SocketTagger,
 ) -> Result<Option<DohConnection>> {
     // Check if connection exists.
     match doh_conn_map.get(&info.net_id) {
@@ -751,26 +705,10 @@ fn make_connection_if_needed(
         // TODO: change the inner connection instead of removing?
         _ => doh_conn_map.remove(&info.net_id),
     };
-    let doh = DohConnection::new(info, shared_config, tag_socket_fn)?;
+    let config = config_cache.from_cert_path(&info.cert_path)?;
+    let doh = DohConnection::new(info, config, tag_socket)?;
     doh_conn_map.insert(info.net_id, (info.clone(), None));
     Ok(Some(doh))
-}
-
-struct QuicheConfigCache {
-    cert_path: Option<String>,
-    config: Option<quiche::Config>,
-}
-
-impl QuicheConfigCache {
-    fn get(&mut self, cert_path: &Option<String>) -> Result<Option<&mut quiche::Config>> {
-        // No config is cached or the cached config isn't matched with the input cert_path
-        // Create it with the input cert_path.
-        if self.config.is_none() || self.cert_path != *cert_path {
-            self.config = Some(create_quiche_config(cert_path.as_deref())?);
-            self.cert_path = cert_path.clone();
-        }
-        return Ok(self.config.as_mut());
-    }
 }
 
 async fn handle_query_cmd(
@@ -792,7 +730,7 @@ async fn handle_query_cmd(
             }
             // Connection is ready
             (_, Some(quic_conn)) => {
-                if let Ok(req) = make_dns_request(&base64_query, &info.url) {
+                if let Ok(req) = encoding::dns_request(&base64_query, &info.url) {
                     let _ = quic_conn.try_send_doh_query(req, resp, expired_time).await;
                 } else {
                     let _ = resp.send(Response::Error { error: QueryError::Unexpected });
@@ -820,11 +758,11 @@ fn need_process_queries(doh_conn_map: &HashMap<u32, (ServerInfo, Option<DohConne
 
 async fn doh_handler(
     mut cmd_rx: CmdReceiver,
-    validation_fn: ValidationCallback,
-    tag_socket_fn: TagSocketCallback,
+    validation: ValidationReporter,
+    tag_socket: SocketTagger,
 ) -> Result<()> {
     info!("doh_dispatcher entry");
-    let config_cache = Arc::new(Mutex::new(QuicheConfigCache { cert_path: None, config: None }));
+    let config_cache = config::Cache::new();
 
     // Currently, only support 1 server per network.
     let mut doh_conn_map: HashMap<u32, (ServerInfo, Option<DohConnection>)> = HashMap::new();
@@ -841,14 +779,14 @@ async fn doh_handler(
                 join_all(futures).await
             }, if need_process_queries(&doh_conn_map) => {},
             Some(result) = probe_futures.next() => {
-                handle_probe_result(result, &mut doh_conn_map, validation_fn).await;
+                handle_probe_result(result, &mut doh_conn_map, &validation).await;
                 info!("probe_futures remaining size: {}", probe_futures.len());
             },
             Some(cmd) = cmd_rx.recv() => {
                 trace!("recv {:?}", cmd);
                 match cmd {
                     DohCommand::Probe { info, timeout: t } => {
-                        match make_connection_if_needed(&info, &mut doh_conn_map, config_cache.clone(), tag_socket_fn) {
+                        match make_connection_if_needed(&info, &mut doh_conn_map, &config_cache, tag_socket.clone()) {
                             Ok(Some(doh)) => {
                                 // Create a new async task associated to the DoH connection.
                                 probe_futures.push(probe_task(info, doh, t));
@@ -861,7 +799,7 @@ async fn doh_handler(
                             }
                             Err(e) => {
                                 error!("create connection for network {} error {:?}", info.net_id, e);
-                                report_private_dns_validation(&info, &ConnectionState::Error, validation_fn).await;
+                                validation(&info, false).await
                             }
                         }
                     },
@@ -871,32 +809,13 @@ async fn doh_handler(
                     DohCommand::Clear { net_id } => {
                         doh_conn_map.remove(&net_id);
                         info!("Doh Clear server for netid: {}", net_id);
+                        config_cache.garbage_collect();
                     },
                     DohCommand::Exit => return Ok(()),
                 }
             }
         }
     }
-}
-
-fn make_dns_request(base64_query: &str, url: &url::Url) -> Result<DnsRequest> {
-    let mut path = String::from(url.path());
-    path.push_str("?dns=");
-    path.push_str(base64_query);
-    let req = vec![
-        quiche::h3::Header::new(b":method", b"GET"),
-        quiche::h3::Header::new(b":scheme", b"https"),
-        quiche::h3::Header::new(
-            b":authority",
-            url.host_str().ok_or_else(|| anyhow!("failed to get host"))?.as_bytes(),
-        ),
-        quiche::h3::Header::new(b":path", path.as_bytes()),
-        quiche::h3::Header::new(b"user-agent", b"quiche"),
-        quiche::h3::Header::new(b"accept", b"application/dns-message"),
-        // TODO: is content-length required?
-    ];
-
-    Ok(req)
 }
 
 fn make_doh_udp_socket(peer_addr: SocketAddr, mark: u32) -> Result<std::net::UdpSocket> {
@@ -913,30 +832,6 @@ fn make_doh_udp_socket(peer_addr: SocketAddr, mark: u32) -> Result<std::net::Udp
 
     trace!("connecting to {:} from {:}", peer_addr, udp_sk.local_addr()?);
     Ok(udp_sk)
-}
-
-fn create_quiche_config(cert_path: Option<&str>) -> Result<quiche::Config> {
-    let mut config = quiche::Config::new(quiche::PROTOCOL_VERSION)?;
-    config.set_application_protos(h3::APPLICATION_PROTOCOL)?;
-    match cert_path {
-        Some(path) => {
-            config.verify_peer(true);
-            config.load_verify_locations_from_directory(path)?;
-        }
-        None => config.verify_peer(false),
-    }
-
-    // Some of these configs are necessary, or the server can't respond the HTTP/3 request.
-    config.set_max_idle_timeout(QUICHE_IDLE_TIMEOUT_MS);
-    config.set_max_recv_udp_payload_size(MAX_DATAGRAM_SIZE);
-    config.set_initial_max_data(MAX_INCOMING_BUFFER_SIZE_WHOLE);
-    config.set_initial_max_stream_data_bidi_local(MAX_INCOMING_BUFFER_SIZE_EACH);
-    config.set_initial_max_stream_data_bidi_remote(MAX_INCOMING_BUFFER_SIZE_EACH);
-    config.set_initial_max_stream_data_uni(MAX_INCOMING_BUFFER_SIZE_EACH);
-    config.set_initial_max_streams_bidi(MAX_CONCURRENT_STREAM_SIZE);
-    config.set_initial_max_streams_uni(MAX_CONCURRENT_STREAM_SIZE);
-    config.set_disable_active_migration(true);
-    Ok(config)
 }
 
 fn mark_socket(fd: RawFd, mark: u32) -> Result<()> {
@@ -958,50 +853,22 @@ fn mark_socket(fd: RawFd, mark: u32) -> Result<()> {
     }
 }
 
-#[rustfmt::skip]
-fn make_probe_query() -> Result<String> {
-    let mut rnd = [0; 8];
-    ring::rand::SystemRandom::new().fill(&mut rnd).context("failed to generate probe rnd")?;
-    let c = |byte| CHARSET[(byte as usize) % CHARSET.len()];
-    let query = vec![
-        rnd[6], rnd[7],  // [0-1]   query ID
-        1,      0,       // [2-3]   flags; query[2] = 1 for recursion desired (RD).
-        0,      1,       // [4-5]   QDCOUNT (number of queries)
-        0,      0,       // [6-7]   ANCOUNT (number of answers)
-        0,      0,       // [8-9]   NSCOUNT (number of name server records)
-        0,      0,       // [10-11] ARCOUNT (number of additional records)
-        19,     c(rnd[0]), c(rnd[1]), c(rnd[2]), c(rnd[3]), c(rnd[4]), c(rnd[5]), b'-', b'd', b'n',
-        b's',   b'o',      b'h',      b't',      b't',      b'p',      b's',      b'-', b'd', b's',
-        6,      b'm',      b'e',      b't',      b'r',      b'i',      b'c',      7,    b'g', b's',
-        b't',   b'a',      b't',      b'i',      b'c',      3,         b'c',      b'o', b'm',
-        0,                  // null terminator of FQDN (root TLD)
-        0,      NS_T_AAAA,  // QTYPE
-        0,      NS_C_IN     // QCLASS
-    ];
-    Ok(base64::encode_config(query, base64::URL_SAFE_NO_PAD))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quiche::h3::NameValue;
+    use futures::FutureExt;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
     const TEST_NET_ID: u32 = 50;
-    const PROBE_QUERY_SIZE: usize = 56;
-    const H3_DNS_REQUEST_HEADER_SIZE: usize = 6;
     const TEST_MARK: u32 = 0xD0033;
     const LOOPBACK_ADDR: &str = "127.0.0.1:443";
     const LOCALHOST_URL: &str = "https://mylocal.com/dns-query";
 
-    // TODO: Make some tests for DohConnection and QuicheConfigCache.
+    // TODO: Make some tests for DohConnection.
 
-    fn make_testing_variables() -> (
-        ServerInfo,
-        HashMap<u32, (ServerInfo, Option<DohConnection>)>,
-        Arc<Mutex<QuicheConfigCache>>,
-        Runtime,
-    ) {
+    fn make_testing_variables(
+    ) -> (ServerInfo, HashMap<u32, (ServerInfo, Option<DohConnection>)>, config::Cache, Runtime)
+    {
         let test_map: HashMap<u32, (ServerInfo, Option<DohConnection>)> = HashMap::new();
         let info = ServerInfo {
             net_id: TEST_NET_ID,
@@ -1011,9 +878,7 @@ mod tests {
             sk_mark: 0,
             cert_path: None,
         };
-        let config_cache =
-            Arc::new(Mutex::new(QuicheConfigCache { cert_path: None, config: None }));
-
+        let config_cache = config::Cache::new();
         let rt = Builder::new_current_thread()
             .thread_name("test-runtime")
             .enable_all()
@@ -1022,20 +887,20 @@ mod tests {
         (info, test_map, config_cache, rt)
     }
 
-    extern "C" fn tag_socket_cb(sock: int32_t) {
-        assert!(sock >= 0);
+    fn build_socket_tagger() -> SocketTagger {
+        Arc::new(|_| async {}.boxed())
     }
 
     #[test]
     fn make_connection_if_needed() {
-        let (info, mut test_map, config, rt) = make_testing_variables();
+        let (info, mut test_map, config_cache, rt) = make_testing_variables();
         rt.block_on(async {
             // Expect to make a new connection.
             let mut doh = super::make_connection_if_needed(
                 &info,
                 &mut test_map,
-                config.clone(),
-                tag_socket_cb,
+                &config_cache,
+                build_socket_tagger(),
             )
             .unwrap()
             .unwrap();
@@ -1047,8 +912,8 @@ mod tests {
             let mut doh = super::make_connection_if_needed(
                 &info,
                 &mut test_map,
-                config.clone(),
-                tag_socket_cb,
+                &config_cache,
+                build_socket_tagger(),
             )
             .unwrap()
             .unwrap();
@@ -1060,8 +925,8 @@ mod tests {
             assert!(super::make_connection_if_needed(
                 &info,
                 &mut test_map,
-                config.clone(),
-                tag_socket_cb
+                &config_cache,
+                build_socket_tagger()
             )
             .unwrap()
             .is_none());
@@ -1070,13 +935,12 @@ mod tests {
 
     #[test]
     fn handle_query_cmd() {
-        let (info, mut test_map, config, rt) = make_testing_variables();
+        let (info, mut test_map, config_cache, rt) = make_testing_variables();
         let t = Duration::from_millis(100);
-
         rt.block_on(async {
             // Test no available server cases.
             let (resp_tx, resp_rx) = oneshot::channel();
-            let query = super::make_probe_query().unwrap();
+            let query = encoding::probe_query().unwrap();
             super::handle_query_cmd(
                 info.net_id,
                 query.clone(),
@@ -1111,8 +975,8 @@ mod tests {
             let mut doh = super::make_connection_if_needed(
                 &info,
                 &mut test_map,
-                config.clone(),
-                tag_socket_cb,
+                &config_cache,
+                build_socket_tagger(),
             )
             .unwrap()
             .unwrap();
@@ -1133,54 +997,16 @@ mod tests {
         });
     }
 
-    extern "C" fn success_cb(
-        net_id: uint32_t,
-        success: bool,
-        ip_addr: *const c_char,
-        host: *const c_char,
-    ) {
-        assert!(success);
-        unsafe {
-            assert_validation_info(net_id, ip_addr, host);
-        }
-    }
-
-    extern "C" fn fail_cb(
-        net_id: uint32_t,
-        success: bool,
-        ip_addr: *const c_char,
-        host: *const c_char,
-    ) {
-        assert!(!success);
-        unsafe {
-            assert_validation_info(net_id, ip_addr, host);
-        }
-    }
-
-    // # Safety
-    // `ip_addr`, `host` are null terminated strings
-    unsafe fn assert_validation_info(
-        net_id: uint32_t,
-        ip_addr: *const c_char,
-        host: *const c_char,
-    ) {
-        assert_eq!(net_id, TEST_NET_ID);
-        let ip_addr = std::ffi::CStr::from_ptr(ip_addr).to_str().unwrap();
-        let expected_addr: SocketAddr = LOOPBACK_ADDR.parse().unwrap();
-        assert_eq!(ip_addr, expected_addr.ip().to_string());
-        let host = std::ffi::CStr::from_ptr(host).to_str().unwrap();
-        assert_eq!(host, "");
-    }
-
     fn make_testing_connection_variables() -> (Pin<Box<quiche::Connection>>, UdpSocket) {
         let sk = super::make_doh_udp_socket(LOOPBACK_ADDR.parse().unwrap(), TEST_MARK).unwrap();
         let udp_sk = UdpSocket::from_std(sk).unwrap();
         let mut scid = [0; quiche::MAX_CONN_ID_LEN];
         ring::rand::SystemRandom::new().fill(&mut scid).context("failed to generate scid").unwrap();
         let connid = quiche::ConnectionId::from_ref(&scid);
-        let mut config = super::create_quiche_config(None).unwrap();
+        let mut config = Config::from_cert_path(None).unwrap();
         let quic_conn =
-            quiche::connect(None, &connid, LOOPBACK_ADDR.parse().unwrap(), &mut config).unwrap();
+            quiche::connect(None, &connid, LOOPBACK_ADDR.parse().unwrap(), &mut config.take())
+                .unwrap();
         (quic_conn, udp_sk)
     }
 
@@ -1193,85 +1019,6 @@ mod tests {
             query_map: HashMap::new(),
             expired_time: None,
         }
-    }
-
-    fn make_dummy_connecting_state() -> super::ConnectionState {
-        let (quic_conn, udp_sk) = make_testing_connection_variables();
-        ConnectionState::Connecting {
-            quic_conn: Some(quic_conn),
-            udp_sk: Some(udp_sk),
-            expired_time: None,
-        }
-    }
-
-    #[test]
-    fn report_private_dns_validation() {
-        let info = ServerInfo {
-            net_id: TEST_NET_ID,
-            url: Url::parse(LOCALHOST_URL).unwrap(),
-            peer_addr: LOOPBACK_ADDR.parse().unwrap(),
-            domain: None,
-            sk_mark: 0,
-            cert_path: None,
-        };
-        let rt = Builder::new_current_thread()
-            .thread_name("test-runtime")
-            .enable_io()
-            .build()
-            .expect("Failed to create testing tokio runtime");
-        let default_panic = std::panic::take_hook();
-        // Exit the test if the worker inside tokio runtime panicked.
-        std::panic::set_hook(Box::new(move |info| {
-            default_panic(info);
-            std::process::exit(1);
-        }));
-        rt.block_on(async {
-            super::report_private_dns_validation(&info, &make_dummy_connected_state(), success_cb)
-                .await;
-            super::report_private_dns_validation(&info, &ConnectionState::Error, fail_cb).await;
-            super::report_private_dns_validation(&info, &make_dummy_connecting_state(), fail_cb)
-                .await;
-            super::report_private_dns_validation(&info, &ConnectionState::Idle, fail_cb).await;
-        });
-    }
-
-    #[test]
-    fn make_probe_query_and_request() {
-        let probe_query = super::make_probe_query().unwrap();
-        let url = Url::parse(LOCALHOST_URL).unwrap();
-        let request = make_dns_request(&probe_query, &url).unwrap();
-        // Verify H3 DNS request.
-        assert_eq!(request.len(), H3_DNS_REQUEST_HEADER_SIZE);
-        assert_eq!(request[0].name(), b":method");
-        assert_eq!(request[0].value(), b"GET");
-        assert_eq!(request[1].name(), b":scheme");
-        assert_eq!(request[1].value(), b"https");
-        assert_eq!(request[2].name(), b":authority");
-        assert_eq!(request[2].value(), url.host_str().unwrap().as_bytes());
-        assert_eq!(request[3].name(), b":path");
-        let mut path = String::from(url.path());
-        path.push_str("?dns=");
-        path.push_str(&probe_query);
-        assert_eq!(request[3].value(), path.as_bytes());
-        assert_eq!(request[5].name(), b"accept");
-        assert_eq!(request[5].value(), b"application/dns-message");
-
-        // Verify DNS probe packet.
-        let bytes = base64::decode_config(probe_query, base64::URL_SAFE_NO_PAD).unwrap();
-        assert_eq!(bytes.len(), PROBE_QUERY_SIZE);
-        // TODO: Parse the result to ensure it's a valid DNS packet.
-    }
-
-    #[test]
-    fn create_quiche_config() {
-        assert!(
-            super::create_quiche_config(None).is_ok(),
-            "quiche config without cert creating failed"
-        );
-        assert!(
-            super::create_quiche_config(Some("data/local/tmp/")).is_ok(),
-            "quiche config with cert creating failed"
-        );
     }
 
     #[test]
