@@ -51,6 +51,8 @@
  * --Copyright--
  */
 
+#define LOG_TAG "resolv"
+
 #include "gethnamaddr.h"
 
 #include <android-base/logging.h>
