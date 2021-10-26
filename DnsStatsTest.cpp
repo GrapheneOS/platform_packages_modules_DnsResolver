@@ -142,7 +142,8 @@ class DnsStatsTest : public ::testing::Test {
 
             for (const auto& stats : statsData) {
                 ASSERT_TRUE(std::regex_search(*dumpString, sm, pattern));
-                EXPECT_EQ(sm[1], stats.sockAddr.ip().toString());
+                EXPECT_EQ(sm[1], stats.sockAddr.ip().toString() + ":" +
+                                         std::to_string(stats.sockAddr.port()));
                 EXPECT_FALSE(sm[2].str().empty());
                 EXPECT_FALSE(sm[3].str().empty());
                 *dumpString = sm.suffix();
@@ -237,10 +238,10 @@ TEST_F(DnsStatsTest, SetAddrs) {
 
 TEST_F(DnsStatsTest, SetServersDifferentPorts) {
     const std::vector<IPSockAddr> servers = {
-            IPSockAddr::toIPSockAddr("127.0.0.1", 0),   IPSockAddr::toIPSockAddr("fe80::1", 0),
-            IPSockAddr::toIPSockAddr("127.0.0.1", 53),  IPSockAddr::toIPSockAddr("127.0.0.1", 5353),
-            IPSockAddr::toIPSockAddr("127.0.0.1", 853), IPSockAddr::toIPSockAddr("fe80::1", 53),
-            IPSockAddr::toIPSockAddr("fe80::1", 5353),  IPSockAddr::toIPSockAddr("fe80::1", 853),
+            IPSockAddr::toIPSockAddr("127.0.0.1", 0),    IPSockAddr::toIPSockAddr("fe80::1", 0),
+            IPSockAddr::toIPSockAddr("127.0.0.1", 53),   IPSockAddr::toIPSockAddr("127.0.0.1", 853),
+            IPSockAddr::toIPSockAddr("127.0.0.1", 5353), IPSockAddr::toIPSockAddr("fe80::1", 53),
+            IPSockAddr::toIPSockAddr("fe80::1", 853),    IPSockAddr::toIPSockAddr("fe80::1", 5353),
     };
 
     // Servers setup fails due to port unset.
