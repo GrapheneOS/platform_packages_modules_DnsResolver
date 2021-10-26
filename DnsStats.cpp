@@ -81,7 +81,8 @@ int StatsData::averageLatencyMs() const {
 }
 
 std::string StatsData::toString() const {
-    if (total == 0) return fmt::format("{} <no data>", sockAddr.ip().toString());
+    if (total == 0)
+        return fmt::format("{}:{} <no data>", sockAddr.ip().toString(), sockAddr.port());
 
     const auto now = std::chrono::steady_clock::now();
     const int lastUpdateSec = duration_cast<seconds>(now - lastUpdate).count();
@@ -91,8 +92,8 @@ std::string StatsData::toString() const {
             buf += fmt::format("{}:{} ", rcodeToName(rcode), counts);
         }
     }
-    return fmt::format("{} ({}, {}ms, [{}], {}s)", sockAddr.ip().toString(), total,
-                       averageLatencyMs(), buf, lastUpdateSec);
+    return fmt::format("{}:{} ({}, {}ms, [{}], {}s)", sockAddr.ip().toString(), sockAddr.port(),
+                       total, averageLatencyMs(), buf, lastUpdateSec);
 }
 
 StatsRecords::StatsRecords(const IPSockAddr& ipSockAddr, size_t size)

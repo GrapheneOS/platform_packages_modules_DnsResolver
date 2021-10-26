@@ -17,7 +17,10 @@
 
 #define LOG_TAG "resolv_private_dns_test"
 
+#include <regex>
+
 #include <aidl/android/net/IDnsResolver.h>
+#include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
@@ -34,6 +37,7 @@
 #include "tests/unsolicited_listener/unsolicited_event_listener.h"
 
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using android::base::ReadFdToString;
 using android::base::unique_fd;
 using android::net::resolv::aidl::UnsolicitedEventListener;
 using android::netdutils::ScopedAddrinfo;
@@ -45,6 +49,33 @@ const std::string kDohQueryTimeoutFlag("persist.device_config.netd_native.doh_qu
 const std::string kDohProbeTimeoutFlag("persist.device_config.netd_native.doh_probe_timeout_ms");
 
 namespace {
+
+std::vector<std::string> dumpService(ndk::SpAIBinder binder) {
+    unique_fd localFd, remoteFd;
+    bool success = Pipe(&localFd, &remoteFd);
+    EXPECT_TRUE(success) << "Failed to open pipe for dumping: " << strerror(errno);
+    if (!success) return {};
+
+    // dump() blocks until another thread has consumed all its output.
+    std::thread dumpThread = std::thread([binder, remoteFd{std::move(remoteFd)}]() {
+        EXPECT_EQ(STATUS_OK, AIBinder_dump(binder.get(), remoteFd, nullptr, 0));
+    });
+
+    std::string dumpContent;
+
+    EXPECT_TRUE(ReadFdToString(localFd.get(), &dumpContent))
+            << "Error during dump: " << strerror(errno);
+    dumpThread.join();
+
+    std::stringstream dumpStream(std::move(dumpContent));
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(dumpStream, line)) {
+        lines.push_back(std::move(line));
+    }
+
+    return lines;
+}
 
 // A helper which can propagate the failure to outside of the stmt to know which line
 // of stmt fails. The expectation fails only for the first failed stmt.
@@ -140,6 +171,26 @@ class BaseTest : public ::testing::Test {
                        serverAddr, IDnsResolverUnsolicitedEventListener::PROTOCOL_DOH);
     }
 
+    bool expectLog(const std::string& serverAddr, const std::string& listen_address) {
+        ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));
+        assert(nullptr != resolvBinder.get());
+        std::vector<std::string> lines = dumpService(resolvBinder);
+
+        const std::string ipAddr =
+                listen_address.empty() ? serverAddr : serverAddr + ":" + listen_address;
+        const std::regex pattern(R"(^\s{4,}([0-9a-fA-F:\.]*)[ ]?([<(].*[>)])[ ]?(\S*)$)");
+
+        for (const auto& line : lines) {
+            if (line.empty()) continue;
+
+            std::smatch match;
+            if (std::regex_match(line, match, pattern)) {
+                if (match[1] == ipAddr || match[2] == ipAddr) return true;
+            }
+        }
+        return false;
+    }
+
     DnsResponderClient mDnsClient;
 
     // Use a shared static DNS listener for all tests to avoid registering lots of listeners
@@ -162,6 +213,10 @@ class BaseTest : public ::testing::Test {
 
 class BasePrivateDnsTest : public BaseTest {
   public:
+    static constexpr char kDnsPort[] = "53";
+    static constexpr char kDohPort[] = "443";
+    static constexpr char kDotPort[] = "853";
+
     static void SetUpTestSuite() {
         BaseTest::SetUpTestSuite();
         test::DohFrontend::initRustAndroidLogger();
@@ -232,11 +287,11 @@ class BasePrivateDnsTest : public BaseTest {
     static constexpr char kQueryAnswerA[] = "1.2.3.4";
     static constexpr char kQueryAnswerAAAA[] = "2001:db8::100";
 
-    test::DNSResponder dns{test::kDefaultListenAddr, "53"};
-    test::DohFrontend doh{test::kDefaultListenAddr, "443", "127.0.1.3", "53"};
-    test::DnsTlsFrontend dot{test::kDefaultListenAddr, "853", "127.0.2.3", "53"};
-    test::DNSResponder doh_backend{"127.0.1.3", "53"};
-    test::DNSResponder dot_backend{"127.0.2.3", "53"};
+    test::DNSResponder dns{test::kDefaultListenAddr, kDnsPort};
+    test::DohFrontend doh{test::kDefaultListenAddr, kDohPort, "127.0.1.3", kDnsPort};
+    test::DnsTlsFrontend dot{test::kDefaultListenAddr, kDotPort, "127.0.2.3", kDnsPort};
+    test::DNSResponder doh_backend{"127.0.1.3", kDnsPort};
+    test::DNSResponder dot_backend{"127.0.2.3", kDnsPort};
 
     // Used to enable DoH during the tests and set up a shorter timeout.
     std::unique_ptr<ScopedSystemProperties> mDohScopedProp;
@@ -432,8 +487,8 @@ TEST_F(PrivateDnsDohTest, PreferIpv6) {
     // To simplify the test, set the DoT server broken.
     dot.stopServer();
 
-    test::DNSResponder dns_ipv6{listen_ipv6_addr, "53"};
-    test::DohFrontend doh_ipv6{listen_ipv6_addr, "443", listen_ipv6_addr, "53"};
+    test::DNSResponder dns_ipv6{listen_ipv6_addr, kDnsPort};
+    test::DohFrontend doh_ipv6{listen_ipv6_addr, kDohPort, listen_ipv6_addr, kDnsPort};
     dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
     dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
     ASSERT_TRUE(dns_ipv6.startServer());
@@ -469,8 +524,8 @@ TEST_F(PrivateDnsDohTest, ChangeAndClearPrivateDnsServer) {
     // To simplify the test, set the DoT server broken.
     dot.stopServer();
 
-    test::DNSResponder dns_ipv6{listen_ipv6_addr, "53"};
-    test::DohFrontend doh_ipv6{listen_ipv6_addr, "443", listen_ipv6_addr, "53"};
+    test::DNSResponder dns_ipv6{listen_ipv6_addr, kDnsPort};
+    test::DohFrontend doh_ipv6{listen_ipv6_addr, kDohPort, listen_ipv6_addr, kDnsPort};
     dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
     dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
     ASSERT_TRUE(dns_ipv6.startServer());
@@ -516,4 +571,48 @@ TEST_F(PrivateDnsDohTest, ChangeAndClearPrivateDnsServer) {
     EXPECT_NO_FAILURE(sendQueryAndCheckResult());
     EXPECT_EQ(doh_ipv6.queries(), 0);
     EXPECT_EQ(dns_ipv6.queries().size(), 2U);
+}
+
+TEST_F(PrivateDnsDohTest, ChangePrivateDnsServerAndVerifyOutput) {
+    // To simplify the test, set the DoT server broken.
+    dot.stopServer();
+
+    static const std::string ipv4DohServerAddr = "127.0.0.3";
+    static const std::string ipv6DohServerAddr = "::1";
+
+    test::DNSResponder dns_ipv6{ipv6DohServerAddr, kDnsPort};
+    test::DohFrontend doh_ipv6{ipv6DohServerAddr, kDohPort, ipv6DohServerAddr, kDnsPort};
+    dns.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
+    dns.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
+    dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_a, kQueryAnswerA);
+    dns_ipv6.addMapping(kQueryHostname, ns_type::ns_t_aaaa, kQueryAnswerAAAA);
+    ASSERT_TRUE(dns_ipv6.startServer());
+    ASSERT_TRUE(doh_ipv6.startServer());
+
+    // Start the v4 DoH server.
+    auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(expectLog(ipv4DohServerAddr, kDohPort));
+
+    // Change to an invalid DoH server.
+    parcel.tlsServers = {kHelloExampleComAddrV4};
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_FALSE(expectLog(kHelloExampleComAddrV4, kDohPort));
+    EXPECT_TRUE(expectLog("<no data>", ""));
+
+    // Change to the v6 DoH server.
+    parcel.servers = {ipv6DohServerAddr};
+    parcel.tlsServers = {ipv6DohServerAddr};
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(ipv6DohServerAddr, true));
+    EXPECT_TRUE(expectLog(ipv6DohServerAddr, kDohPort));
+    EXPECT_FALSE(expectLog(ipv4DohServerAddr, kDohPort));
+
+    // Remove the private DNS server.
+    parcel.tlsServers = {};
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_FALSE(expectLog(ipv4DohServerAddr, kDohPort));
+    EXPECT_FALSE(expectLog(ipv6DohServerAddr, kDohPort));
+    EXPECT_TRUE(expectLog("<no data>", ""));
 }
