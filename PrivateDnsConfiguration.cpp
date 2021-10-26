@@ -253,7 +253,7 @@ void PrivateDnsConfiguration::sendPrivateDnsValidationEvent(const ServerIdentity
             .hostname = identity.provider,
             .validation = success ? IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_SUCCESS
                                   : IDnsResolverUnsolicitedEventListener::VALIDATION_RESULT_FAILURE,
-            .protocol = (identity.sockaddr.port() == 853)
+            .protocol = (identity.sockaddr.port() == kDotPort)
                                 ? IDnsResolverUnsolicitedEventListener::PROTOCOL_DOT
                                 : IDnsResolverUnsolicitedEventListener::PROTOCOL_DOH,
     };
@@ -391,7 +391,7 @@ base::Result<netdutils::IPSockAddr> PrivateDnsConfiguration::getDohServer(unsign
     std::lock_guard guard(mPrivateDnsLock);
     auto it = mDohTracker.find(netId);
     if (it != mDohTracker.end()) {
-        return netdutils::IPSockAddr::toIPSockAddr(it->second.ipAddr, 443);
+        return netdutils::IPSockAddr::toIPSockAddr(it->second.ipAddr, kDohPort);
     }
 
     return Errorf("Failed to get DoH Server: netId {} not found", netId);
@@ -473,11 +473,12 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         const auto& [dohIt, _] = mDohTracker.insert_or_assign(netId, doh.value());
         const auto& dohId = dohIt->second;
 
-        RecordEntry record(netId, {netdutils::IPSockAddr::toIPSockAddr(dohId.ipAddr, 443), name},
+        RecordEntry record(netId,
+                           {netdutils::IPSockAddr::toIPSockAddr(dohId.ipAddr, kDohPort), name},
                            dohId.status);
         mPrivateDnsLog.push(std::move(record));
         LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
-        resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, 443);
+        resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, kDohPort);
 
         int probeTimeout = Experiments::getInstance()->getFlag("doh_probe_timeout_ms",
                                                                kDohProbeDefaultTimeoutMs);
@@ -497,7 +498,7 @@ void PrivateDnsConfiguration::clearDohLocked(unsigned netId) {
     LOG(DEBUG) << "PrivateDnsConfiguration::clearDohLocked (" << netId << ")";
     if (mDohDispatcher != nullptr) doh_net_delete(mDohDispatcher, netId);
     mDohTracker.erase(netId);
-    resolv_stats_set_addrs(netId, PROTO_DOH, {}, 443);
+    resolv_stats_set_addrs(netId, PROTO_DOH, {}, kDohPort);
 }
 
 void PrivateDnsConfiguration::clearDoh(unsigned netId) {
@@ -529,7 +530,7 @@ void PrivateDnsConfiguration::onDohStatusUpdate(uint32_t netId, bool success, co
     Validation status = success ? Validation::success : Validation::fail;
     it->second.status = status;
     // Send the events to registered listeners.
-    ServerIdentity identity = {netdutils::IPSockAddr::toIPSockAddr(ipAddr, 443), host};
+    ServerIdentity identity = {netdutils::IPSockAddr::toIPSockAddr(ipAddr, kDohPort), host};
     if (needReportEvent(netId, identity, success)) {
         sendPrivateDnsValidationEvent(identity, netId, success);
     }
@@ -546,7 +547,7 @@ bool PrivateDnsConfiguration::needReportEvent(uint32_t netId, ServerIdentity ide
     // the event.
     switch (identity.sockaddr.port()) {
         // DoH
-        case 443: {
+        case kDohPort: {
             auto netPair = mPrivateDnsTransports.find(netId);
             if (netPair == mPrivateDnsTransports.end()) return true;
             for (const auto& [id, server] : netPair->second) {
@@ -562,7 +563,7 @@ bool PrivateDnsConfiguration::needReportEvent(uint32_t netId, ServerIdentity ide
             break;
         }
         // DoT
-        case 853: {
+        case kDotPort: {
             auto it = mDohTracker.find(netId);
             if (it == mDohTracker.end()) return true;
             if (it->second == identity && it->second.status == Validation::success) {
