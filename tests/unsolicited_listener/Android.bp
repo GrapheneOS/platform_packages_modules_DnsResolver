@@ -18,6 +18,7 @@ cc_test_library {
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
+        "netd_event_listener_interface-lateststable-ndk",
         "libutils",
     ],
 }
