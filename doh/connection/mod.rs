@@ -1,0 +1,150 @@
+/*
+* Copyright (C) 2021 The Android Open Source Project
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+*
+*      http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing, software
+* distributed under the License is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+* See the License for the specific language governing permissions and
+* limitations under the License.
+*/
+
+//! Module providing an async abstraction around a quiche HTTP/3 connection
+
+use crate::boot_time::BootTime;
+use crate::network::SocketTagger;
+use log::error;
+use quiche::h3;
+use std::future::Future;
+use std::io;
+use std::net::SocketAddr;
+use thiserror::Error;
+use tokio::net::UdpSocket;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+use tokio::task;
+
+mod driver;
+
+pub use driver::Stream;
+use driver::{drive, Request};
+
+/// Quiche HTTP/3 connection
+pub struct Connection {
+    request_tx: mpsc::Sender<Request>,
+}
+
+fn new_scid() -> [u8; quiche::MAX_CONN_ID_LEN] {
+    use ring::rand::{SecureRandom, SystemRandom};
+    let mut scid = [0; quiche::MAX_CONN_ID_LEN];
+    SystemRandom::new().fill(&mut scid).unwrap();
+    scid
+}
+
+fn mark_socket(socket: &std::net::UdpSocket, socket_mark: u32) -> io::Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let fd = socket.as_raw_fd();
+    // libc::setsockopt is a wrapper function calling into bionic setsockopt.
+    // The only pointer being passed in is &socket_mark, which is valid by virtue of being a
+    // reference, and the foreign function doesn't take ownership or a reference to that memory
+    // after completion.
+    if unsafe {
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_MARK,
+            &socket_mark as *const _ as *const libc::c_void,
+            std::mem::size_of::<u32>() as libc::socklen_t,
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+async fn build_socket(
+    peer_addr: SocketAddr,
+    socket_mark: u32,
+    tag_socket: &SocketTagger,
+) -> io::Result<UdpSocket> {
+    let bind_addr = match peer_addr {
+        SocketAddr::V4(_) => "0.0.0.0:0",
+        SocketAddr::V6(_) => "[::]:0",
+    };
+
+    let socket = UdpSocket::bind(bind_addr).await?;
+    let std_socket = socket.into_std()?;
+    mark_socket(&std_socket, socket_mark)
+        .unwrap_or_else(|e| error!("Unable to mark socket : {:?}", e));
+    tag_socket(&std_socket).await;
+    let socket = UdpSocket::from_std(std_socket)?;
+    socket.connect(peer_addr).await?;
+    Ok(socket)
+}
+
+/// Error type for HTTP/3 connection
+#[derive(Debug, Error)]
+pub enum Error {
+    /// QUIC protocol error
+    #[error("QUIC error: {0}")]
+    Quic(#[from] quiche::Error),
+    /// HTTP/3 protocol error
+    #[error("HTTP/3 error: {0}")]
+    H3(#[from] h3::Error),
+    /// Unable to send the request to the driver. This likely means the
+    /// backing task has died.
+    #[error("Unable to send request")]
+    SendRequest(#[from] mpsc::error::SendError<Request>),
+    /// IO failed. This is most likely to occur while trying to set up the
+    /// UDP socket for use by the connection.
+    #[error("IO error: {0}")]
+    Io(#[from] io::Error),
+    /// The request is no longer being serviced. This could mean that the
+    /// request was dropped for an unspecified reason, or that the connection
+    /// was closed prematurely and it can no longer be serviced.
+    #[error("Driver dropped request")]
+    RecvResponse(#[from] oneshot::error::RecvError),
+}
+
+/// Common result type for working with a HTTP/3 connection
+pub type Result<T> = std::result::Result<T, Error>;
+
+impl Connection {
+    const MAX_PENDING_REQUESTS: usize = 10;
+    /// Create a new connection with a background task handling IO.
+    pub async fn new(
+        server_name: Option<&str>,
+        to: SocketAddr,
+        socket_mark: u32,
+        tag_socket: &SocketTagger,
+        config: &mut quiche::Config,
+    ) -> Result<Self> {
+        let (request_tx, request_rx) = mpsc::channel(Self::MAX_PENDING_REQUESTS);
+        let scid = new_scid();
+        let quiche_conn =
+            quiche::connect(server_name, &quiche::ConnectionId::from_ref(&scid), to, config)?;
+        let socket = build_socket(to, socket_mark, tag_socket).await?;
+        let driver = drive(request_rx, quiche_conn, socket);
+        task::spawn(driver);
+        Ok(Self { request_tx })
+    }
+
+    /// Send a query, produce a future which will provide a response.
+    /// The future is separately returned rather than awaited to allow it to be waited on without
+    /// keeping the `Connection` itself borrowed.
+    pub async fn query(
+        &self,
+        headers: Vec<h3::Header>,
+        expiry: Option<BootTime>,
+    ) -> Result<impl Future<Output = Option<Stream>>> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.request_tx.send(Request { headers, response_tx, expiry }).await?;
+        Ok(async move { response_rx.await.ok() })
+    }
+}
