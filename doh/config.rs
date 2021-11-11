@@ -42,7 +42,7 @@ const MAX_CONCURRENT_STREAM_SIZE: u64 = 100;
 /// Maximum datagram size we will accept.
 pub const MAX_DATAGRAM_SIZE: usize = 1350;
 /// How long with no packets before we assume a connection is dead, in milliseconds.
-pub const QUICHE_IDLE_TIMEOUT_MS: u64 = 180000;
+pub const QUICHE_IDLE_TIMEOUT_MS: u64 = 55000;
 
 impl Config {
     fn from_weak(weak: &WeakConfig) -> Option<Self> {
