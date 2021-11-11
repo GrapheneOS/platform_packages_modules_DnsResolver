@@ -17,6 +17,8 @@
 //! C API for the DoH backend for the Android DnsResolver module.
 
 use crate::boot_time::{timeout, BootTime, Duration};
+use crate::dispatcher::{Command, Dispatcher, Response, ServerInfo};
+use crate::network::{SocketTagger, ValidationReporter};
 use futures::FutureExt;
 use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};
 use log::{error, warn};
@@ -25,22 +27,19 @@ use std::net::{IpAddr, SocketAddr};
 use std::ops::DerefMut;
 use std::os::unix::io::RawFd;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::{ptr, slice};
 use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 use tokio::task;
 use url::Url;
 
-use super::DohDispatcher as Dispatcher;
-use super::{DohCommand, Response, ServerInfo, SocketTagger, ValidationReporter, DOH_PORT};
-
 pub type ValidationCallback =
     extern "C" fn(net_id: uint32_t, success: bool, ip_addr: *const c_char, host: *const c_char);
 pub type TagSocketCallback = extern "C" fn(sock: RawFd);
 
 fn wrap_validation_callback(validation_fn: ValidationCallback) -> ValidationReporter {
-    Box::new(move |info: &ServerInfo, success: bool| {
+    Arc::new(move |info: &ServerInfo, success: bool| {
         async move {
             let (ip_addr, domain) = match (
                 CString::new(info.peer_addr.ip().to_string()),
@@ -65,7 +64,6 @@ fn wrap_validation_callback(validation_fn: ValidationCallback) -> ValidationRepo
 
 fn wrap_tag_socket_callback(tag_socket_fn: TagSocketCallback) -> SocketTagger {
     use std::os::unix::io::AsRawFd;
-    use std::sync::Arc;
     Arc::new(move |udp_socket: &std::net::UdpSocket| {
         let fd = udp_socket.as_raw_fd();
         async move {
@@ -106,6 +104,8 @@ pub const DOH_LOG_LEVEL_INFO: u32 = 2;
 pub const DOH_LOG_LEVEL_DEBUG: u32 = 3;
 /// The trace log level.
 pub const DOH_LOG_LEVEL_TRACE: u32 = 4;
+
+const DOH_PORT: u16 = 443;
 
 fn level_from_u32(level: u32) -> Option<log::Level> {
     use log::Level::*;
@@ -216,7 +216,7 @@ pub unsafe extern "C" fn doh_net_new(
             return -libc::EINVAL;
         }
     };
-    let cmd = DohCommand::Probe {
+    let cmd = Command::Probe {
         info: ServerInfo {
             net_id,
             url,
@@ -257,7 +257,7 @@ pub unsafe extern "C" fn doh_query(
     let (resp_tx, resp_rx) = oneshot::channel();
     let t = Duration::from_millis(timeout_ms);
     if let Some(expired_time) = BootTime::now().checked_add(t) {
-        let cmd = DohCommand::Query {
+        let cmd = Command::Query {
             net_id,
             base64_query: base64::encode_config(q, base64::URL_SAFE_NO_PAD),
             expired_time,
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn doh_query(
 /// and not yet deleted by `doh_dispatcher_delete()`.
 #[no_mangle]
 pub extern "C" fn doh_net_delete(doh: &DohDispatcher, net_id: uint32_t) {
-    if let Err(e) = doh.lock().send_cmd(DohCommand::Clear { net_id }) {
+    if let Err(e) = doh.lock().send_cmd(Command::Clear { net_id }) {
         error!("Failed to send the query: {:?}", e);
     }
 }
