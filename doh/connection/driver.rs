@@ -17,7 +17,7 @@
 
 use crate::boot_time;
 use crate::boot_time::BootTime;
-use log::warn;
+use log::{debug, warn};
 use quiche::h3;
 use std::collections::HashMap;
 use std::default::Default;
@@ -27,7 +27,9 @@ use std::pin::Pin;
 use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::select;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
+
+use super::Status;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -77,6 +79,7 @@ const MAX_UDP_PACKET_SIZE: usize = 65536;
 
 struct Driver {
     request_rx: mpsc::Receiver<Request>,
+    status_tx: watch::Sender<Status>,
     quiche_conn: Pin<Box<quiche::Connection>>,
     socket: UdpSocket,
     // This buffer is large, boxing it will keep it
@@ -111,19 +114,27 @@ async fn optional_timeout(timeout: Option<boot_time::Duration>) {
 /// The returned error code will explain why the connection terminated.
 pub async fn drive(
     request_rx: mpsc::Receiver<Request>,
+    status_tx: watch::Sender<Status>,
     quiche_conn: Pin<Box<quiche::Connection>>,
     socket: UdpSocket,
 ) -> Result<()> {
-    Driver::new(request_rx, quiche_conn, socket).drive().await
+    Driver::new(request_rx, status_tx, quiche_conn, socket).drive().await
 }
 
 impl Driver {
     fn new(
         request_rx: mpsc::Receiver<Request>,
+        status_tx: watch::Sender<Status>,
         quiche_conn: Pin<Box<quiche::Connection>>,
         socket: UdpSocket,
     ) -> Self {
-        Self { request_rx, quiche_conn, socket, buffer: Box::new([0; MAX_UDP_PACKET_SIZE]) }
+        Self {
+            request_rx,
+            status_tx,
+            quiche_conn,
+            socket,
+            buffer: Box::new([0; MAX_UDP_PACKET_SIZE]),
+        }
     }
 
     async fn drive(mut self) -> Result<()> {
@@ -136,6 +147,8 @@ impl Driver {
 
     fn handle_closed(&self) -> Result<()> {
         if self.quiche_conn.is_closed() {
+            // We don't care if the receiver has hung up
+            let _ = self.status_tx.send(Status::Dead);
             Err(Error::Closed)
         } else {
             Ok(())
@@ -146,7 +159,9 @@ impl Driver {
         let timer = optional_timeout(self.quiche_conn.timeout());
         select! {
             // If a quiche timer would fire, call their callback
-            _ = timer => self.quiche_conn.on_timeout(),
+            _ = timer => {
+                self.quiche_conn.on_timeout()
+            }
             // If we got packets from our peer, pass them to quiche
             Ok((size, from)) = self.socket.recv_from(self.buffer.as_mut()) => {
                 self.quiche_conn.recv(&mut self.buffer[..size], quiche::RecvInfo { from })?;
@@ -159,7 +174,8 @@ impl Driver {
         if self.quiche_conn.is_established() {
             let h3_config = h3::Config::new()?;
             let h3_conn = h3::Connection::with_transport(&mut self.quiche_conn, &h3_config)?;
-            return H3Driver::new(self, h3_conn).drive().await;
+            self = H3Driver::new(self, h3_conn).drive().await?;
+            let _ = self.status_tx.send(Status::QUIC);
         }
 
         // If the connection has closed, tear down
@@ -195,8 +211,15 @@ impl H3Driver {
     }
 
     async fn drive(mut self) -> Result<Driver> {
+        let _ = self.driver.status_tx.send(Status::H3);
         loop {
-            self.drive_once().await?;
+            match self.drive_once().await {
+                Err(e) => {
+                    let _ = self.driver.status_tx.send(Status::Dead);
+                    return Err(e);
+                }
+                Ok(()) => (),
+            }
         }
     }
 
@@ -212,16 +235,19 @@ impl H3Driver {
         select! {
             // Only attempt to enqueue new requests if we have no buffered request and aren't
             // closing
-            msg = self.driver.request_rx.recv(), if !self.closing && self.buffered_request.is_none() => match msg {
-                Some(request) => self.handle_request(request)?,
-                None => self.shutdown(true, b"DONE").await?,
+            msg = self.driver.request_rx.recv(), if !self.closing && self.buffered_request.is_none() => {
+                match msg {
+                    Some(request) => self.handle_request(request)?,
+                    None => self.shutdown(true, b"DONE").await?,
+                }
             },
             // If a quiche timer would fire, call their callback
-            _ = timer => self.driver.quiche_conn.on_timeout(),
-            // If we got packets from our peer, pass them to quiche
-            Ok((size, from)) = self.driver.socket.recv_from(self.driver.buffer.as_mut()) => {
-                self.driver.quiche_conn.recv(&mut self.driver.buffer[..size], quiche::RecvInfo { from })?;
+            _ = timer => {
+                self.driver.quiche_conn.on_timeout()
             }
+            // If we got packets from our peer, pass them to quiche
+            Ok((size, from)) = self.driver.socket.recv_from(self.driver.buffer.as_mut()) =>
+                self.driver.quiche_conn.recv(&mut self.driver.buffer[..size], quiche::RecvInfo { from }).map(|_| ())?,
         };
 
         // Any of the actions in the select could require us to send packets to the peer
@@ -250,6 +276,7 @@ impl H3Driver {
                     // buffered_request, or when buffered_request is empty. This assert just
                     // validates that we don't break that assumption later, as it could result in
                     // requests being dropped on the floor under high load.
+                    debug!("Stream has become blocked, buffering one request.");
                     assert!(self.buffered_request.is_none());
                     self.buffered_request = Some(request);
                     return Ok(())
@@ -323,9 +350,7 @@ impl H3Driver {
                     self.respond(stream_id);
                 }
             }
-            h3::Event::Data => {
-                self.recv_body(stream_id).await?;
-            }
+            h3::Event::Data => self.recv_body(stream_id).await?,
             h3::Event::Finished => self.respond(stream_id),
             // This clause is for quiche 0.10.x, we're still on 0.9.x
             //h3::Event::Reset(e) => {
