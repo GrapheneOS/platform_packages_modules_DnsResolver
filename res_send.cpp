@@ -1398,7 +1398,7 @@ ssize_t res_doh_send(ResState* statp, const Slice query, const Slice answer, int
         queryTimeout = 1000;
     }
     ssize_t result = privateDnsConfiguration.dohQuery(netId, query, answer, queryTimeout);
-    LOG(INFO) << __func__ << ": Https query result: " << result;
+    LOG(INFO) << __func__ << ": Https query result: " << result << ", netid=" << netId;
 
     if (result == DOH_RESULT_CAN_NOT_SEND) return DOH_RESULT_CAN_NOT_SEND;
 
