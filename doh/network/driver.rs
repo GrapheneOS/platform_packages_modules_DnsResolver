@@ -28,6 +28,8 @@ use tokio::task;
 
 use super::{Query, ServerInfo, SocketTagger, ValidationReporter};
 
+use log::debug;
+
 pub struct Driver {
     info: ServerInfo,
     config: Config,
@@ -107,11 +109,15 @@ impl Driver {
 
     pub async fn drive(mut self) -> Result<()> {
         while let Some(cmd) = self.command_rx.recv().await {
-            if let Err(e) = match cmd {
-                Command::Probe(duration) => self.probe(duration).await,
-                Command::Query(query) => self.send_query(query).await,
-            } {
-                self.status_tx.send(Status::Failed(Arc::new(e)))?
+            match cmd {
+                Command::Probe(duration) => match self.probe(duration).await {
+                    Err(e) => self.status_tx.send(Status::Failed(Arc::new(e)))?,
+                    Ok(()) => (),
+                },
+                Command::Query(query) => match self.send_query(query).await {
+                    Err(e) => debug!("Unable to send query: {:?}", e),
+                    Ok(()) => (),
+                },
             };
         }
         Ok(())
@@ -119,6 +125,7 @@ impl Driver {
 
     async fn probe(&mut self, probe_timeout: Duration) -> Result<()> {
         if self.status_tx.borrow().is_failed() {
+            debug!("Network is currently failed, reconnecting");
             // If our network is currently failed, it may be due to issues with the connection.
             // Re-establish before re-probing
             self.connection =
@@ -166,12 +173,18 @@ impl Driver {
     }
 
     async fn send_query(&mut self, query: Query) -> Result<()> {
+        if !self.connection.wait_for_live().await {
+            // Try reconnecting
+            self.connection =
+                build_connection(&self.info, &self.tag_socket, &mut self.config).await?;
+        }
         let request = encoding::dns_request(&query.query, &self.info.url)?;
         let stream_fut = self.connection.query(request, Some(query.expiry)).await?;
         task::spawn(async move {
             let stream = match stream_fut.await {
                 Some(stream) => stream,
                 None => {
+                    debug!("Connection died while processing request");
                     // We don't care if the response is gone
                     let _ =
                         query.response.send(Response::Error { error: QueryError::ConnectionError });

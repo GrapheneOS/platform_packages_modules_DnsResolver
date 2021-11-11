@@ -24,8 +24,7 @@ use std::io;
 use std::net::SocketAddr;
 use thiserror::Error;
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task;
 
 mod driver;
@@ -33,9 +32,17 @@ mod driver;
 pub use driver::Stream;
 use driver::{drive, Request};
 
+#[derive(Debug, Copy, Clone)]
+pub enum Status {
+    QUIC,
+    H3,
+    Dead,
+}
+
 /// Quiche HTTP/3 connection
 pub struct Connection {
     request_tx: mpsc::Sender<Request>,
+    status_rx: watch::Receiver<Status>,
 }
 
 fn new_scid() -> [u8; quiche::MAX_CONN_ID_LEN] {
@@ -126,13 +133,45 @@ impl Connection {
         config: &mut quiche::Config,
     ) -> Result<Self> {
         let (request_tx, request_rx) = mpsc::channel(Self::MAX_PENDING_REQUESTS);
+        let (status_tx, status_rx) = watch::channel(Status::QUIC);
         let scid = new_scid();
         let quiche_conn =
             quiche::connect(server_name, &quiche::ConnectionId::from_ref(&scid), to, config)?;
         let socket = build_socket(to, socket_mark, tag_socket).await?;
-        let driver = drive(request_rx, quiche_conn, socket);
+        let driver = async {
+            let result = drive(request_rx, status_tx, quiche_conn, socket).await;
+            if let Err(ref e) = result {
+                error!("Connection driver failed: {:?}", e);
+            }
+            result
+        };
         task::spawn(driver);
-        Ok(Self { request_tx })
+        Ok(Self { request_tx, status_rx })
+    }
+
+    /// Waits until we're either fully alive or dead
+    pub async fn wait_for_live(&mut self) -> bool {
+        // Once sc-mainline-prod updates to modern tokio, use
+        // borrow_and_update here.
+        match *self.status_rx.borrow() {
+            Status::H3 => return true,
+            Status::Dead => return false,
+            Status::QUIC => (),
+        }
+        if self.status_rx.changed().await.is_err() {
+            // status_tx is gone, we're dead
+            return false;
+        }
+        if matches!(*self.status_rx.borrow(), Status::H3) {
+            return true;
+        }
+        // Since we're stuck on legacy tokio due to mainline, we need to try one more time in case there was an outstanding change notification. Using borrow_and_update avoids this.
+        match self.status_rx.changed().await {
+            // status_tx is gone, we're dead
+            Err(_) => false,
+            // If there's an HTTP/3 connection now we're alive, otherwise we're stuck/dead
+            _ => matches!(*self.status_rx.borrow(), Status::H3),
+        }
     }
 
     /// Send a query, produce a future which will provide a response.
