@@ -82,6 +82,7 @@ async fn build_connection(
         info.domain.as_deref(),
         info.peer_addr,
         info.sk_mark,
+        info.net_id,
         tag_socket,
         config.take().await.deref_mut(),
     )
@@ -141,6 +142,7 @@ impl Driver {
     }
 
     async fn force_probe(&mut self, probe_timeout: Duration) -> Result<()> {
+        debug!("Sending probe to server {} on Network {}", self.info.peer_addr, self.info.net_id);
         let probe = encoding::probe_query()?;
         let dns_request = encoding::dns_request(&probe, &self.info.url)?;
         let expiry = BootTime::now().checked_add(probe_timeout);
