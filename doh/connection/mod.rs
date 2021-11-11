@@ -17,7 +17,7 @@
 
 use crate::boot_time::BootTime;
 use crate::network::SocketTagger;
-use log::error;
+use log::{error, warn};
 use quiche::h3;
 use std::future::Future;
 use std::io;
@@ -129,6 +129,7 @@ impl Connection {
         server_name: Option<&str>,
         to: SocketAddr,
         socket_mark: u32,
+        net_id: u32,
         tag_socket: &SocketTagger,
         config: &mut quiche::Config,
     ) -> Result<Self> {
@@ -138,10 +139,10 @@ impl Connection {
         let quiche_conn =
             quiche::connect(server_name, &quiche::ConnectionId::from_ref(&scid), to, config)?;
         let socket = build_socket(to, socket_mark, tag_socket).await?;
-        let driver = async {
-            let result = drive(request_rx, status_tx, quiche_conn, socket).await;
+        let driver = async move {
+            let result = drive(request_rx, status_tx, quiche_conn, socket, net_id).await;
             if let Err(ref e) = result {
-                error!("Connection driver failed: {:?}", e);
+                warn!("Connection driver returns some Err: {:?}", e);
             }
             result
         };

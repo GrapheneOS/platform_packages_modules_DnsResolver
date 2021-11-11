@@ -107,7 +107,7 @@ impl Driver {
             // If we have a network registered to the provided net_id, but the server info doesn't
             // match, our API has been used incorrectly. Attempt to recover by deleting the old
             // network and recreating it according to the probe request.
-            warn!("Probing net_id={} with mismatched server info", info.net_id);
+            warn!("Probing net_id={} with mismatched server info {:?}", info.net_id, info);
             self.networks.remove(&info.net_id);
         }
         // Can't use or_insert_with because creating a network may fail
