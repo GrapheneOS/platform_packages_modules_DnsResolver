@@ -286,7 +286,10 @@ pub unsafe extern "C" fn doh_query(
                         response.copy_from_slice(&answer);
                         answer.len() as ssize_t
                     }
-                    _ => DOH_RESULT_CAN_NOT_SEND,
+                    rsp => {
+                        error!("Non-successful response: {:?}", rsp);
+                        DOH_RESULT_CAN_NOT_SEND
+                    }
                 },
                 Err(e) => {
                     error!("no result {}", e);
