@@ -207,7 +207,7 @@ class PrivateDnsConfiguration {
         std::set<std::string> ips;
         std::string host;
         std::string httpsTemplate;
-        bool forTesting;
+        bool requireRootPermission;
         base::Result<DohIdentity> getDohIdentity(const std::vector<std::string>& ips,
                                                  const std::string& host) const {
             if (!host.empty() && this->host != host) return Errorf("host {} not matched", host);
@@ -236,6 +236,8 @@ class PrivateDnsConfiguration {
              false},
 
             // The DoH providers for testing only.
+            // Using ResolverTestProvider requires that the DnsResolver is configured by someone
+            // who has root permission, which should be run by tests only.
             {"ResolverTestProvider",
              {"127.0.0.3", "::1"},
              "example.com",
