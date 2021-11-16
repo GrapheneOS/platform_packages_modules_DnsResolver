@@ -461,8 +461,9 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         const auto& doh = entry.getDohIdentity(sortedServers, name);
         if (!doh.ok()) continue;
 
-        // The internal tests are supposed to have root permission.
-        if (entry.forTesting && AIBinder_getCallingUid() != AID_ROOT) continue;
+        // Since the DnsResolver is expected to be configured by the system server, add the
+        // restriction to prevent ResolverTestProvider from being used other than testing.
+        if (entry.requireRootPermission && AIBinder_getCallingUid() != AID_ROOT) continue;
 
         auto it = mDohTracker.find(netId);
         // Skip if the same server already exists and its status == success.
