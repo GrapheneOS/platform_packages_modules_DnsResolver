@@ -181,7 +181,8 @@ pub unsafe extern "C" fn doh_net_new(
     ip_addr: *const c_char,
     sk_mark: libc::uint32_t,
     cert_path: *const c_char,
-    timeout_ms: libc::uint64_t,
+    probe_timeout_ms: libc::uint64_t,
+    idle_timeout_ms: libc::uint64_t,
 ) -> int32_t {
     let (url, domain, ip_addr, cert_path) = match (
         std::ffi::CStr::from_ptr(url).to_str(),
@@ -224,8 +225,9 @@ pub unsafe extern "C" fn doh_net_new(
             domain,
             sk_mark,
             cert_path,
+            idle_timeout_ms,
         },
-        timeout: Duration::from_millis(timeout_ms),
+        timeout: Duration::from_millis(probe_timeout_ms),
     };
     if let Err(e) = doh.lock().send_cmd(cmd) {
         error!("Failed to send the probe: {:?}", e);
@@ -373,6 +375,7 @@ mod tests {
             domain: None,
             sk_mark: 0,
             cert_path: None,
+            idle_timeout_ms: 0,
         };
 
         wrap_validation_callback(success_cb)(&info, true).await;

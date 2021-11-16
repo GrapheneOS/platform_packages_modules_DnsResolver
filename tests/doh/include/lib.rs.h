@@ -27,7 +27,10 @@ static const uint64_t MAX_STREAMS_BIDI = 100;
 struct DohFrontend;
 
 struct Stats {
+    /// The number of accumulated DoH queries that are received.
     uint32_t queries_received;
+    /// The number of accumulated QUIC connections.
+    uint32_t connections;
 };
 
 extern "C" {

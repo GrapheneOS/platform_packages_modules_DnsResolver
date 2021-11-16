@@ -253,13 +253,14 @@ impl ClientMap {
         &mut self,
         hdr: &quiche::Header,
         addr: &SocketAddr,
-    ) -> Result<&mut Client> {
-        let dcid = hdr.dcid.as_ref().to_vec();
-        let client = if !self.clients.contains_key(&dcid) {
+    ) -> Result<(&mut Client, bool)> {
+        let dcid = hdr.dcid.as_ref();
+        let is_new_client = !self.clients.contains_key(dcid);
+        let client = if is_new_client {
             ensure!(hdr.ty == quiche::Type::Initial, "Packet is not Initial");
             ensure!(quiche::version_is_supported(hdr.version), "Protocol version not supported");
 
-            let scid = generate_conn_id(&self.conn_id_seed, &dcid);
+            let scid = generate_conn_id(&self.conn_id_seed, dcid);
             let conn = quiche::accept(
                 &quiche::ConnectionId::from_ref(&scid),
                 None, /* odcid */
@@ -272,10 +273,10 @@ impl ClientMap {
             self.clients.insert(scid.clone(), client);
             self.clients.get_mut(&scid).unwrap()
         } else {
-            self.clients.get_mut(&dcid).unwrap()
+            self.clients.get_mut(dcid).unwrap()
         };
 
-        Ok(client)
+        Ok((client, is_new_client))
     }
 
     pub fn get_mut(&mut self, id: &[u8]) -> Option<&mut Client> {
