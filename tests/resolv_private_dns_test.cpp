@@ -40,6 +40,7 @@ using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using android::base::ReadFdToString;
 using android::base::unique_fd;
 using android::net::resolv::aidl::UnsolicitedEventListener;
+using android::netdutils::IPSockAddr;
 using android::netdutils::ScopedAddrinfo;
 using android::netdutils::Stopwatch;
 using std::chrono::milliseconds;
@@ -171,21 +172,22 @@ class BaseTest : public ::testing::Test {
                        serverAddr, IDnsResolverUnsolicitedEventListener::PROTOCOL_DOH);
     }
 
-    bool expectLog(const std::string& serverAddr, const std::string& listen_address) {
+    bool expectLog(const std::string& ipAddrOrNoData, const std::string& port) {
         ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));
         assert(nullptr != resolvBinder.get());
         std::vector<std::string> lines = dumpService(resolvBinder);
 
-        const std::string ipAddr =
-                listen_address.empty() ? serverAddr : serverAddr + ":" + listen_address;
-        const std::regex pattern(R"(^\s{4,}([0-9a-fA-F:\.]*)[ ]?([<(].*[>)])[ ]?(\S*)$)");
+        const std::string expectedLog =
+                port.empty() ? ipAddrOrNoData
+                             : IPSockAddr::toIPSockAddr(ipAddrOrNoData, std::stoi(port)).toString();
+        const std::regex pattern(R"(^\s{4,}([0-9a-fA-F:\.\]\[]*)[ ]?([<(].*[>)])[ ]?(\S*)$)");
 
         for (const auto& line : lines) {
             if (line.empty()) continue;
 
             std::smatch match;
             if (std::regex_match(line, match, pattern)) {
-                if (match[1] == ipAddr || match[2] == ipAddr) return true;
+                if (match[1] == expectedLog || match[2] == expectedLog) return true;
             }
         }
         return false;
