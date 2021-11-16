@@ -121,7 +121,7 @@ class DnsStatsTest : public ::testing::Test {
                           const std::vector<StatsData>& dohData) {
         // A pattern to capture three matches:
         //     server address (empty allowed), the statistics, and the score.
-        const std::regex pattern(R"(\s{4,}([0-9a-fA-F:\.]*)[ ]?([<(].*[>)])[ ]?(\S*))");
+        const std::regex pattern(R"(\s{4,}([0-9a-fA-F:\.\]\[]*)[ ]?([<(].*[>)])[ ]?(\S*))");
         std::string dumpString = captureDumpOutput();
 
         const auto check = [&](const std::vector<StatsData>& statsData, const std::string& protocol,
@@ -142,8 +142,7 @@ class DnsStatsTest : public ::testing::Test {
 
             for (const auto& stats : statsData) {
                 ASSERT_TRUE(std::regex_search(*dumpString, sm, pattern));
-                EXPECT_EQ(sm[1], stats.sockAddr.ip().toString() + ":" +
-                                         std::to_string(stats.sockAddr.port()));
+                EXPECT_EQ(sm[1], stats.sockAddr.toString());
                 EXPECT_FALSE(sm[2].str().empty());
                 EXPECT_FALSE(sm[3].str().empty());
                 *dumpString = sm.suffix();
