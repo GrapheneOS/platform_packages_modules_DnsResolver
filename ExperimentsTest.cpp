@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
+#include <map>
 #include <mutex>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 #include <android-base/format.h>
 #include <android-base/test_utils.h>
@@ -72,7 +72,7 @@ class ExperimentsTest : public ::testing::Test {
     }
 
     void expectGetDnsExperimentFlagInt() {
-        std::unordered_map<std::string_view, int> tempMap;
+        std::map<std::string_view, int> tempMap;
         for (const auto& key : Experiments::kExperimentFlagKeyList) {
             tempMap[key] = mExperiments.getFlag(key, 0);
         }
@@ -102,11 +102,11 @@ class ExperimentsTest : public ::testing::Test {
         EXPECT_EQ(dumpString.substr(startPos), "\n");
     }
 
-    static std::unordered_map<std::string_view, int> sFakeFlagsMapInt;
+    static std::map<std::string_view, int> sFakeFlagsMapInt;
     Experiments mExperiments;
 };
 
-std::unordered_map<std::string_view, int> ExperimentsTest::sFakeFlagsMapInt;
+std::map<std::string_view, int> ExperimentsTest::sFakeFlagsMapInt;
 
 TEST_F(ExperimentsTest, update) {
     std::vector<int> testValues = {50, 3, 5, 0};
