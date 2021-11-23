@@ -50,6 +50,13 @@ class DohFrontend {
 
     int queries() const;
     void clearQueries();
+    bool block_sending(bool block);
+
+    // To make the configuration effective, callers need to restart the DoH server after calling
+    // these methods.
+    bool setMaxIdleTimeout(uint64_t value);
+    bool setMaxBufferSize(uint64_t value);
+    bool setMaxStreamsBidi(uint64_t value);
 
     static void initRustAndroidLogger() { rust::init_android_logger(); }
 
