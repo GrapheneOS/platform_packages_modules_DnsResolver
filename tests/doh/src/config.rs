@@ -18,13 +18,35 @@
 
 use std::default::Default;
 
+/// Default value for max_idle_timeout transport parameter.
+pub const QUICHE_IDLE_TIMEOUT_MS: u64 = 10_000;
+
+/// Default value for these transport parameters:
+/// - initial_max_data
+/// - initial_max_stream_data_bidi_local
+/// - initial_max_stream_data_bidi_remote
+/// - initial_max_stream_data_uni
+const MAX_BUFFER_SIZE: u64 = 1_000_000;
+
+/// Default value for initial_max_streams_bidi transport parameter.
+pub const MAX_STREAMS_BIDI: u64 = 100;
+
 #[derive(Debug, Default)]
 pub struct Config {
     pub delay_queries: i32,
+    pub block_sending: bool,
+    pub max_idle_timeout: u64,
+    pub max_buffer_size: u64,
+    pub max_streams_bidi: u64,
 }
 
 impl Config {
     pub fn new() -> Self {
-        Default::default()
+        Self {
+            max_idle_timeout: QUICHE_IDLE_TIMEOUT_MS,
+            max_buffer_size: MAX_BUFFER_SIZE,
+            max_streams_bidi: MAX_STREAMS_BIDI,
+            ..Default::default()
+        }
     }
 }

@@ -17,7 +17,7 @@
 //! DoH server frontend.
 
 use crate::client::{ClientMap, ConnectionID, DNS_HEADER_SIZE, MAX_UDP_PAYLOAD_SIZE};
-use crate::config::Config;
+use crate::config::{Config, QUICHE_IDLE_TIMEOUT_MS};
 use crate::stats::Stats;
 use anyhow::{bail, ensure, Result};
 use lazy_static::lazy_static;
@@ -43,8 +43,6 @@ lazy_static! {
             .expect("Failed to create tokio runtime")
     );
 }
-
-const QUICHE_IDLE_TIMEOUT_MS: u64 = 10_000;
 
 #[derive(Debug)]
 enum Command {
@@ -72,10 +70,12 @@ pub struct DohFrontend {
 
     // Custom runtime configuration to control the behavior of the worker thread.
     // It's shared with the worker thread.
+    // TODO: use channel to update worker_thread configuration.
     config: Arc<Mutex<Config>>,
 
     // Stores some statistic to check DohFrontend status.
     // It's shared with the worker thread.
+    // TODO: use channel to retrieve the stats from worker_thread.
     stats: Arc<Mutex<Stats>>,
 }
 
@@ -145,6 +145,26 @@ impl DohFrontend {
         Ok(())
     }
 
+    pub fn set_max_idle_timeout(&self, value: u64) -> Result<()> {
+        self.config.lock().unwrap().max_idle_timeout = value;
+        Ok(())
+    }
+
+    pub fn set_max_buffer_size(&self, value: u64) -> Result<()> {
+        self.config.lock().unwrap().max_buffer_size = value;
+        Ok(())
+    }
+
+    pub fn set_max_streams_bidi(&self, value: u64) -> Result<()> {
+        self.config.lock().unwrap().max_streams_bidi = value;
+        Ok(())
+    }
+
+    pub fn block_sending(&self, value: bool) -> Result<()> {
+        self.config.lock().unwrap().block_sending = value;
+        Ok(())
+    }
+
     pub fn stats(&self) -> Stats {
         self.stats.lock().unwrap().clone()
     }
@@ -167,6 +187,7 @@ impl DohFrontend {
         let clients = ClientMap::new(create_quiche_config(
             self.certificate.to_string(),
             self.private_key.to_string(),
+            self.config.clone(),
         )?)?;
 
         Ok(WorkerParams {
@@ -279,7 +300,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 }
             }
 
-            Some(command) = event_rx.recv() => {
+            Some(command) = event_rx.recv(), if !config.lock().unwrap().block_sending => {
                 match command {
                     Command::MaybeWrite {connection_id} => {
                         if let Some(client) = clients.get_mut(&connection_id) {
@@ -298,7 +319,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                                     error!("flush_egress failed: {}", e);
                                 }
                             }
-                            client.process_pending_answers().unwrap();
+                            client.process_pending_answers()?;
                         }
                     }
                 }
@@ -307,7 +328,11 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
     }
 }
 
-fn create_quiche_config(certificate: String, private_key: String) -> Result<quiche::Config> {
+fn create_quiche_config(
+    certificate: String,
+    private_key: String,
+    config: Arc<Mutex<Config>>,
+) -> Result<quiche::Config> {
     let mut quiche_config = quiche::Config::new(quiche::PROTOCOL_VERSION)?;
 
     // Use pipe as a file path for Quiche to read the certificate and the private key.
@@ -328,13 +353,16 @@ fn create_quiche_config(certificate: String, private_key: String) -> Result<quic
     handle.join().unwrap();
 
     quiche_config.set_application_protos(quiche::h3::APPLICATION_PROTOCOL)?;
-    quiche_config.set_max_idle_timeout(QUICHE_IDLE_TIMEOUT_MS);
+    quiche_config.set_max_idle_timeout(config.lock().unwrap().max_idle_timeout);
     quiche_config.set_max_recv_udp_payload_size(MAX_UDP_PAYLOAD_SIZE);
-    quiche_config.set_initial_max_data(10000000);
-    quiche_config.set_initial_max_stream_data_bidi_local(1000000);
-    quiche_config.set_initial_max_stream_data_bidi_remote(1000000);
-    quiche_config.set_initial_max_stream_data_uni(1000000);
-    quiche_config.set_initial_max_streams_bidi(100);
+
+    let max_buffer_size = config.lock().unwrap().max_buffer_size;
+    quiche_config.set_initial_max_data(max_buffer_size);
+    quiche_config.set_initial_max_stream_data_bidi_local(max_buffer_size);
+    quiche_config.set_initial_max_stream_data_bidi_remote(max_buffer_size);
+    quiche_config.set_initial_max_stream_data_uni(max_buffer_size);
+
+    quiche_config.set_initial_max_streams_bidi(config.lock().unwrap().max_streams_bidi);
     quiche_config.set_initial_max_streams_uni(100);
     quiche_config.set_disable_active_migration(true);
 
