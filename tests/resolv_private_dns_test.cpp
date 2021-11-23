@@ -36,6 +36,11 @@
 #include "tests/resolv_test_utils.h"
 #include "tests/unsolicited_listener/unsolicited_event_listener.h"
 
+#include <android/multinetwork.h>  // ResNsendFlags
+#include <arpa/inet.h>
+#include <poll.h>
+#include "NetdClient.h"
+
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using android::base::ReadFdToString;
 using android::base::unique_fd;
@@ -48,6 +53,8 @@ using std::chrono::milliseconds;
 const std::string kDohFlag("persist.device_config.netd_native.doh");
 const std::string kDohQueryTimeoutFlag("persist.device_config.netd_native.doh_query_timeout_ms");
 const std::string kDohProbeTimeoutFlag("persist.device_config.netd_native.doh_probe_timeout_ms");
+
+constexpr int MAXPACKET = (8 * 1024);
 
 namespace {
 
@@ -76,6 +83,48 @@ std::vector<std::string> dumpService(ndk::SpAIBinder binder) {
     }
 
     return lines;
+}
+
+int getAsyncResponse(int fd, int* rcode, uint8_t* buf, int bufLen) {
+    struct pollfd wait_fd[1];
+    wait_fd[0].fd = fd;
+    wait_fd[0].events = POLLIN;
+    short revents;
+
+    if (int ret = poll(wait_fd, 1, -1); ret <= 0) {
+        return -1;
+    }
+
+    revents = wait_fd[0].revents;
+    if (revents & POLLIN) {
+        return resNetworkResult(fd, rcode, buf, bufLen);
+    }
+    return -1;
+}
+
+std::string toString(uint8_t* buf, int bufLen, int ipType) {
+    ns_msg handle;
+    ns_rr rr;
+
+    if (ns_initparse((const uint8_t*)buf, bufLen, &handle) >= 0) {
+        if (ns_parserr(&handle, ns_s_an, 0, &rr) == 0) {
+            const uint8_t* rdata = ns_rr_rdata(rr);
+            char buffer[INET6_ADDRSTRLEN];
+            if (inet_ntop(ipType, (const char*)rdata, buffer, sizeof(buffer))) {
+                return buffer;
+            }
+        }
+    }
+    return "";
+}
+
+void expectAnswersValid(int fd, int ipType, const std::string& expectedAnswer) {
+    int rcode = -1;
+    uint8_t buf[MAXPACKET] = {};
+
+    int res = getAsyncResponse(fd, &rcode, buf, MAXPACKET);
+    EXPECT_GT(res, 0);
+    EXPECT_EQ(expectedAnswer, toString(buf, res, ipType));
 }
 
 // A helper which can propagate the failure to outside of the stmt to know which line
@@ -617,4 +666,158 @@ TEST_F(PrivateDnsDohTest, ChangePrivateDnsServerAndVerifyOutput) {
     EXPECT_FALSE(expectLog(ipv4DohServerAddr, kDohPort));
     EXPECT_FALSE(expectLog(ipv6DohServerAddr, kDohPort));
     EXPECT_TRUE(expectLog("<no data>", ""));
+}
+
+// Tests that a DoH query is sent while the network is stalled temporarily.
+TEST_F(PrivateDnsDohTest, TemporaryConnectionStalled) {
+    const int connectionStalledTimeMs = 3000;
+    ScopedSystemProperties sp(kDohQueryTimeoutFlag, "10000");
+    resetNetwork();
+
+    const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(dot.waitForQueries(1));
+    dot.clearQueries();
+    doh.clearQueries();
+    dns.clearQueries();
+
+    EXPECT_TRUE(doh.block_sending(true));
+    Stopwatch s;
+    int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_a,
+                             ANDROID_RESOLV_NO_CACHE_LOOKUP);
+    std::this_thread::sleep_for(std::chrono::milliseconds(connectionStalledTimeMs));
+    EXPECT_TRUE(doh.block_sending(false));
+
+    expectAnswersValid(fd, AF_INET, kQueryAnswerA);
+    EXPECT_GT(s.timeTakenUs() / 1000, connectionStalledTimeMs);
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 1 /* doh */));
+}
+
+// Tests the scenario where the DnsResolver runs out of QUIC connection data limit.
+TEST_F(PrivateDnsDohTest, RunOutOfDataLimit) {
+    // Each DoH query consumes about 100 bytes of QUIC connection send capacity.
+    // Set initial_max_data to 450 so the fifth DoH query will get blocked.
+    const int queries = 4;
+    const int initial_max_data = 450;
+
+    ScopedSystemProperties sp(kDohQueryTimeoutFlag, "3000");
+    resetNetwork();
+
+    ASSERT_TRUE(doh.stopServer());
+    EXPECT_TRUE(doh.setMaxBufferSize(initial_max_data));
+    // Sleep a while to avoid binding socket failed.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_TRUE(doh.startServer());
+
+    const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(dot.waitForQueries(1));
+    dot.clearQueries();
+    doh.clearQueries();
+    dns.clearQueries();
+
+    // Block the DoH server from sending data for a while.
+    EXPECT_TRUE(doh.block_sending(true));
+    std::vector<std::thread> threads(queries);
+    for (std::thread& thread : threads) {
+        thread = std::thread([&]() {
+            int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_a,
+                                     ANDROID_RESOLV_NO_CACHE_LOOKUP);
+            expectAnswersValid(fd, AF_INET, kQueryAnswerA);
+        });
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    EXPECT_TRUE(doh.block_sending(false));
+
+    // In current implementation, the fifth DoH query will get blocked and result in timeout.
+    int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_a,
+                             ANDROID_RESOLV_NO_CACHE_LOOKUP);
+    expectAnswersValid(fd, AF_INET, kQueryAnswerA);
+
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+
+    // TODO: see how we can improve the DnsResolver to make all of the DNS queries resolved by DoH.
+    // EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 5 /* doh */));
+}
+
+// Tests the scenario where the DnsResolver runs out of QUIC streams limit.
+TEST_F(PrivateDnsDohTest, RunOutOfStreams) {
+    const int queries = 6;
+    const int initial_max_streams_bidi = 5;
+
+    // Since the last query won't be issued until there are streams available, lengthen the
+    // timeout to 3 seconds.
+    ScopedSystemProperties sp(kDohQueryTimeoutFlag, "3000");
+    resetNetwork();
+
+    ASSERT_TRUE(doh.stopServer());
+    EXPECT_TRUE(doh.setMaxStreamsBidi(initial_max_streams_bidi));
+    // Sleep a while to avoid binding socket failed.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_TRUE(doh.startServer());
+
+    const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(dot.waitForQueries(1));
+    dot.clearQueries();
+    doh.clearQueries();
+    dns.clearQueries();
+
+    // Block the DoH server from sending data for a while.
+    EXPECT_TRUE(doh.block_sending(true));
+    std::vector<std::thread> threads(queries);
+    for (std::thread& thread : threads) {
+        thread = std::thread([&]() {
+            int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_a,
+                                     ANDROID_RESOLV_NO_CACHE_LOOKUP);
+            expectAnswersValid(fd, AF_INET, kQueryAnswerA);
+        });
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    EXPECT_TRUE(doh.block_sending(false));
+
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 6 /* doh */));
+}
+
+// Tests that the DnsResolver reconnects to the DoH server after idle timeout.
+TEST_F(PrivateDnsDohTest, ReconnectAfterIdleTimeout) {
+    const int initial_max_idle_timeout_ms = 1000;
+
+    ASSERT_TRUE(doh.stopServer());
+    EXPECT_TRUE(doh.setMaxIdleTimeout(initial_max_idle_timeout_ms));
+    // Sleep a while to avoid binding socket failed.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_TRUE(doh.startServer());
+
+    const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(dot.waitForQueries(1));
+    dot.clearQueries();
+    doh.clearQueries();
+    dns.clearQueries();
+
+    for (int i = 0; i < 5; i++) {
+        SCOPED_TRACE(fmt::format("Round: {}", i));
+        int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_a,
+                                 ANDROID_RESOLV_NO_CACHE_LOOKUP);
+        expectAnswersValid(fd, AF_INET, kQueryAnswerA);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(initial_max_idle_timeout_ms + 500));
+    }
+
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 5 /* doh */));
 }
