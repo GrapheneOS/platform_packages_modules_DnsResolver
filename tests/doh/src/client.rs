@@ -17,7 +17,7 @@
 //! Client management, including the communication with quiche I/O.
 
 use anyhow::{anyhow, bail, ensure, Result};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use quiche::h3::NameValue;
 use ring::hmac;
 use ring::rand::SystemRandom;
@@ -170,16 +170,16 @@ impl Client {
     pub fn flush_egress(&mut self) -> Result<Vec<u8>> {
         let mut ret = vec![];
         let mut buf = [0; MAX_UDP_PAYLOAD_SIZE];
-        loop {
-            let (write, _) = match self.conn.send(&mut buf) {
-                Ok(v) => v,
-                Err(quiche::Error::Done) => break,
 
-                // Maybe close the connection?
-                Err(e) => bail!(e),
-            };
-            ret.append(&mut buf[..write].to_vec());
-        }
+        let (write, _) = match self.conn.send(&mut buf) {
+            Ok(v) => v,
+            Err(quiche::Error::Done) => bail!(quiche::Error::Done),
+            Err(e) => {
+                error!("flush_egress failed: {}", e);
+                bail!(e)
+            }
+        };
+        ret.append(&mut buf[..write].to_vec());
 
         Ok(ret)
     }
