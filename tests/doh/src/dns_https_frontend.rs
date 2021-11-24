@@ -304,19 +304,11 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 match command {
                     Command::MaybeWrite {connection_id} => {
                         if let Some(client) = clients.get_mut(&connection_id) {
-                            match client.flush_egress() {
-                                Ok(v) => {
-                                    // The DoH engine in DnsResolver can't handle empty response.
-                                    if !v.is_empty() {
-                                        let addr = client.addr();
-                                        debug!("Sending {} bytes to client {}", v.len(), addr);
-                                        if let Err(e) = frontend_socket.send_to(&v, addr).await {
-                                            error!("Failed to send packet to {:?}: {:?}", client, e);
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("flush_egress failed: {}", e);
+                            while let Ok(v) = client.flush_egress() {
+                                let addr = client.addr();
+                                debug!("Sending {} bytes to client {}", v.len(), addr);
+                                if let Err(e) = frontend_socket.send_to(&v, addr).await {
+                                    error!("Failed to send packet to {:?}: {:?}", client, e);
                                 }
                             }
                             client.process_pending_answers()?;
