@@ -21,8 +21,6 @@
 #include <android/binder_manager.h>
 #include "NetdClient.h"
 
-// TODO: make this dynamic and stop depending on implementation details.
-#define TEST_OEM_NETWORK "oem29"
 #define TEST_NETID 30
 
 // TODO: move this somewhere shared.
@@ -172,43 +170,48 @@ void DnsResponderClient::SetupDNSServers(unsigned numServers, const std::vector<
     }
 }
 
-int DnsResponderClient::SetupOemNetwork() {
-    mNetdSrv->networkDestroy(TEST_NETID);
-    mDnsResolvSrv->destroyNetworkCache(TEST_NETID);
+int DnsResponderClient::SetupOemNetwork(int oemNetId) {
+    mNetdSrv->networkDestroy(oemNetId);
+    mDnsResolvSrv->destroyNetworkCache(oemNetId);
 
     ::ndk::ScopedAStatus ret;
     if (DnsResponderClient::isRemoteVersionSupported(mNetdSrv, 6)) {
         const auto& config = DnsResponderClient::makeNativeNetworkConfig(
-                TEST_NETID, NativeNetworkType::PHYSICAL, INetd::PERMISSION_NONE, /*secure=*/false);
+                oemNetId, NativeNetworkType::PHYSICAL, INetd::PERMISSION_NONE, /*secure=*/false);
         ret = mNetdSrv->networkCreate(config);
     } else {
         // Only for presubmit tests that run mainline module (and its tests) on R or earlier images.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-        ret = mNetdSrv->networkCreatePhysical(TEST_NETID, INetd::PERMISSION_NONE);
+        ret = mNetdSrv->networkCreatePhysical(oemNetId, INetd::PERMISSION_NONE);
 #pragma clang diagnostic pop
     }
     if (!ret.isOk()) {
-        fprintf(stderr, "Creating physical network %d failed, %s\n", TEST_NETID, ret.getMessage());
+        fprintf(stderr, "Creating physical network %d failed, %s\n", oemNetId, ret.getMessage());
         return -1;
     }
-    ret = mDnsResolvSrv->createNetworkCache(TEST_NETID);
+    ret = mDnsResolvSrv->createNetworkCache(oemNetId);
     if (!ret.isOk()) {
-        fprintf(stderr, "Creating network cache %d failed, %s\n", TEST_NETID, ret.getMessage());
+        fprintf(stderr, "Creating network cache %d failed, %s\n", oemNetId, ret.getMessage());
         return -1;
     }
-    setNetworkForProcess(TEST_NETID);
-    if ((unsigned)TEST_NETID != getNetworkForProcess()) {
+    setNetworkForProcess(oemNetId);
+    if ((unsigned)oemNetId != getNetworkForProcess()) {
         return -1;
     }
-    return TEST_NETID;
+    return 0;
 }
 
-void DnsResponderClient::TearDownOemNetwork(int oemNetId) {
-    if (oemNetId != -1) {
-        mNetdSrv->networkDestroy(oemNetId);
-        mDnsResolvSrv->destroyNetworkCache(oemNetId);
+int DnsResponderClient::TearDownOemNetwork(int oemNetId) {
+    if (auto status = mNetdSrv->networkDestroy(oemNetId); !status.isOk()) {
+        fprintf(stderr, "Removing network %d failed, %s\n", oemNetId, status.getMessage());
+        return -1;
     }
+    if (auto status = mDnsResolvSrv->destroyNetworkCache(oemNetId); !status.isOk()) {
+        fprintf(stderr, "Removing network cache %d failed, %s\n", oemNetId, status.getMessage());
+        return -1;
+    }
+    return 0;
 }
 
 void DnsResponderClient::SetUp() {
@@ -228,11 +231,11 @@ void DnsResponderClient::SetUp() {
 
     // Ensure resolutions go via proxy.
     setenv(ANDROID_DNS_MODE, "", 1);
-    mOemNetId = SetupOemNetwork();
+    SetupOemNetwork(TEST_NETID);
 }
 
 void DnsResponderClient::TearDown() {
-    TearDownOemNetwork(mOemNetId);
+    TearDownOemNetwork(TEST_NETID);
 }
 
 NativeNetworkConfig DnsResponderClient::makeNativeNetworkConfig(int netId,
