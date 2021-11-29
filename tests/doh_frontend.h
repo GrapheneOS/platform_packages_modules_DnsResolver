@@ -54,8 +54,12 @@ class DohFrontend {
     // Returns the number of accepted DoH connections.
     int connections() const;
 
+    // Returns the number of alive DoH connections.
+    int aliveConnections() const;
+
     void clearQueries();
     bool block_sending(bool block);
+    bool waitForAllClientsDisconnected() const;
 
     // To make the configuration effective, callers need to restart the DoH server after calling
     // these methods.
