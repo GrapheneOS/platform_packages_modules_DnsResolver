@@ -64,6 +64,7 @@ class Experiments {
             "doh",
             "doh_query_timeout_ms",
             "doh_probe_timeout_ms",
+            "doh_idle_timeout_ms",
             "mdns_resolution",
     };
     // This value is used in updateInternal as the default value if any flags can't be found.

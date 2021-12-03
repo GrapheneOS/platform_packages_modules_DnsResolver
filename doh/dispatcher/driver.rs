@@ -114,7 +114,11 @@ impl Driver {
         let net = match self.networks.entry(info.net_id) {
             Entry::Occupied(network) => network.into_mut(),
             Entry::Vacant(vacant) => {
-                let config = self.config_cache.from_cert_path(&info.cert_path)?;
+                let key = config::Key {
+                    cert_path: info.cert_path.clone(),
+                    max_idle_timeout: info.idle_timeout_ms,
+                };
+                let config = self.config_cache.from_key(&key)?;
                 vacant.insert(
                     Network::new(info, config, self.validation.clone(), self.tagger.clone())
                         .await?,
