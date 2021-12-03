@@ -247,7 +247,12 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 debug!("Got QUIC packet: {:?}", hdr);
 
                 let client = match clients.get_or_create(&hdr, &src) {
-                    Ok(v) => v,
+                    Ok((client, is_new_client)) => {
+                        if is_new_client {
+                            stats.lock().unwrap().connections += 1;
+                        }
+                        client
+                    }
                     Err(e) => {
                         error!("Failed to get the client by the hdr {:?}: {}", hdr, e);
                         continue;
