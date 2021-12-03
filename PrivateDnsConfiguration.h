@@ -63,6 +63,9 @@ class PrivateDnsConfiguration {
     static constexpr int kDohQueryDefaultTimeoutMs = 30000;
     static constexpr int kDohProbeDefaultTimeoutMs = 60000;
 
+    // The default value for QUIC max_idle_timeout.
+    static constexpr int kDohIdleDefaultTimeoutMs = 55000;
+
     struct ServerIdentity {
         const netdutils::IPSockAddr sockaddr;
         const std::string provider;
