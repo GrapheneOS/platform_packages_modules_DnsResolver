@@ -58,7 +58,8 @@ TEST(DoHFFITest, SmokeTest) {
     // The DNS packet would be sent via default network.
     EXPECT_EQ(doh_net_new(doh, dnsNetId, "https://dns.google/dns-query", /* domain */ "",
                           GOOGLE_SERVER_IP,
-                          /* sk_mark */ 0, /* cert_path */ "", TIMEOUT_MS),
+                          /* sk_mark */ 0, /* cert_path */ "", TIMEOUT_MS /* probe timeout */,
+                          TIMEOUT_MS /* idle timeout */),
               0);
     {
         std::unique_lock<std::mutex> lk(m);

@@ -158,6 +158,7 @@ pub extern "C" fn frontend_block_sending(doh: &mut DohFrontend, block: bool) -> 
 pub extern "C" fn frontend_stats(doh: &DohFrontend, out: &mut Stats) {
     let stats = doh.stats();
     out.queries_received = stats.queries_received;
+    out.connections = stats.connections;
 }
 
 /// Resets `queries_received` field of `Stats` owned by the `DohFrontend`.
