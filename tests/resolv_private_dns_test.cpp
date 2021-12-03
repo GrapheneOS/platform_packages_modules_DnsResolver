@@ -29,6 +29,7 @@
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/Stopwatch.h>
 
+#include "PrivateDnsConfiguration.h"
 #include "doh_frontend.h"
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_responder_client_ndk.h"
@@ -42,6 +43,7 @@
 #include "NetdClient.h"
 
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using android::base::GetProperty;
 using android::base::ReadFdToString;
 using android::base::unique_fd;
 using android::net::resolv::aidl::UnsolicitedEventListener;
@@ -53,6 +55,7 @@ using std::chrono::milliseconds;
 const std::string kDohFlag("persist.device_config.netd_native.doh");
 const std::string kDohQueryTimeoutFlag("persist.device_config.netd_native.doh_query_timeout_ms");
 const std::string kDohProbeTimeoutFlag("persist.device_config.netd_native.doh_probe_timeout_ms");
+const std::string kDohIdleTimeoutFlag("persist.device_config.netd_native.doh_idle_timeout_ms");
 
 constexpr int MAXPACKET = (8 * 1024);
 
@@ -820,4 +823,44 @@ TEST_F(PrivateDnsDohTest, ReconnectAfterIdleTimeout) {
     }
 
     EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 5 /* doh */));
+}
+
+// Tests that the experiment flag doh_idle_timeout_ms is effective.
+TEST_F(PrivateDnsDohTest, ConnectionIdleTimer) {
+    const int connection_idle_timeout = 1500;
+    const int tolerance_ms = 200;
+
+    // Check if the default value or the timeout the device is using is too short for the test.
+    const int device_connection_idle_timeout =
+            std::min(std::stoi(GetProperty(kDohIdleTimeoutFlag, "9999")),
+                     android::net::PrivateDnsConfiguration::kDohIdleDefaultTimeoutMs);
+    if (device_connection_idle_timeout <= connection_idle_timeout + tolerance_ms) {
+        GTEST_LOG_(INFO) << "The test can't guarantee that the flag takes effect because "
+                         << "device_connection_idle_timeout is too short: "
+                         << device_connection_idle_timeout << " ms.";
+    }
+
+    ScopedSystemProperties sp(kDohIdleTimeoutFlag, std::to_string(connection_idle_timeout));
+    resetNetwork();
+
+    const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(dot.waitForQueries(1));
+    dot.clearQueries();
+    doh.clearQueries();
+    dns.clearQueries();
+
+    EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
+    flushCache();
+    EXPECT_EQ(doh.connections(), 1);
+
+    // Expect that the DoH connection gets disconnected while sleeping.
+    std::this_thread::sleep_for(std::chrono::milliseconds(connection_idle_timeout + tolerance_ms));
+
+    EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 4 /* doh */));
+    EXPECT_EQ(doh.connections(), 2);
 }

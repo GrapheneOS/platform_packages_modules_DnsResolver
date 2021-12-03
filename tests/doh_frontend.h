@@ -49,6 +49,7 @@ class DohFrontend {
     bool stopServer();
 
     int queries() const;
+    int connections() const;
     void clearQueries();
     bool block_sending(bool block);
 

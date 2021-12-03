@@ -47,6 +47,7 @@ pub struct ServerInfo {
     pub domain: Option<String>,
     pub sk_mark: u32,
     pub cert_path: Option<String>,
+    pub idle_timeout_ms: u64,
 }
 
 #[derive(Debug)]

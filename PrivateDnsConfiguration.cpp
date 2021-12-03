@@ -444,6 +444,15 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         return 0;
     }
 
+    const auto getTimeoutFromFlag = [&](const std::string_view key, int defaultValue) -> uint64_t {
+        static constexpr int kMinTimeoutMs = 1000;
+        uint64_t timeout = Experiments::getInstance()->getFlag(key, defaultValue);
+        if (timeout < kMinTimeoutMs) {
+            timeout = kMinTimeoutMs;
+        }
+        return timeout;
+    };
+
     // Sort the input servers to ensure that we could get the server vector at the same order.
     std::vector<std::string> sortedServers = servers;
     // Prefer ipv6.
@@ -481,13 +490,13 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
         resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, kDohPort);
 
-        int probeTimeout = Experiments::getInstance()->getFlag("doh_probe_timeout_ms",
-                                                               kDohProbeDefaultTimeoutMs);
-        if (probeTimeout < 1000) {
-            probeTimeout = 1000;
-        }
+        auto probeTimeout = getTimeoutFromFlag("doh_probe_timeout_ms", kDohProbeDefaultTimeoutMs);
+        auto idleTimeout = getTimeoutFromFlag("doh_idle_timeout_ms", kDohIdleDefaultTimeoutMs);
+        LOG(DEBUG) << __func__ << ": probeTimeout " << probeTimeout << ", idleTimeout "
+                   << idleTimeout;
+
         return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
-                           dohId.ipAddr.c_str(), mark, caCert.c_str(), probeTimeout);
+                           dohId.ipAddr.c_str(), mark, caCert.c_str(), probeTimeout, idleTimeout);
     }
 
     LOG(INFO) << __func__ << ": No suitable DoH server found";
