@@ -21,8 +21,8 @@
 pub struct Stats {
     /// The number of accumulated DoH queries that are received.
     pub queries_received: u32,
-    /// The number of accumulated QUIC connections.
-    pub connections: u32,
+    /// The number of accumulated QUIC connections accepted.
+    pub connections_accepted: u32,
 }
 
 impl Stats {
