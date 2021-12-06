@@ -128,9 +128,9 @@ class DnsResponderClient {
             const std::vector<std::string>& domains, const std::string& tlsHostname,
             const std::vector<std::string>& tlsServers, const std::string& caCert = "");
 
-    int SetupOemNetwork();
-
-    void TearDownOemNetwork(int oemNetId);
+    // Returns 0 on success and a negative value on failure.
+    int SetupOemNetwork(int oemNetId);
+    int TearDownOemNetwork(int oemNetId);
 
     virtual void SetUp();
     virtual void TearDown();
@@ -141,5 +141,4 @@ class DnsResponderClient {
   private:
     std::shared_ptr<aidl::android::net::INetd> mNetdSrv;
     std::shared_ptr<aidl::android::net::IDnsResolver> mDnsResolvSrv;
-    int mOemNetId = -1;
 };
