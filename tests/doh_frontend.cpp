@@ -73,7 +73,7 @@ int DohFrontend::connections() const {
 
     rust::Stats stats;
     rust::frontend_stats(mRustDoh, &stats);
-    return stats.connections;
+    return stats.connections_accepted;
 }
 
 void DohFrontend::clearQueries() {

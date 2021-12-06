@@ -48,8 +48,12 @@ class DohFrontend {
     bool startServer();
     bool stopServer();
 
+    // Returns the number of received DoH queries.
     int queries() const;
+
+    // Returns the number of accepted DoH connections.
     int connections() const;
+
     void clearQueries();
     bool block_sending(bool block);
 

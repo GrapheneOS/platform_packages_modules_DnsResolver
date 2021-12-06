@@ -29,8 +29,8 @@ struct DohFrontend;
 struct Stats {
     /// The number of accumulated DoH queries that are received.
     uint32_t queries_received;
-    /// The number of accumulated QUIC connections.
-    uint32_t connections;
+    /// The number of accumulated QUIC connections accepted.
+    uint32_t connections_accepted;
 };
 
 extern "C" {
@@ -99,7 +99,7 @@ bool frontend_set_max_streams_bidi(DohFrontend *doh, uint64_t value);
 bool frontend_block_sending(DohFrontend *doh, bool block);
 
 /// Gets the statistics of the `DohFrontend` and writes the result to |out|.
-void frontend_stats(const DohFrontend *doh, Stats *out);
+bool frontend_stats(DohFrontend *doh, Stats *out);
 
 /// Resets `queries_received` field of `Stats` owned by the `DohFrontend`.
 bool frontend_stats_clear_queries(const DohFrontend *doh);
