@@ -192,8 +192,8 @@ class BaseTest : public ::testing::Test {
     }
 
     void resetNetwork() {
-        mDnsClient.TearDown();
-        mDnsClient.SetupOemNetwork();
+        EXPECT_EQ(mDnsClient.TearDownOemNetwork(TEST_NETID), 0);
+        EXPECT_EQ(mDnsClient.SetupOemNetwork(TEST_NETID), 0);
     }
 
     void flushCache() { mDnsClient.resolvService()->flushNetworkCache(TEST_NETID); }
