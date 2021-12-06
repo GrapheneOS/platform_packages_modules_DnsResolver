@@ -155,10 +155,14 @@ pub extern "C" fn frontend_block_sending(doh: &mut DohFrontend, block: bool) -> 
 
 /// Gets the statistics of the `DohFrontend` and writes the result to |out|.
 #[no_mangle]
-pub extern "C" fn frontend_stats(doh: &DohFrontend, out: &mut Stats) {
-    let stats = doh.stats();
-    out.queries_received = stats.queries_received;
-    out.connections = stats.connections;
+pub extern "C" fn frontend_stats(doh: &mut DohFrontend, out: &mut Stats) -> bool {
+    doh.request_stats()
+        .map(|stats| {
+            out.queries_received = stats.queries_received;
+            out.connections_accepted = stats.connections_accepted;
+        })
+        .or_else(logging_and_return_err)
+        .is_ok()
 }
 
 /// Resets `queries_received` field of `Stats` owned by the `DohFrontend`.
@@ -181,6 +185,6 @@ fn to_socket_addr(addr: &str, port: &str) -> Result<SocketAddr> {
 }
 
 fn logging_and_return_err<T, U: std::fmt::Debug>(e: U) -> Result<T> {
-    warn!("{:?}", e);
+    warn!("logging_and_return_err: {:?}", e);
     bail!("{:?}", e)
 }
