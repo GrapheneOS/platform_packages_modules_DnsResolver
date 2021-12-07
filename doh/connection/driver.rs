@@ -283,6 +283,7 @@ impl H3Driver {
         // If the request has already timed out, don't issue it to the server.
         if let Some(expiry) = request.expiry {
             if BootTime::now() > expiry {
+                warn!("Abandoning expired DNS request");
                 return Ok(());
             }
         }
