@@ -31,6 +31,8 @@ struct Stats {
     uint32_t queries_received;
     /// The number of accumulated QUIC connections accepted.
     uint32_t connections_accepted;
+    /// The number of QUIC connections alive.
+    uint32_t alive_connections;
 };
 
 extern "C" {
