@@ -368,7 +368,11 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
             Some(command) = command_rx.recv() => {
                 match command {
                     ControlCommand::Stats {resp} => {
-                        let stats = Stats {queries_received, connections_accepted: clients.len() as u32};
+                        let stats = Stats {
+                            queries_received,
+                            connections_accepted: clients.len() as u32,
+                            alive_connections: clients.iter().filter(|(_, client)| client.is_alive()).count() as u32,
+                        };
                         if let Err(e) = resp.send(stats) {
                             error!("Failed to send ControlCommand::Stats response: {:?}", e);
                         }

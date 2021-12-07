@@ -222,6 +222,10 @@ impl Client {
     pub fn on_timeout(&mut self) {
         self.conn.on_timeout();
     }
+
+    pub fn is_alive(&self) -> bool {
+        self.conn.is_established() && !self.conn.is_closed()
+    }
 }
 
 impl std::fmt::Debug for Client {
@@ -284,6 +288,10 @@ impl ClientMap {
 
     pub fn iter_mut(&mut self) -> hash_map::IterMut<ConnectionID, Client> {
         self.clients.iter_mut()
+    }
+
+    pub fn iter(&mut self) -> hash_map::Iter<ConnectionID, Client> {
+        self.clients.iter()
     }
 
     pub fn len(&mut self) -> usize {
