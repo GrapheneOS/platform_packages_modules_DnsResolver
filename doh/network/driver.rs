@@ -21,7 +21,7 @@ use crate::config::Config;
 use crate::connection::Connection;
 use crate::dispatcher::{QueryError, Response};
 use crate::encoding;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tokio::task;
@@ -90,7 +90,7 @@ async fn build_connection(
 }
 
 impl Driver {
-    const MAX_BUFFERED_COMMANDS: usize = 10;
+    const MAX_BUFFERED_COMMANDS: usize = 50;
 
     pub async fn new(
         info: ServerInfo,
@@ -175,6 +175,13 @@ impl Driver {
     }
 
     async fn send_query(&mut self, query: Query) -> Result<()> {
+        // If the associated receiver has been closed, meaning that the request has already
+        // timed out, just drop it. This check helps drain the channel quickly in the case
+        // where the network is stalled.
+        if query.response.is_closed() {
+            bail!("Abandoning expired DNS request")
+        }
+
         if !self.connection.wait_for_live().await {
             // Try reconnecting
             self.connection =

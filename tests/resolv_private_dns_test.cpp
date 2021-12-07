@@ -703,11 +703,11 @@ TEST_F(PrivateDnsDohTest, TemporaryConnectionStalled) {
 // Note: This test is subject to MAX_BUFFERED_COMMANDS. If the value is changed, this test might
 // need to be modified as well.
 TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
-    const int total_queries = 20;
+    const int total_queries = 70;
 
     // The number is from MAX_BUFFERED_COMMANDS + 2 (one that will be queued in
     // connection mpsc channel; the other one that will get blocked at dispatcher sending channel).
-    const int timeout_queries = 12;
+    const int timeout_queries = 52;
 
     const int initial_max_idle_timeout_ms = 2000;
     ASSERT_TRUE(doh.stopServer());
