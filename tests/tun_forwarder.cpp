@@ -32,7 +32,7 @@
 #include <android-base/logging.h>
 
 extern "C" {
-#include <netutils/checksum.h>
+#include <checksum.h>
 }
 
 using android::base::Error;
