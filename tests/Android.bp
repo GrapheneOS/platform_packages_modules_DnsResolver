@@ -189,7 +189,7 @@ cc_test {
         "libutils",
         "netd_aidl_interface-lateststable-ndk",
         "netd_event_listener_interface-lateststable-ndk",
-        "libipchecksum",
+        "libip_checksum",
         "resolv_unsolicited_listener",
         "libdoh_frontend_ffi",
     ],
