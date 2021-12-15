@@ -1141,7 +1141,7 @@ static int send_dg(ResState* statp, res_params* params, span<const uint8_t> msg,
             // Leave the UDP sockets open on timeout so we can keep listening for
             // a late response from this server while retrying on the next server.
             if (!isTimeout) statp->closeSockets();
-            LOG(DEBUG) << __func__ << ": " << (isTimeout) ? "timeout" : "poll";
+            LOG(DEBUG) << __func__ << ": " << (isTimeout ? "timeout" : "poll");
             return 0;
         }
         bool needRetry = false;
@@ -1233,7 +1233,7 @@ static int send_mdns(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans
     if (retrying_poll(fd, POLLIN, &finish) <= 0) {
         *terrno = errno;
         if (*terrno == ETIMEDOUT) *rcode = RCODE_TIMEOUT;
-        LOG(ERROR) << __func__ << ": " << (*terrno == ETIMEDOUT) ? "timeout" : "poll";
+        LOG(ERROR) << __func__ << ": " << ((*terrno == ETIMEDOUT) ? "timeout" : "poll failed");
         return 0;
     }
 
