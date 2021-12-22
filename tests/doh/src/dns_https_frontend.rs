@@ -366,6 +366,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 }
             }
             Some(command) = command_rx.recv() => {
+                debug!("ControlCommand: {:?}", command);
                 match command {
                     ControlCommand::Stats {resp} => {
                         let stats = Stats {
