@@ -29,7 +29,7 @@ use std::os::unix::io::RawFd;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::{ptr, slice};
-use tokio::runtime::Runtime;
+use tokio::runtime::Builder;
 use tokio::sync::oneshot;
 use tokio::task;
 use url::Url;
@@ -275,7 +275,7 @@ pub unsafe extern "C" fn doh_query(
         return DOH_RESULT_CAN_NOT_SEND;
     }
 
-    if let Ok(rt) = Runtime::new() {
+    if let Ok(rt) = Builder::new_current_thread().enable_all().build() {
         let local = task::LocalSet::new();
         match local.block_on(&rt, async { timeout(t, resp_rx).await }) {
             Ok(v) => match v {
