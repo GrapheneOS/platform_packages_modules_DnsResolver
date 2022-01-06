@@ -1337,7 +1337,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
         }
         case PrivateDnsMode::OPPORTUNISTIC: {
             *fallback = true;
-            if (enableDoH) {
+            if (enableDoH && privateDnsStatus.hasValidatedDohServers()) {
                 result = res_doh_send(statp, query, answer, rcode);
                 if (result != DOH_RESULT_CAN_NOT_SEND) return result;
             }
@@ -1346,7 +1346,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
         }
         case PrivateDnsMode::STRICT: {
             *fallback = false;
-            if (enableDoH) {
+            if (enableDoH && privateDnsStatus.hasValidatedDohServers()) {
                 result = res_doh_send(statp, query, answer, rcode);
                 if (result != DOH_RESULT_CAN_NOT_SEND) return result;
             }
@@ -1366,15 +1366,19 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
                 // default network change.
                 for (int i = 0; i < 42; i++) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    if (enableDoH) {
-                        result = res_doh_send(statp, query, answer, rcode);
-                        if (result != DOH_RESULT_CAN_NOT_SEND) return result;
-                    }
+
                     // Calling getStatus() to merely check if there's any validated server seems
                     // wasteful. Consider adding a new method in PrivateDnsConfiguration for speed
                     // ups.
-                    if (!privateDnsConfiguration.getStatus(netId).validatedServers().empty()) {
-                        privateDnsStatus = privateDnsConfiguration.getStatus(netId);
+                    privateDnsStatus = privateDnsConfiguration.getStatus(netId);
+
+                    if (enableDoH && privateDnsStatus.hasValidatedDohServers()) {
+                        result = res_doh_send(statp, query, answer, rcode);
+                        if (result != DOH_RESULT_CAN_NOT_SEND) return result;
+                    }
+
+                    // Switch to use the DoT servers if they are validated.
+                    if (!privateDnsStatus.validatedServers().empty()) {
                         break;
                     }
                 }
