@@ -109,7 +109,11 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
 }
 
 PrivateDnsStatus PrivateDnsConfiguration::getStatus(unsigned netId) const {
-    PrivateDnsStatus status{PrivateDnsMode::OFF, {}};
+    PrivateDnsStatus status{
+            .mode = PrivateDnsMode::OFF,
+            .dotServersMap = {},
+            .dohServersMap = {},
+    };
     std::lock_guard guard(mPrivateDnsLock);
 
     const auto mode = mPrivateDnsModes.find(netId);
@@ -121,10 +125,16 @@ PrivateDnsStatus PrivateDnsConfiguration::getStatus(unsigned netId) const {
         for (const auto& [_, server] : netPair->second) {
             if (server->isDot() && server->active()) {
                 DnsTlsServer& dotServer = *static_cast<DnsTlsServer*>(server.get());
-                status.serversMap.emplace(dotServer, server->validationState());
+                status.dotServersMap.emplace(dotServer, server->validationState());
             }
-            // TODO: also add DoH server to the map.
         }
+    }
+
+    auto it = mDohTracker.find(netId);
+    if (it != mDohTracker.end()) {
+        status.dohServersMap.emplace(
+                netdutils::IPSockAddr::toIPSockAddr(it->second.ipAddr, kDohPort),
+                it->second.status);
     }
 
     return status;
