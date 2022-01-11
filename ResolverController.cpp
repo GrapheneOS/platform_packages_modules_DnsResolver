@@ -113,7 +113,7 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
         return 0;
     }
 
-    // Verify that the returned data is sane.
+    // Verify that the returned data is valid.
     if (nscount < 0 || nscount > MAXNS || dcount < 0 || dcount > MAXDNSRCH) {
         LOG(ERROR) << __func__ << ": nscount = " << nscount << ", dcount = " << dcount;
         return -ENOTRECOVERABLE;
