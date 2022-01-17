@@ -373,6 +373,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                             queries_received,
                             connections_accepted: clients.len() as u32,
                             alive_connections: clients.iter().filter(|(_, client)| client.is_alive()).count() as u32,
+                            resumed_connections: clients.iter().filter(|(_, client)| client.is_resumed()).count() as u32,
                         };
                         if let Err(e) = resp.send(stats) {
                             error!("Failed to send ControlCommand::Stats response: {:?}", e);

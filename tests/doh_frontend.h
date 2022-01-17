@@ -57,6 +57,9 @@ class DohFrontend {
     // Returns the number of alive DoH connections.
     int aliveConnections() const;
 
+    // Returns the number of connections using session resumption.
+    int resumedConnections() const;
+
     void clearQueries();
     bool block_sending(bool block);
     bool waitForAllClientsDisconnected() const;
