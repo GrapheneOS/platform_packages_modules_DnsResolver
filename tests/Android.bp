@@ -275,9 +275,12 @@ cc_test {
     srcs: [
         "resolv_stats_test_utils_test.cpp",
     ],
-    defaults: ["netd_defaults", "resolv_test_defaults"],
+    defaults: [
+        "netd_defaults",
+        "resolv_test_defaults",
+        "connectivity-mainline-presubmit-cc-defaults",
+    ],
     test_suites: ["general-tests"],
-    test_mainline_modules: ["CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex+com.google.android.tethering.apex"],
     static_libs: [
         "libgmock",
         "libprotobuf-cpp-lite",
