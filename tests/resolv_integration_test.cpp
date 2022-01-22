@@ -5937,8 +5937,8 @@ TEST_F(ResolverTest, DnsServerSelection) {
     test::DNSResponder dns3("127.0.0.5");
 
     dns1.setResponseDelayMs(10);
-    dns2.setResponseDelayMs(25);
-    dns3.setResponseDelayMs(50);
+    dns2.setResponseDelayMs(50);
+    dns3.setResponseDelayMs(100);
     StartDns(dns1, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
     StartDns(dns2, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
     StartDns(dns3, {{kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4}});
