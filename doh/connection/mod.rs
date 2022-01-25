@@ -17,7 +17,7 @@
 
 use crate::boot_time::BootTime;
 use crate::network::SocketTagger;
-use log::{error, warn};
+use log::{debug, error, warn};
 use quiche::h3;
 use std::future::Future;
 use std::io;
@@ -32,11 +32,14 @@ mod driver;
 pub use driver::Stream;
 use driver::{drive, Request};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum Status {
     QUIC,
     H3,
-    Dead,
+    Dead {
+        /// The session of the closed connection.
+        session: Option<Vec<u8>>,
+    },
 }
 
 /// Quiche HTTP/3 connection
@@ -132,12 +135,18 @@ impl Connection {
         net_id: u32,
         tag_socket: &SocketTagger,
         config: &mut quiche::Config,
+        session: Option<Vec<u8>>,
     ) -> Result<Self> {
         let (request_tx, request_rx) = mpsc::channel(Self::MAX_PENDING_REQUESTS);
         let (status_tx, status_rx) = watch::channel(Status::QUIC);
         let scid = new_scid();
-        let quiche_conn =
+        let mut quiche_conn =
             quiche::connect(server_name, &quiche::ConnectionId::from_ref(&scid), to, config)?;
+        if let Some(session) = session {
+            debug!("Setting session");
+            quiche_conn.set_session(&session)?;
+        }
+
         let socket = build_socket(to, socket_mark, tag_socket).await?;
         let driver = async move {
             let result = drive(request_rx, status_tx, quiche_conn, socket, net_id).await;
@@ -154,9 +163,9 @@ impl Connection {
     pub async fn wait_for_live(&mut self) -> bool {
         // Once sc-mainline-prod updates to modern tokio, use
         // borrow_and_update here.
-        match *self.status_rx.borrow() {
+        match &*self.status_rx.borrow() {
             Status::H3 => return true,
-            Status::Dead => return false,
+            Status::Dead { .. } => return false,
             Status::QUIC => (),
         }
         if self.status_rx.changed().await.is_err() {
@@ -172,6 +181,13 @@ impl Connection {
             Err(_) => false,
             // If there's an HTTP/3 connection now we're alive, otherwise we're stuck/dead
             _ => matches!(*self.status_rx.borrow(), Status::H3),
+        }
+    }
+
+    pub fn session(&self) -> Option<Vec<u8>> {
+        match &*self.status_rx.borrow() {
+            Status::Dead { session } => session.clone(),
+            _ => None,
         }
     }
 
