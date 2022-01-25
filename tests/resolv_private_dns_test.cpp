@@ -876,7 +876,8 @@ TEST_F(PrivateDnsDohTest, RunOutOfStreams) {
     EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 6 /* doh */));
 }
 
-// Tests that the DnsResolver reconnects to the DoH server after idle timeout.
+// Tests that the DnsResolver automatically reconnects to the DoH server when needed.
+// Session resumption should be used in each reconnection.
 TEST_F(PrivateDnsDohTest, ReconnectAfterIdleTimeout) {
     const int initial_max_idle_timeout_ms = 1000;
 
@@ -897,14 +898,18 @@ TEST_F(PrivateDnsDohTest, ReconnectAfterIdleTimeout) {
 
     for (int i = 0; i < 5; i++) {
         SCOPED_TRACE(fmt::format("Round: {}", i));
+        std::this_thread::sleep_for(std::chrono::milliseconds(initial_max_idle_timeout_ms + 500));
+
+        // As the connection is closed, the DnsResolver will reconnect to the DoH server
+        // for this DNS request.
         int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_a,
                                  ANDROID_RESOLV_NO_CACHE_LOOKUP);
         expectAnswersValid(fd, AF_INET, kQueryAnswerA);
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(initial_max_idle_timeout_ms + 500));
     }
 
     EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 5 /* doh */));
+    EXPECT_EQ(doh.connections(), 6);
+    EXPECT_EQ(doh.resumedConnections(), 5);
 }
 
 // Tests that the experiment flag doh_idle_timeout_ms is effective.
