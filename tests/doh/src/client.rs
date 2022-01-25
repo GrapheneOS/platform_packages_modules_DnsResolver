@@ -226,6 +226,10 @@ impl Client {
     pub fn is_alive(&self) -> bool {
         self.conn.is_established() && !self.conn.is_closed()
     }
+
+    pub fn is_resumed(&self) -> bool {
+        self.conn.is_resumed()
+    }
 }
 
 impl std::fmt::Debug for Client {
