@@ -159,7 +159,7 @@ impl Driver {
                 self.quiche_conn.peer_error()
             );
             // We don't care if the receiver has hung up
-            let _ = self.status_tx.send(Status::Dead);
+            let _ = self.status_tx.send(Status::Dead { session: self.quiche_conn.session() });
             Err(Error::Closed)
         } else {
             Ok(())
@@ -229,7 +229,10 @@ impl H3Driver {
         loop {
             match self.drive_once().await {
                 Err(e) => {
-                    let _ = self.driver.status_tx.send(Status::Dead);
+                    let _ = self
+                        .driver
+                        .status_tx
+                        .send(Status::Dead { session: self.driver.quiche_conn.session() });
                     return Err(e);
                 }
                 Ok(()) => (),

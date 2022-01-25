@@ -161,6 +161,7 @@ pub extern "C" fn frontend_stats(doh: &mut DohFrontend, out: &mut Stats) -> bool
             out.queries_received = stats.queries_received;
             out.connections_accepted = stats.connections_accepted;
             out.alive_connections = stats.alive_connections;
+            out.resumed_connections = stats.resumed_connections;
         })
         .or_else(logging_and_return_err)
         .is_ok()
