@@ -76,6 +76,7 @@ async fn build_connection(
     info: &ServerInfo,
     tag_socket: &SocketTagger,
     config: &mut Config,
+    session: Option<Vec<u8>>,
 ) -> Result<Connection> {
     use std::ops::DerefMut;
     Ok(Connection::new(
@@ -85,6 +86,7 @@ async fn build_connection(
         info.net_id,
         tag_socket,
         config.take().await.deref_mut(),
+        session,
     )
     .await?)
 }
@@ -100,7 +102,7 @@ impl Driver {
     ) -> Result<(Self, mpsc::Sender<Command>, watch::Receiver<Status>)> {
         let (command_tx, command_rx) = mpsc::channel(Self::MAX_BUFFERED_COMMANDS);
         let (status_tx, status_rx) = watch::channel(Status::Unprobed);
-        let connection = build_connection(&info, &tag_socket, &mut config).await?;
+        let connection = build_connection(&info, &tag_socket, &mut config, None).await?;
         Ok((
             Self { info, config, connection, status_tx, command_rx, validation, tag_socket },
             command_tx,
@@ -130,7 +132,7 @@ impl Driver {
             // If our network is currently failed, it may be due to issues with the connection.
             // Re-establish before re-probing
             self.connection =
-                build_connection(&self.info, &self.tag_socket, &mut self.config).await?;
+                build_connection(&self.info, &self.tag_socket, &mut self.config, None).await?;
             self.status_tx.send(Status::Unprobed)?;
         }
         if self.status_tx.borrow().is_live() {
@@ -183,9 +185,10 @@ impl Driver {
         }
 
         if !self.connection.wait_for_live().await {
+            let session = self.connection.session();
             // Try reconnecting
             self.connection =
-                build_connection(&self.info, &self.tag_socket, &mut self.config).await?;
+                build_connection(&self.info, &self.tag_socket, &mut self.config, session).await?;
         }
         let request = encoding::dns_request(&query.query, &self.info.url)?;
         let stream_fut = self.connection.query(request, Some(query.expiry)).await?;

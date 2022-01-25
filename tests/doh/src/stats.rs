@@ -25,6 +25,8 @@ pub struct Stats {
     pub connections_accepted: u32,
     /// The number of QUIC connections alive.
     pub alive_connections: u32,
+    /// The number of QUIC connections using session resumption.
+    pub resumed_connections: u32,
 }
 
 impl Stats {
