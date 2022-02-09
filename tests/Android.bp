@@ -166,6 +166,7 @@ cc_test {
         "tun_forwarder.cpp",
     ],
     header_libs: [
+        "bpf_headers",
         "dnsproxyd_protocol_headers",
         "libnetd_resolv_headers",
     ],
@@ -177,7 +178,6 @@ cc_test {
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
-        "libbpf_android",
         "libcrypto_static",
         "libgmock",
         "libmodules-utils-build",
