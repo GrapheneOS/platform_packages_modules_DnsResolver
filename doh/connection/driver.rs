@@ -17,7 +17,7 @@
 
 use crate::boot_time;
 use crate::boot_time::BootTime;
-use log::{debug, trace, warn};
+use log::{debug, warn};
 use quiche::h3;
 use std::collections::HashMap;
 use std::default::Default;
@@ -105,7 +105,7 @@ struct H3Driver {
 }
 
 async fn optional_timeout(timeout: Option<boot_time::Duration>, net_id: u32) {
-    trace!("optional_timeout: timeout={:?}, network {}", timeout, net_id);
+    debug!("optional_timeout: timeout={:?}, network {}", timeout, net_id);
     match timeout {
         Some(timeout) => boot_time::sleep(timeout).await,
         None => future::pending().await,
@@ -154,7 +154,8 @@ impl Driver {
         if self.quiche_conn.is_closed() {
             // TODO: Also log local_error() once Quiche 0.10.0 is available.
             debug!(
-                "Connection closed on network {}, peer_error={:x?}",
+                "Connection {} closed on network {}, peer_error={:x?}",
+                self.quiche_conn.trace_id(),
                 self.net_id,
                 self.quiche_conn.peer_error()
             );
@@ -171,7 +172,8 @@ impl Driver {
             // TODO: avoid running the code below more than once.
             // TODO: Also log local_error() once Quiche 0.10.0 is available.
             debug!(
-                "Connection is draining on network {}, peer_error={:x?}",
+                "Connection {} is draining on network {}, peer_error={:x?}",
+                self.quiche_conn.trace_id(),
                 self.net_id,
                 self.quiche_conn.peer_error()
             );
@@ -207,6 +209,11 @@ impl Driver {
 
         // If the QUIC connection is live, but the HTTP/3 is not, try to bring it up
         if self.quiche_conn.is_established() {
+            debug!(
+                "Connection {} established on network {}",
+                self.quiche_conn.trace_id(),
+                self.net_id
+            );
             let h3_config = h3::Config::new()?;
             let h3_conn = h3::Connection::with_transport(&mut self.quiche_conn, &h3_config)?;
             self = H3Driver::new(self, h3_conn).drive().await?;
@@ -455,7 +462,12 @@ impl H3Driver {
     }
 
     async fn shutdown(&mut self, send_goaway: bool, msg: &[u8]) -> Result<()> {
-        debug!("Closing connection on network {} with msg {:?}", self.driver.net_id, msg);
+        debug!(
+            "Closing connection {} on network {} with msg {:?}",
+            self.driver.quiche_conn.trace_id(),
+            self.driver.net_id,
+            msg
+        );
         self.driver.request_rx.close();
         while self.driver.request_rx.recv().await.is_some() {}
         self.closing = true;
