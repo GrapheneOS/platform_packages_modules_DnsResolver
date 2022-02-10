@@ -154,7 +154,7 @@ impl Driver {
         if self.quiche_conn.is_closed() {
             // TODO: Also log local_error() once Quiche 0.10.0 is available.
             debug!(
-                "Connection closed on network {}, peer_error={:?}",
+                "Connection closed on network {}, peer_error={:x?}",
                 self.net_id,
                 self.quiche_conn.peer_error()
             );
@@ -163,6 +163,28 @@ impl Driver {
             Err(Error::Closed)
         } else {
             Ok(())
+        }
+    }
+
+    fn handle_draining(&mut self) {
+        if self.quiche_conn.is_draining() {
+            // TODO: avoid running the code below more than once.
+            // TODO: Also log local_error() once Quiche 0.10.0 is available.
+            debug!(
+                "Connection is draining on network {}, peer_error={:x?}",
+                self.net_id,
+                self.quiche_conn.peer_error()
+            );
+            // We don't care if the receiver has hung up
+            let _ = self.status_tx.send(Status::Dead { session: self.quiche_conn.session() });
+
+            self.request_rx.close();
+            // Drain the pending DNS requests from the queue to make their corresponding future
+            // tasks return some error quickly rather than timeout. However, the DNS requests
+            // that has been sent will still time out.
+            // TODO: re-issue the outstanding DNS requests, such as passing H3Driver.requests
+            // along with Status::Dead to the `Network` that can re-issue the DNS requests.
+            while self.request_rx.try_recv().is_ok() {}
         }
     }
 
@@ -190,6 +212,12 @@ impl Driver {
             self = H3Driver::new(self, h3_conn).drive().await?;
             let _ = self.status_tx.send(Status::QUIC);
         }
+
+        // If the connection has entered draining state (the server is closing the connection),
+        // tell the status watcher not to use the connection. Besides, per Quiche document,
+        // the connection should not be dropped until is_closed() returns true.
+        // This tokio task will become unowned and get dropped when is_closed() returns true.
+        self.handle_draining();
 
         // If the connection has closed, tear down
         self.handle_closed()?;
@@ -275,6 +303,12 @@ impl H3Driver {
 
         // Process any incoming HTTP/3 events
         self.flush_h3().await?;
+
+        // If the connection has entered draining state (the server is closing the connection),
+        // tell the status watcher not to use the connection. Besides, per Quiche document,
+        // the connection should not be dropped until is_closed() returns true.
+        // This tokio task will become unowned and get dropped when is_closed() returns true.
+        self.driver.handle_draining();
 
         // If the connection has closed, tear down
         self.driver.handle_closed()
