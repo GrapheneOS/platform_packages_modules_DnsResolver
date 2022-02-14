@@ -4299,7 +4299,8 @@ TEST_F(ResolverTest, getDnsNetId) {
     EXPECT_EQ(500, readResponseCode(fd));
 }
 
-TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
+// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
+TEST_F(ResolverTest, DISABLED_BlockDnsQueryWithUidRule) {
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -4347,7 +4348,8 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     }
 }
 
-TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
+// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
+TEST_F(ResolverTest, DISABLED_GetAddrinfo_BlockDnsQueryWithUidRule) {
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -4397,7 +4399,8 @@ TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
     }
 }
 
-TEST_F(ResolverTest, EnforceDnsUid) {
+// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
+TEST_F(ResolverTest, DISABLED_EnforceDnsUid) {
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -5892,7 +5895,8 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
     EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));
 }
 
-TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
+// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
+TEST_F(ResolverTest, DISABLED_BlockDnsQueryUidDoesNotLeadToBadServer) {
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -6918,7 +6922,8 @@ TEST_F(ResolverMultinetworkTest, OneCachePerNetwork) {
     EXPECT_EQ(GetNumQueries(*dnsPair2->dnsServer, host_name), 1U);
 }
 
-TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
+// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
+TEST_F(ResolverMultinetworkTest, DISABLED_DnsWithVpn) {
     SKIP_IF_BPF_NOT_SUPPORTED;
     SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
     constexpr char host_name[] = "ohayou.example.com.";
