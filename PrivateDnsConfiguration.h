@@ -44,17 +44,28 @@ struct PrivateDnsStatus {
     PrivateDnsMode mode;
 
     // TODO: change the type to std::vector<DnsTlsServer>.
-    std::map<DnsTlsServer, Validation, AddressComparator> serversMap;
+    std::map<DnsTlsServer, Validation, AddressComparator> dotServersMap;
+
+    std::map<netdutils::IPSockAddr, Validation> dohServersMap;
 
     std::list<DnsTlsServer> validatedServers() const {
         std::list<DnsTlsServer> servers;
 
-        for (const auto& pair : serversMap) {
+        for (const auto& pair : dotServersMap) {
             if (pair.second == Validation::success) {
                 servers.push_back(pair.first);
             }
         }
         return servers;
+    }
+
+    bool hasValidatedDohServers() const {
+        for (const auto& [_, status] : dohServersMap) {
+            if (status == Validation::success) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 

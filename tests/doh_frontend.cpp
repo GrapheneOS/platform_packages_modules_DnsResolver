@@ -93,10 +93,27 @@ int DohFrontend::aliveConnections() const {
     return stats.alive_connections;
 }
 
+int DohFrontend::resumedConnections() const {
+    std::lock_guard guard(mMutex);
+    if (!mRustDoh) return 0;
+
+    rust::Stats stats;
+    rust::frontend_stats(mRustDoh, &stats);
+    return stats.resumed_connections;
+}
+
 void DohFrontend::clearQueries() {
     std::lock_guard guard(mMutex);
     if (mRustDoh) {
         frontend_stats_clear_queries(mRustDoh);
+
+        // Because frontend_stats_clear_queries() is asynchronous, query the stat here to ensure
+        // that mRustDoh reset the query count before clearQueries() returns.
+        rust::Stats stats;
+        rust::frontend_stats(mRustDoh, &stats);
+        if (stats.queries_received != 0) {
+            LOG(ERROR) << "queries_received is not 0";
+        }
     }
 }
 

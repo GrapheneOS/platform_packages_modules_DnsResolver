@@ -166,6 +166,7 @@ cc_test {
         "tun_forwarder.cpp",
     ],
     header_libs: [
+        "bpf_headers",
         "dnsproxyd_protocol_headers",
         "libnetd_resolv_headers",
     ],
@@ -177,7 +178,6 @@ cc_test {
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
-        "libbpf_android",
         "libcrypto_static",
         "libgmock",
         "libmodules-utils-build",
@@ -189,7 +189,7 @@ cc_test {
         "libutils",
         "netd_aidl_interface-lateststable-ndk",
         "netd_event_listener_interface-lateststable-ndk",
-        "libipchecksum",
+        "libip_checksum",
         "resolv_unsolicited_listener",
         "libdoh_frontend_ffi",
     ],
@@ -275,9 +275,12 @@ cc_test {
     srcs: [
         "resolv_stats_test_utils_test.cpp",
     ],
-    defaults: ["netd_defaults", "resolv_test_defaults"],
+    defaults: [
+        "netd_defaults",
+        "resolv_test_defaults",
+        "connectivity-mainline-presubmit-cc-defaults",
+    ],
     test_suites: ["general-tests"],
-    test_mainline_modules: ["CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex+com.google.android.tethering.apex"],
     static_libs: [
         "libgmock",
         "libprotobuf-cpp-lite",

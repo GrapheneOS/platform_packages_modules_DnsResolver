@@ -33,6 +33,8 @@ struct Stats {
     uint32_t connections_accepted;
     /// The number of QUIC connections alive.
     uint32_t alive_connections;
+    /// The number of QUIC connections using session resumption.
+    uint32_t resumed_connections;
 };
 
 extern "C" {

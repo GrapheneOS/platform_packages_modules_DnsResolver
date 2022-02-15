@@ -113,7 +113,7 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
         return 0;
     }
 
-    // Verify that the returned data is sane.
+    // Verify that the returned data is valid.
     if (nscount < 0 || nscount > MAXNS || dcount < 0 || dcount > MAXDNSRCH) {
         LOG(ERROR) << __func__ << ": nscount = " << nscount << ", dcount = " << dcount;
         return -ENOTRECOVERABLE;
@@ -268,7 +268,7 @@ int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>*
     ResolverStats::encodeAll(res_stats, stats);
 
     const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(netId);
-    for (const auto& [server, _] : privateDnsStatus.serversMap) {
+    for (const auto& [server, _] : privateDnsStatus.dotServersMap) {
         tlsServers->push_back(server.toIpString());
     }
 
@@ -362,13 +362,13 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
         mDns64Configuration.dump(dw, netId);
         const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(netId);
         dw.println("Private DNS mode: %s", getPrivateDnsModeString(privateDnsStatus.mode));
-        if (privateDnsStatus.serversMap.size() == 0) {
+        if (privateDnsStatus.dotServersMap.size() == 0) {
             dw.println("No Private DNS servers configured");
         } else {
             dw.println("Private DNS configuration (%u entries)",
-                       static_cast<uint32_t>(privateDnsStatus.serversMap.size()));
+                       static_cast<uint32_t>(privateDnsStatus.dotServersMap.size()));
             dw.incIndent();
-            for (const auto& [server, validation] : privateDnsStatus.serversMap) {
+            for (const auto& [server, validation] : privateDnsStatus.dotServersMap) {
                 dw.println("%s name{%s} status{%s}", server.toIpString().c_str(),
                            server.name.c_str(), validationStatusToString(validation));
             }
