@@ -500,13 +500,17 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
         resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, kDohPort);
 
-        auto probeTimeout = getTimeoutFromFlag("doh_probe_timeout_ms", kDohProbeDefaultTimeoutMs);
-        auto idleTimeout = getTimeoutFromFlag("doh_idle_timeout_ms", kDohIdleDefaultTimeoutMs);
-        LOG(DEBUG) << __func__ << ": probeTimeout " << probeTimeout << ", idleTimeout "
-                   << idleTimeout;
+        const FeatureFlags flags = {
+                .probe_timeout_ms =
+                        getTimeoutFromFlag("doh_probe_timeout_ms", kDohProbeDefaultTimeoutMs),
+                .idle_timeout_ms =
+                        getTimeoutFromFlag("doh_idle_timeout_ms", kDohIdleDefaultTimeoutMs),
+        };
+        LOG(DEBUG) << __func__ << ": probe_timeout_ms=" << flags.probe_timeout_ms
+                   << ", idle_timeout_ms=" << flags.idle_timeout_ms;
 
         return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
-                           dohId.ipAddr.c_str(), mark, caCert.c_str(), probeTimeout, idleTimeout);
+                           dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags);
     }
 
     LOG(INFO) << __func__ << ": No suitable DoH server found";
