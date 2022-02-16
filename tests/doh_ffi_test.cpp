@@ -53,13 +53,16 @@ TEST(DoHFFITest, SmokeTest) {
     DohDispatcher* doh = doh_dispatcher_new(validation_cb, tag_socket_cb);
     EXPECT_TRUE(doh != nullptr);
 
+    const FeatureFlags flags = {
+            .probe_timeout_ms = TIMEOUT_MS,
+            .idle_timeout_ms = TIMEOUT_MS,
+    };
+
     // TODO: Use a local server instead of dns.google.
     // sk_mark doesn't matter here because this test doesn't have permission to set sk_mark.
     // The DNS packet would be sent via default network.
     EXPECT_EQ(doh_net_new(doh, dnsNetId, "https://dns.google/dns-query", /* domain */ "",
-                          GOOGLE_SERVER_IP,
-                          /* sk_mark */ 0, /* cert_path */ "", TIMEOUT_MS /* probe timeout */,
-                          TIMEOUT_MS /* idle timeout */),
+                          GOOGLE_SERVER_IP, /* sk_mark */ 0, /* cert_path */ "", &flags),
               0);
     {
         std::unique_lock<std::mutex> lk(m);

@@ -38,6 +38,12 @@ pub type ValidationCallback =
     extern "C" fn(net_id: uint32_t, success: bool, ip_addr: *const c_char, host: *const c_char);
 pub type TagSocketCallback = extern "C" fn(sock: RawFd);
 
+#[repr(C)]
+pub struct FeatureFlags {
+    probe_timeout_ms: uint64_t,
+    idle_timeout_ms: uint64_t,
+}
+
 fn wrap_validation_callback(validation_fn: ValidationCallback) -> ValidationReporter {
     Arc::new(move |info: &ServerInfo, success: bool| {
         async move {
@@ -181,8 +187,7 @@ pub unsafe extern "C" fn doh_net_new(
     ip_addr: *const c_char,
     sk_mark: libc::uint32_t,
     cert_path: *const c_char,
-    probe_timeout_ms: libc::uint64_t,
-    idle_timeout_ms: libc::uint64_t,
+    flags: &FeatureFlags,
 ) -> int32_t {
     let (url, domain, ip_addr, cert_path) = match (
         std::ffi::CStr::from_ptr(url).to_str(),
@@ -225,9 +230,9 @@ pub unsafe extern "C" fn doh_net_new(
             domain,
             sk_mark,
             cert_path,
-            idle_timeout_ms,
+            idle_timeout_ms: flags.idle_timeout_ms,
         },
-        timeout: Duration::from_millis(probe_timeout_ms),
+        timeout: Duration::from_millis(flags.probe_timeout_ms),
     };
     if let Err(e) = doh.lock().send_cmd(cmd) {
         error!("Failed to send the probe: {:?}", e);
