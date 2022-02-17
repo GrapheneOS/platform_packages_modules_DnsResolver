@@ -61,9 +61,5 @@ inline bool isUserDebugBuild() {
 }
 
 inline bool isDoHEnabled() {
-    // STOPSHIP(b/200763585): clean up it before T shipping.
-    static bool isAtLeastT = android::modules::sdklevel::IsAtLeastT();
-    if (isAtLeastT) return 1;
-
     return android::net::Experiments::getInstance()->getFlag("doh", 0);
 }
