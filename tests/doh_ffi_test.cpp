@@ -56,6 +56,7 @@ TEST(DoHFFITest, SmokeTest) {
     const FeatureFlags flags = {
             .probe_timeout_ms = TIMEOUT_MS,
             .idle_timeout_ms = TIMEOUT_MS,
+            .use_session_resumption = true,
     };
 
     // TODO: Use a local server instead of dns.google.

@@ -185,7 +185,8 @@ impl Driver {
         }
 
         if !self.connection.wait_for_live().await {
-            let session = self.connection.session();
+            let session =
+                if self.info.use_session_resumption { self.connection.session() } else { None };
             // Try reconnecting
             self.connection =
                 build_connection(&self.info, &self.tag_socket, &mut self.config, session).await?;
