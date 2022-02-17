@@ -42,6 +42,7 @@ pub type TagSocketCallback = extern "C" fn(sock: RawFd);
 pub struct FeatureFlags {
     probe_timeout_ms: uint64_t,
     idle_timeout_ms: uint64_t,
+    use_session_resumption: bool,
 }
 
 fn wrap_validation_callback(validation_fn: ValidationCallback) -> ValidationReporter {
@@ -231,6 +232,7 @@ pub unsafe extern "C" fn doh_net_new(
             sk_mark,
             cert_path,
             idle_timeout_ms: flags.idle_timeout_ms,
+            use_session_resumption: flags.use_session_resumption,
         },
         timeout: Duration::from_millis(flags.probe_timeout_ms),
     };
@@ -381,6 +383,7 @@ mod tests {
             sk_mark: 0,
             cert_path: None,
             idle_timeout_ms: 0,
+            use_session_resumption: true,
         };
 
         wrap_validation_callback(success_cb)(&info, true).await;
