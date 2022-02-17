@@ -63,7 +63,6 @@
 using aidl::android::net::metrics::INetdEventListener;
 using aidl::android::net::resolv::aidl::DnsHealthEventParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
-using android::net::NetworkDnsEventReported;
 using std::span;
 
 namespace android {
