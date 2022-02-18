@@ -43,7 +43,6 @@
 
 namespace android {
 
-using android::net::Experiments;
 using netdutils::enableSockopt;
 using netdutils::enableTcpKeepAlives;
 using netdutils::isOk;
