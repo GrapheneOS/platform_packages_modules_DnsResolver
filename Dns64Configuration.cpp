@@ -36,7 +36,6 @@
 
 namespace android {
 
-using android::net::NetworkDnsEventReported;
 using netdutils::DumpWriter;
 using netdutils::IPAddress;
 using netdutils::IPPrefix;
