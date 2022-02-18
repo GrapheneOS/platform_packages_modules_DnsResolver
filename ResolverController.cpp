@@ -39,8 +39,6 @@
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
-using android::net::PROTO_DOT;
-using android::net::PROTO_MDNS;
 
 namespace android {
 
