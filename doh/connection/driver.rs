@@ -87,6 +87,12 @@ struct Driver {
     // moves of the driver.
     buffer: Box<[u8; MAX_UDP_PACKET_SIZE]>,
     net_id: u32,
+    // Used to check if the connection has entered closing or draining state. A connection can
+    // enter closing state if the sender of request_rx's channel has been dropped.
+    // Note that we can't check if a receiver is dead without potentially receiving a message, and
+    // if we poll on a dead receiver in a select! it will immediately return None. As a result, we
+    // need this to gate whether or not to include .recv() in our select!
+    closing: bool,
 }
 
 struct H3Driver {
@@ -95,10 +101,6 @@ struct H3Driver {
     // This value holds a peeked request in that case, waiting for
     // transmission to become possible.
     buffered_request: Option<Request>,
-    // We can't check if a receiver is dead without potentially receiving a message, and if we poll
-    // on a dead receiver in a select! it will immediately return None. As a result, we need this
-    // to gate whether or not to include .recv() in our select!
-    closing: bool,
     h3_conn: h3::Connection,
     requests: HashMap<u64, Request>,
     streams: HashMap<u64, Stream>,
@@ -139,6 +141,7 @@ impl Driver {
             socket,
             buffer: Box::new([0; MAX_UDP_PACKET_SIZE]),
             net_id,
+            closing: false,
         }
     }
 
@@ -168,8 +171,7 @@ impl Driver {
     }
 
     fn handle_draining(&mut self) {
-        if self.quiche_conn.is_draining() {
-            // TODO: avoid running the code below more than once.
+        if self.quiche_conn.is_draining() && !self.closing {
             // TODO: Also log local_error() once Quiche 0.10.0 is available.
             debug!(
                 "Connection {} is draining on network {}, peer_error={:x?}",
@@ -187,6 +189,7 @@ impl Driver {
             // TODO: re-issue the outstanding DNS requests, such as passing H3Driver.requests
             // along with Status::Dead to the `Network` that can re-issue the DNS requests.
             while self.request_rx.try_recv().is_ok() {}
+            self.closing = true;
         }
     }
 
@@ -252,7 +255,6 @@ impl H3Driver {
         Self {
             driver,
             h3_conn,
-            closing: false,
             requests: HashMap::new(),
             streams: HashMap::new(),
             buffered_request: None,
@@ -287,7 +289,7 @@ impl H3Driver {
         select! {
             // Only attempt to enqueue new requests if we have no buffered request and aren't
             // closing
-            msg = self.driver.request_rx.recv(), if !self.closing && self.buffered_request.is_none() => {
+            msg = self.driver.request_rx.recv(), if !self.driver.closing && self.buffered_request.is_none() => {
                 match msg {
                     Some(request) => self.handle_request(request)?,
                     None => self.shutdown(true, b"DONE").await?,
@@ -470,7 +472,7 @@ impl H3Driver {
         );
         self.driver.request_rx.close();
         while self.driver.request_rx.recv().await.is_some() {}
-        self.closing = true;
+        self.driver.closing = true;
         if send_goaway {
             self.h3_conn.send_goaway(&mut self.driver.quiche_conn, 0)?;
         }
