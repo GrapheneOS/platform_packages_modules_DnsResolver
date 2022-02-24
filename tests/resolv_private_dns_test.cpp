@@ -992,3 +992,30 @@ TEST_F(PrivateDnsDohTest, SessionResumption) {
         EXPECT_EQ(doh.resumedConnections(), (flag == "1" ? 2 : 0));
     }
 }
+
+// Tests that after the connection is closed by the server (known by sending CONNECTION_CLOSE
+// frame), the DnsResolver can initiate another new connection for DNS requests.
+TEST_F(PrivateDnsDohTest, RemoteConnectionClosed) {
+    const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(dot.waitForQueries(1));
+    dot.clearQueries();
+    doh.clearQueries();
+    dns.clearQueries();
+
+    EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
+    flushCache();
+    EXPECT_EQ(doh.connections(), 1);
+
+    // Make the server close the connection. This will also reset the stats, so the doh query
+    // count below is still 2 rather than 4.
+    ASSERT_TRUE(doh.stopServer());
+    ASSERT_TRUE(doh.startServer());
+
+    EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
+    EXPECT_EQ(doh.connections(), 1);
+}
