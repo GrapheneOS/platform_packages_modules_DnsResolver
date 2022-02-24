@@ -21,7 +21,7 @@ use crate::config::{Config, QUICHE_IDLE_TIMEOUT_MS};
 use crate::stats::Stats;
 use anyhow::{bail, ensure, Result};
 use lazy_static::lazy_static;
-use log::{debug, error};
+use log::{debug, error, warn};
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::io::{AsRawFd, FromRawFd};
@@ -55,6 +55,7 @@ enum InternalCommand {
 enum ControlCommand {
     Stats { resp: oneshot::Sender<Stats> },
     StatsClearQueries,
+    CloseConnection,
 }
 
 /// Frontend object.
@@ -132,9 +133,15 @@ impl DohFrontend {
     }
 
     pub fn stop(&mut self) -> Result<()> {
+        debug!("DohFrontend: stopping: {:?}", self);
         if let Some(worker_thread) = self.worker_thread.take() {
             // Update latest_stats before stopping worker_thread.
             let _ = self.request_stats();
+
+            self.command_tx.as_ref().unwrap().send(ControlCommand::CloseConnection)?;
+            if let Err(e) = self.wait_for_connections_closed() {
+                warn!("wait_for_connections_closed failed: {}", e);
+            }
 
             worker_thread.abort();
         }
@@ -245,6 +252,20 @@ impl DohFrontend {
             config: self.config.clone(),
             command_rx,
         })
+    }
+
+    fn wait_for_connections_closed(&mut self) -> Result<()> {
+        for _ in 0..3 {
+            std::thread::sleep(Duration::from_millis(50));
+            match self.request_stats() {
+                Ok(stats) if stats.alive_connections == 0 => return Ok(()),
+                Ok(_) => (),
+
+                // The worker thread is down. No connection is alive.
+                Err(_) => return Ok(()),
+            }
+        }
+        bail!("Some connections still alive")
     }
 }
 
@@ -380,6 +401,12 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                         }
                     }
                     ControlCommand::StatsClearQueries => queries_received = 0,
+                    ControlCommand::CloseConnection => {
+                        for (_, client) in clients.iter_mut() {
+                            client.close();
+                            event_tx.send(InternalCommand::MaybeWrite { connection_id: client.connection_id().clone() })?;
+                        }
+                    }
                 }
             }
         }
