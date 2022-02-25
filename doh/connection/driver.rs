@@ -17,7 +17,7 @@
 
 use crate::boot_time;
 use crate::boot_time::BootTime;
-use log::{debug, trace, warn};
+use log::{debug, warn};
 use quiche::h3;
 use std::collections::HashMap;
 use std::default::Default;
@@ -87,6 +87,12 @@ struct Driver {
     // moves of the driver.
     buffer: Box<[u8; MAX_UDP_PACKET_SIZE]>,
     net_id: u32,
+    // Used to check if the connection has entered closing or draining state. A connection can
+    // enter closing state if the sender of request_rx's channel has been dropped.
+    // Note that we can't check if a receiver is dead without potentially receiving a message, and
+    // if we poll on a dead receiver in a select! it will immediately return None. As a result, we
+    // need this to gate whether or not to include .recv() in our select!
+    closing: bool,
 }
 
 struct H3Driver {
@@ -95,17 +101,13 @@ struct H3Driver {
     // This value holds a peeked request in that case, waiting for
     // transmission to become possible.
     buffered_request: Option<Request>,
-    // We can't check if a receiver is dead without potentially receiving a message, and if we poll
-    // on a dead receiver in a select! it will immediately return None. As a result, we need this
-    // to gate whether or not to include .recv() in our select!
-    closing: bool,
     h3_conn: h3::Connection,
     requests: HashMap<u64, Request>,
     streams: HashMap<u64, Stream>,
 }
 
 async fn optional_timeout(timeout: Option<boot_time::Duration>, net_id: u32) {
-    trace!("optional_timeout: timeout={:?}, network {}", timeout, net_id);
+    debug!("optional_timeout: timeout={:?}, network {}", timeout, net_id);
     match timeout {
         Some(timeout) => boot_time::sleep(timeout).await,
         None => future::pending().await,
@@ -139,6 +141,7 @@ impl Driver {
             socket,
             buffer: Box::new([0; MAX_UDP_PACKET_SIZE]),
             net_id,
+            closing: false,
         }
     }
 
@@ -154,7 +157,8 @@ impl Driver {
         if self.quiche_conn.is_closed() {
             // TODO: Also log local_error() once Quiche 0.10.0 is available.
             debug!(
-                "Connection closed on network {}, peer_error={:?}",
+                "Connection {} closed on network {}, peer_error={:x?}",
+                self.quiche_conn.trace_id(),
                 self.net_id,
                 self.quiche_conn.peer_error()
             );
@@ -163,6 +167,29 @@ impl Driver {
             Err(Error::Closed)
         } else {
             Ok(())
+        }
+    }
+
+    fn handle_draining(&mut self) {
+        if self.quiche_conn.is_draining() && !self.closing {
+            // TODO: Also log local_error() once Quiche 0.10.0 is available.
+            debug!(
+                "Connection {} is draining on network {}, peer_error={:x?}",
+                self.quiche_conn.trace_id(),
+                self.net_id,
+                self.quiche_conn.peer_error()
+            );
+            // We don't care if the receiver has hung up
+            let _ = self.status_tx.send(Status::Dead { session: self.quiche_conn.session() });
+
+            self.request_rx.close();
+            // Drain the pending DNS requests from the queue to make their corresponding future
+            // tasks return some error quickly rather than timeout. However, the DNS requests
+            // that has been sent will still time out.
+            // TODO: re-issue the outstanding DNS requests, such as passing H3Driver.requests
+            // along with Status::Dead to the `Network` that can re-issue the DNS requests.
+            while self.request_rx.try_recv().is_ok() {}
+            self.closing = true;
         }
     }
 
@@ -185,11 +212,22 @@ impl Driver {
 
         // If the QUIC connection is live, but the HTTP/3 is not, try to bring it up
         if self.quiche_conn.is_established() {
+            debug!(
+                "Connection {} established on network {}",
+                self.quiche_conn.trace_id(),
+                self.net_id
+            );
             let h3_config = h3::Config::new()?;
             let h3_conn = h3::Connection::with_transport(&mut self.quiche_conn, &h3_config)?;
             self = H3Driver::new(self, h3_conn).drive().await?;
             let _ = self.status_tx.send(Status::QUIC);
         }
+
+        // If the connection has entered draining state (the server is closing the connection),
+        // tell the status watcher not to use the connection. Besides, per Quiche document,
+        // the connection should not be dropped until is_closed() returns true.
+        // This tokio task will become unowned and get dropped when is_closed() returns true.
+        self.handle_draining();
 
         // If the connection has closed, tear down
         self.handle_closed()?;
@@ -217,7 +255,6 @@ impl H3Driver {
         Self {
             driver,
             h3_conn,
-            closing: false,
             requests: HashMap::new(),
             streams: HashMap::new(),
             buffered_request: None,
@@ -252,7 +289,7 @@ impl H3Driver {
         select! {
             // Only attempt to enqueue new requests if we have no buffered request and aren't
             // closing
-            msg = self.driver.request_rx.recv(), if !self.closing && self.buffered_request.is_none() => {
+            msg = self.driver.request_rx.recv(), if !self.driver.closing && self.buffered_request.is_none() => {
                 match msg {
                     Some(request) => self.handle_request(request)?,
                     None => self.shutdown(true, b"DONE").await?,
@@ -275,6 +312,12 @@ impl H3Driver {
 
         // Process any incoming HTTP/3 events
         self.flush_h3().await?;
+
+        // If the connection has entered draining state (the server is closing the connection),
+        // tell the status watcher not to use the connection. Besides, per Quiche document,
+        // the connection should not be dropped until is_closed() returns true.
+        // This tokio task will become unowned and get dropped when is_closed() returns true.
+        self.driver.handle_draining();
 
         // If the connection has closed, tear down
         self.driver.handle_closed()
@@ -421,10 +464,15 @@ impl H3Driver {
     }
 
     async fn shutdown(&mut self, send_goaway: bool, msg: &[u8]) -> Result<()> {
-        debug!("Closing connection on network {} with msg {:?}", self.driver.net_id, msg);
+        debug!(
+            "Closing connection {} on network {} with msg {:?}",
+            self.driver.quiche_conn.trace_id(),
+            self.driver.net_id,
+            msg
+        );
         self.driver.request_rx.close();
         while self.driver.request_rx.recv().await.is_some() {}
-        self.closing = true;
+        self.driver.closing = true;
         if send_goaway {
             self.h3_conn.send_goaway(&mut self.driver.quiche_conn, 0)?;
         }
