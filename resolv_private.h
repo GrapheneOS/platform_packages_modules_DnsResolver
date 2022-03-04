@@ -185,7 +185,7 @@ int getaddrinfo_numeric(const char* hostname, const char* servname, addrinfo hin
 int herrnoToAiErrno(int herrno);
 
 // Helper function to enable MDNS resolution.
-void setMdnsFlag(std::string_view hostname, uint32_t* flags);
+void setMdnsFlag(std::string_view hostname, unsigned netid, uint32_t* flags);
 
 // Helper function for checking MDNS resolution is enabled or not.
 bool isMdnsResolution(uint32_t flags);
