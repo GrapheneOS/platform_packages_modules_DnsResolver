@@ -1437,7 +1437,7 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     ResState res(netcontext, event);
 
-    setMdnsFlag(name, &(res.flags));
+    setMdnsFlag(name, res.netid, &(res.flags));
 
     if (isMdnsResolution(res.flags)) {
         q.qclass |= C_UNICAST;

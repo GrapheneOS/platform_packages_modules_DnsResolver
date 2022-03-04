@@ -98,6 +98,12 @@ int resolv_flush_cache_for_net(unsigned netid);
 // Get transport types to a given network.
 android::net::NetworkType resolv_get_network_types_for_net(unsigned netid);
 
+// Return true if the pass-in network types support mdns.
+bool is_mdns_supported_transport_types(const std::vector<int32_t>& transportTypes);
+
+// Return true if the network can support mdns resolution.
+bool is_mdns_supported_network(unsigned netid);
+
 // Return true if the cache is existent in the given network, false otherwise.
 bool has_named_cache(unsigned netid);
 

@@ -1562,6 +1562,22 @@ android::net::NetworkType resolv_get_network_types_for_net(unsigned netid) {
     return convert_network_type(netconfig->transportTypes);
 }
 
+bool is_mdns_supported_transport_types(const std::vector<int32_t>& transportTypes) {
+    for (const auto& tp : transportTypes) {
+        if (tp == IDnsResolver::TRANSPORT_CELLULAR || tp == IDnsResolver::TRANSPORT_VPN) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_mdns_supported_network(unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    NetConfig* netconfig = find_netconfig_locked(netid);
+    if (netconfig == nullptr) return false;
+    return is_mdns_supported_transport_types(netconfig->transportTypes);
+}
+
 namespace {
 
 // Returns valid domains without duplicates which are limited to max size |MAXDNSRCH|.
