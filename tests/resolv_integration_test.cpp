@@ -6131,6 +6131,99 @@ TEST_F(ResolverTest, MdnsGetHostByName) {
     }
 }
 
+namespace {
+
+static const struct TransportTypeConfig {
+    const std::vector<int32_t>& transportTypes;
+    bool useMdns;
+} transportTypeConfig[]{
+        // clang-format off
+        {{}, true},
+        {{IDnsResolver::TRANSPORT_CELLULAR}, false},
+        {{IDnsResolver::TRANSPORT_WIFI}, true},
+        {{IDnsResolver::TRANSPORT_BLUETOOTH}, true},
+        {{IDnsResolver::TRANSPORT_ETHERNET}, true},
+        {{IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_WIFI_AWARE}, true},
+        {{IDnsResolver::TRANSPORT_LOWPAN}, true},
+        {{IDnsResolver::TRANSPORT_TEST}, true},
+        {{IDnsResolver::TRANSPORT_USB}, true},
+        {{IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_WIFI, IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_BLUETOOTH, IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_ETHERNET, IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_WIFI,
+          IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_WIFI_AWARE, IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_LOWPAN, IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_TEST, IDnsResolver::TRANSPORT_VPN}, false},
+        {{IDnsResolver::TRANSPORT_USB, IDnsResolver::TRANSPORT_VPN}, false},
+        // clang-format on
+};
+
+}  // namespace
+
+TEST_F(ResolverTest, MdnsGetHostByName_transportTypes) {
+    constexpr char v6addr[] = "::127.0.0.3";
+    constexpr char v4addr[] = "127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv4.addMapping(host_name, ns_type::ns_t_a, v4addr);
+    mdnsv6.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, v4addr},
+            {host_name, ns_type::ns_t_aaaa, v6addr},
+    };
+    test::DNSResponder dns(v4addr);
+    StartDns(dns, records);
+
+    for (const auto& tpConfig : transportTypeConfig) {
+        SCOPED_TRACE(fmt::format("transportTypes: [{}], useMdns: {}",
+                                 fmt::join(tpConfig.transportTypes, ","), tpConfig.useMdns));
+        ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+        setupParams.transportTypes = tpConfig.transportTypes;
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+
+        static const struct TestConfig {
+            int ai_family;
+            const std::string expected_addr;
+        } testConfigs[]{
+                {AF_INET, v4addr},
+                {AF_INET6, v6addr},
+        };
+
+        for (const auto& config : testConfigs) {
+            SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
+            const hostent* result = nullptr;
+            test::DNSResponder& mdns = config.ai_family == AF_INET ? mdnsv4 : mdnsv6;
+
+            result = gethostbyname2("hello.local", config.ai_family);
+            ASSERT_FALSE(result == nullptr);
+            if (tpConfig.useMdns) {
+                EXPECT_EQ(1U, GetNumQueries(mdns, host_name));
+                EXPECT_EQ(0U, GetNumQueries(dns, host_name));
+            } else {
+                EXPECT_EQ(0U, GetNumQueries(mdns, host_name));
+                EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+            }
+            int length = config.ai_family == AF_INET ? 4 : 16;
+            ASSERT_EQ(length, result->h_length);
+            ASSERT_FALSE(result->h_addr_list[0] == nullptr);
+            EXPECT_EQ(config.expected_addr, ToString(result));
+            EXPECT_TRUE(result->h_addr_list[1] == nullptr);
+
+            mdns.clearQueries();
+            dns.clearQueries();
+            ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+        }
+    }
+}
+
 TEST_F(ResolverTest, MdnsGetHostByName_cnames) {
     constexpr char v6addr[] = "::127.0.0.3";
     constexpr char v4addr[] = "127.0.0.3";
@@ -6293,6 +6386,78 @@ TEST_F(ResolverTest, MdnsGetAddrInfo) {
             result_str = ToString(result);
             EXPECT_THAT(ToStrings(result),
                         testing::UnorderedElementsAreArray(config.expected_addr));
+            ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+        }
+    }
+}
+
+TEST_F(ResolverTest, MdnsGetAddrInfo_transportTypes) {
+    constexpr char v6addr[] = "::127.0.0.3";
+    constexpr char v4addr[] = "127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv4.addMapping(host_name, ns_type::ns_t_a, v4addr);
+    mdnsv6.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, v4addr},
+            {host_name, ns_type::ns_t_aaaa, v6addr},
+    };
+    test::DNSResponder dns(v4addr);
+    StartDns(dns, records);
+
+    for (const auto& tpConfig : transportTypeConfig) {
+        SCOPED_TRACE(fmt::format("transportTypes: [{}], useMdns: {}",
+                                 fmt::join(tpConfig.transportTypes, ","), tpConfig.useMdns));
+        ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+        setupParams.transportTypes = tpConfig.transportTypes;
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+
+        static const struct TestConfig {
+            int ai_family;
+            const std::vector<std::string> expected_addr;
+        } testConfigs[]{
+                {AF_INET, {v4addr}},
+                {AF_INET6, {v6addr}},
+                {AF_UNSPEC, {v4addr, v6addr}},
+        };
+
+        for (const auto& config : testConfigs) {
+            addrinfo hints = {.ai_family = config.ai_family, .ai_socktype = SOCK_DGRAM};
+            ScopedAddrinfo result = safe_getaddrinfo("hello.local", nullptr, &hints);
+
+            EXPECT_TRUE(result != nullptr);
+            if (tpConfig.useMdns) {
+                if (config.ai_family == AF_INET) {
+                    EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+                    EXPECT_EQ(0U, GetNumQueries(mdnsv6, host_name));
+                } else if (config.ai_family == AF_INET6) {
+                    EXPECT_EQ(0U, GetNumQueries(mdnsv4, host_name));
+                    EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+                } else {
+                    EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+                    EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+                }
+                EXPECT_EQ(0U, GetNumQueries(dns, host_name));
+            } else {
+                EXPECT_EQ(0U, GetNumQueries(mdnsv4, host_name));
+                EXPECT_EQ(0U, GetNumQueries(mdnsv6, host_name));
+                if (config.ai_family == AF_INET || config.ai_family == AF_INET6) {
+                    EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+                } else {
+                    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
+                }
+            }
+            std::string result_str = ToString(result);
+            EXPECT_THAT(ToStrings(result),
+                        testing::UnorderedElementsAreArray(config.expected_addr));
+
+            mdnsv4.clearQueries();
+            mdnsv6.clearQueries();
+            dns.clearQueries();
             ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
         }
     }
