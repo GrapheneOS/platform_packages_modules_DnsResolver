@@ -377,7 +377,7 @@ int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_
     getnamaddr info;
     ResState res(netcontext, event);
 
-    setMdnsFlag(name, &(res.flags));
+    setMdnsFlag(name, res.netid, &(res.flags));
 
     size_t size;
     switch (af) {
@@ -756,8 +756,8 @@ int herrnoToAiErrno(int he) {
     }
 }
 
-void setMdnsFlag(std::string_view hostname, uint32_t* flags) {
-    if (hostname.ends_with(".local") &&
+void setMdnsFlag(std::string_view hostname, unsigned netid, uint32_t* flags) {
+    if (hostname.ends_with(".local") && is_mdns_supported_network(netid) &&
         android::net::Experiments::getInstance()->getFlag("mdns_resolution", 1))
         *flags |= RES_F_MDNS;
 }

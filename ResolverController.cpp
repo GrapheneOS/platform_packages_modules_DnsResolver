@@ -219,10 +219,12 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
         return err;
     }
 
-    if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_MDNS, {"ff02::fb", "224.0.0.251"},
-                                     5353);
-        err != 0) {
-        return err;
+    if (is_mdns_supported_transport_types(resolverParams.transportTypes)) {
+        if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_MDNS,
+                                         {"ff02::fb", "224.0.0.251"}, 5353);
+            err != 0) {
+            return err;
+        }
     }
 
     if (isDoHEnabled()) {
