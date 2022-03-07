@@ -1029,6 +1029,8 @@ TEST_F(PrivateDnsDohTest, RemoteConnectionClosed) {
     // Make the server close the connection. This will also reset the stats, so the doh query
     // count below is still 2 rather than 4.
     ASSERT_TRUE(doh.stopServer());
+    // Sleep a while to avoid binding socket failed.
+    sleep_for(milliseconds(100));
     ASSERT_TRUE(doh.startServer());
 
     EXPECT_NO_FAILURE(sendQueryAndCheckResult());
