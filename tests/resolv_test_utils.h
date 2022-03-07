@@ -213,3 +213,6 @@ bool PollForCondition(const std::function<bool()>& condition,
 
 android::netdutils::ScopedAddrinfo safe_getaddrinfo(const char* node, const char* service,
                                                     const struct addrinfo* hints);
+
+void SetMdnsRoute();
+void RemoveMdnsRoute();
