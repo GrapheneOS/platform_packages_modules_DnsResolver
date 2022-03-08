@@ -974,7 +974,14 @@ TEST_F(PrivateDnsDohTest, ConnectionIdleTimer) {
 TEST_F(PrivateDnsDohTest, SessionResumption) {
     const int initial_max_idle_timeout_ms = 1000;
     for (const auto& flag : {"0", "1"}) {
+        SCOPED_TRACE(fmt::format("flag: {}", flag));
         auto sp = make_unique<ScopedSystemProperties>(kDohSessionResumptionFlag, flag);
+
+        // Each loop takes around 3 seconds, if the system property "doh" is reset in the middle
+        // of the first loop, this test will fail when running the second loop because DnsResolver
+        // updates its "doh" flag when resetNetwork() is called. Therefore, add another
+        // ScopedSystemProperties for "doh" to make the test more robust.
+        auto sp2 = make_unique<ScopedSystemProperties>(kDohFlag, "1");
         resetNetwork();
 
         ASSERT_TRUE(doh.stopServer());
