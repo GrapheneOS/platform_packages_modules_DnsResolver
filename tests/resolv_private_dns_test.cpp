@@ -307,9 +307,9 @@ class BasePrivateDnsTest : public BaseTest {
         BaseTest::TearDown();
     }
 
-    void sendQueryAndCheckResult() {
+    void sendQueryAndCheckResult(const char* host_name = kQueryHostname) {
         const addrinfo hints = {.ai_socktype = SOCK_DGRAM};
-        ScopedAddrinfo result = safe_getaddrinfo(kQueryHostname, nullptr, &hints);
+        ScopedAddrinfo result = safe_getaddrinfo(host_name, nullptr, &hints);
         EXPECT_THAT(ToStrings(result),
                     testing::ElementsAreArray({kQueryAnswerAAAA, kQueryAnswerA}));
     };
@@ -380,6 +380,12 @@ class TransportParameterizedTest : public BasePrivateDnsTest,
             ASSERT_TRUE(doh_backend.startServer());
             ASSERT_TRUE(doh.startServer());
         }
+        SetMdnsRoute();
+    }
+
+    void TearDown() override {
+        RemoveMdnsRoute();
+        BasePrivateDnsTest::TearDown();
     }
 
     bool testParamHasDot() { return GetParam() & kDotBit; }
@@ -430,6 +436,75 @@ TEST_P(TransportParameterizedTest, GetAddrInfo) {
     doh.stopServer();
 
     EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+    if (testParamHasDoh()) {
+        EXPECT_NO_FAILURE(expectQueries(2 /* dns */, 0 /* dot */, 2 /* doh */));
+    } else {
+        EXPECT_NO_FAILURE(expectQueries(2 /* dns */, 2 /* dot */, 0 /* doh */));
+    }
+}
+
+TEST_P(TransportParameterizedTest, MdnsGetAddrInfo_fallback) {
+    constexpr char host_name[] = "hello.local.";
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService,
+                              static_cast<ns_rcode>(-1));
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService, static_cast<ns_rcode>(-1));
+    // Set unresponsive on multicast.
+    mdnsv4.setResponseProbability(0.0);
+    mdnsv6.setResponseProbability(0.0);
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, kQueryAnswerA},
+            {host_name, ns_type::ns_t_aaaa, kQueryAnswerAAAA},
+    };
+
+    for (const auto& r : records) {
+        dns.addMapping(r.host_name, r.type, r.addr);
+        dot_backend.addMapping(r.host_name, r.type, r.addr);
+        doh_backend.addMapping(r.host_name, r.type, r.addr);
+    }
+
+    auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+
+    if (testParamHasDoh()) EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    if (testParamHasDot()) EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+
+    // This waiting time is expected to avoid that the DoH validation event interferes other tests.
+    if (!testParamHasDoh()) waitForDohValidationFailed();
+
+    // Have the test independent of the number of sent queries in private DNS validation, because
+    // the DnsResolver can send either 1 or 2 queries in DoT validation.
+    if (testParamHasDoh()) {
+        doh.clearQueries();
+    }
+    if (testParamHasDot()) {
+        EXPECT_TRUE(dot.waitForQueries(1));
+        dot.clearQueries();
+    }
+    dns.clearQueries();
+
+    EXPECT_NO_FAILURE(sendQueryAndCheckResult("hello.local"));
+    EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+    EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+    if (testParamHasDoh()) {
+        EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
+    } else {
+        EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 2 /* dot */, 0 /* doh */));
+    }
+
+    // Stop the private DNS servers. Since we are in opportunistic mode, queries will
+    // fall back to the cleartext nameserver.
+    flushCache();
+    dot.stopServer();
+    doh.stopServer();
+    mdnsv4.clearQueries();
+    mdnsv6.clearQueries();
+
+    EXPECT_NO_FAILURE(sendQueryAndCheckResult("hello.local"));
+    EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+    EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
     if (testParamHasDoh()) {
         EXPECT_NO_FAILURE(expectQueries(2 /* dns */, 0 /* dot */, 2 /* doh */));
     } else {
