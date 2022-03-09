@@ -6519,6 +6519,65 @@ TEST_F(ResolverTest, MdnsGetAddrInfo_cnamesIllegalRdata) {
     EXPECT_TRUE(result == nullptr);
 }
 
+// Test if .local resolution will try unicast when multicast is failed.
+TEST_F(ResolverTest, MdnsGetAddrInfo_fallback) {
+    constexpr char v6addr[] = "::1.2.3.4";
+    constexpr char v4addr[] = "1.2.3.4";
+    constexpr char host_name[] = "hello.local.";
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService,
+                              static_cast<ns_rcode>(-1));
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService, static_cast<ns_rcode>(-1));
+    // Set unresponsive on multicast.
+    mdnsv4.setResponseProbability(0.0);
+    mdnsv6.setResponseProbability(0.0);
+    ASSERT_TRUE(mdnsv4.startServer());
+    ASSERT_TRUE(mdnsv6.startServer());
+
+    const std::vector<DnsRecord> records = {
+            {host_name, ns_type::ns_t_a, v4addr},
+            {host_name, ns_type::ns_t_aaaa, v6addr},
+    };
+    test::DNSResponder dns("127.0.0.3");
+    StartDns(dns, records);
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    static const struct TestConfig {
+        int ai_family;
+        const std::vector<std::string> expected_addr;
+    } testConfigs[]{
+            {AF_INET, {v4addr}},
+            {AF_INET6, {v6addr}},
+            {AF_UNSPEC, {v4addr, v6addr}},
+    };
+
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
+        addrinfo hints = {.ai_family = config.ai_family, .ai_socktype = SOCK_DGRAM};
+        ScopedAddrinfo result = safe_getaddrinfo("hello.local", nullptr, &hints);
+        EXPECT_TRUE(result != nullptr);
+        if (config.ai_family == AF_INET) {
+            EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+            EXPECT_EQ(0U, GetNumQueries(mdnsv6, host_name));
+            EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+        } else if (config.ai_family == AF_INET6) {
+            EXPECT_EQ(0U, GetNumQueries(mdnsv4, host_name));
+            EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+            EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+        } else {
+            EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+            EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+            EXPECT_EQ(2U, GetNumQueries(dns, host_name));
+        }
+        std::string result_str = ToString(result);
+        EXPECT_THAT(ToStrings(result), testing::UnorderedElementsAreArray(config.expected_addr));
+
+        mdnsv4.clearQueries();
+        mdnsv6.clearQueries();
+        dns.clearQueries();
+        ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
+    }
+}
+
 // ResolverMultinetworkTest is used to verify multinetwork functionality. Here's how it works:
 // The resolver sends queries to address A, and then there will be a TunForwarder helping forward
 // the packets to address B, which is the address on which the testing server is listening. The
