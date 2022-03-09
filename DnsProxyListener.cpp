@@ -1159,7 +1159,9 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     event.set_latency_micros(latencyUs);
     event.set_event_type(EVENT_GETHOSTBYNAME);
 
-    LOG(DEBUG) << "GetHostByNameHandler::run: result: " << gai_strerror(rv);
+    if (rv) {
+        LOG(DEBUG) << "GetHostByNameHandler::run: result failed: " << gai_strerror(rv);
+    }
 
     bool success = true;
     if (hp) {
@@ -1314,7 +1316,9 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     event.set_latency_micros(latencyUs);
     event.set_event_type(EVENT_GETHOSTBYADDR);
 
-    LOG(DEBUG) << "GetHostByAddrHandler::run: result: " << gai_strerror(rv);
+    if (rv) {
+        LOG(DEBUG) << "GetHostByAddrHandler::run: result failed: " << gai_strerror(rv);
+    }
 
     bool success = true;
     if (hp) {
