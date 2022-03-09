@@ -123,6 +123,7 @@ impl TimerFd {
     }
 
     fn set(&self, duration: Duration) {
+        assert_ne!(duration, Duration::from_millis(0));
         let timer = libc::itimerspec {
             it_interval: libc::timespec { tv_sec: 0, tv_nsec: 0 },
             it_value: libc::timespec {
@@ -146,6 +147,13 @@ impl TimerFd {
 pub async fn timeout<T>(duration: Duration, future: impl Future<Output = T>) -> Result<T, Elapsed> {
     // Ideally, all timeouts in a runtime would share a timerfd. That will be much more
     // straightforwards to implement when moving this functionality into `tokio`.
+
+    // According to timerfd_settime(), setting zero duration will disarm the timer, so
+    // we return immediate timeout here.
+    // Can't use is_zero() for now because sc-mainline-prod's Rust version is below 1.53.
+    if duration == Duration::from_millis(0) {
+        return Err(Elapsed(()));
+    }
 
     // The failure conditions for this are rare (see `man 2 timerfd_create`) and the caller would
     // not be able to do much in response to them. When integrated into tokio, this would be called
@@ -203,4 +211,12 @@ async fn timeout_drift() {
         let drift = if taken > delta { taken - delta } else { delta - taken };
         assert!(drift < Duration::from_millis(5));
     }
+}
+
+#[tokio::test]
+async fn timeout_duration_zero() {
+    let start = BootTime::now();
+    assert!(timeout(Duration::from_millis(0), pending::<()>()).await.is_err());
+    let taken = start.elapsed();
+    assert!(taken < Duration::from_millis(5));
 }
