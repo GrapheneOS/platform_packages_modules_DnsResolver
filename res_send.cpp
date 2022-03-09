@@ -483,17 +483,15 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
         mDnsQueryEvent->set_linux_errno(static_cast<LinuxErrno>(terrno));
         resolv_stats_add(statp->netid, receivedMdnsAddr, mDnsQueryEvent);
 
-        if (resplen <= 0) {
-            _resolv_cache_query_failed(statp->netid, msg, flags);
-            return -terrno;
-        }
-        LOG(DEBUG) << __func__ << ": got answer:";
-        res_pquery(ans.first(resplen));
+        if (resplen > 0) {
+            LOG(DEBUG) << __func__ << ": got answer from mDNS:";
+            res_pquery(ans.first(resplen));
 
-        if (cache_status == RESOLV_CACHE_NOTFOUND) {
-            resolv_cache_add(statp->netid, msg, {ans.data(), resplen});
+            if (cache_status == RESOLV_CACHE_NOTFOUND) {
+                resolv_cache_add(statp->netid, msg, {ans.data(), resplen});
+            }
+            return resplen;
         }
-        return resplen;
     }
 
     if (statp->nameserverCount() == 0) {
