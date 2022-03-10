@@ -69,6 +69,7 @@
 #include "tests/dns_responder/dns_responder_client_ndk.h"
 #include "tests/dns_responder/dns_tls_certificate.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
+#include "tests/resolv_test_base.h"
 #include "tests/resolv_test_utils.h"
 #include "tests/tun_forwarder.h"
 #include "tests/unsolicited_listener/unsolicited_event_listener.h"
@@ -164,7 +165,7 @@ const bool isAtLeastR = (getApiLevel() >= 30);
 
 }  // namespace
 
-class ResolverTest : public ::testing::Test {
+class ResolverTest : public ResolvTestBase {
   public:
     static void SetUpTestSuite() {
         // Get binder service.

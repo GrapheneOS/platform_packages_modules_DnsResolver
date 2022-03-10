@@ -34,6 +34,7 @@
 #include "resolv_private.h"
 #include "stats.h"
 #include "tests/dns_responder/dns_responder.h"
+#include "tests/resolv_test_base.h"
 #include "tests/resolv_test_utils.h"
 
 using namespace std::chrono_literals;
@@ -128,7 +129,7 @@ bool operator==(const res_params& a, const res_params& b) {
 
 }  // namespace
 
-class ResolvCacheTest : public ::testing::Test {
+class ResolvCacheTest : public ResolvTestBase {
   protected:
     static constexpr res_params kParams = {
             .sample_validity = 300,
