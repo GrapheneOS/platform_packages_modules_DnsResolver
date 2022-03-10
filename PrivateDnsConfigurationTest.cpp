@@ -20,13 +20,14 @@
 #include "PrivateDnsConfiguration.h"
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
+#include "tests/resolv_test_base.h"
 #include "tests/resolv_test_utils.h"
 
 namespace android::net {
 
 using namespace std::chrono_literals;
 
-class PrivateDnsConfigurationTest : public ::testing::Test {
+class PrivateDnsConfigurationTest : public ResolvTestBase {
   public:
     using ServerIdentity = PrivateDnsConfiguration::ServerIdentity;
 

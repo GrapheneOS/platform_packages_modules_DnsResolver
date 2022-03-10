@@ -34,6 +34,7 @@
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_responder_client_ndk.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
+#include "tests/resolv_test_base.h"
 #include "tests/resolv_test_utils.h"
 #include "tests/unsolicited_listener/unsolicited_event_listener.h"
 
@@ -146,7 +147,7 @@ void expectAnswersValid(int fd, int ipType, const std::string& expectedAnswer) {
 
 // Base class to deal with netd binder service and resolver binder service.
 // TODO: derive ResolverTest from this base class.
-class BaseTest : public ::testing::Test {
+class BaseTest : public ResolvTestBase {
   public:
     static void SetUpTestSuite() {
         // Get binder service.
