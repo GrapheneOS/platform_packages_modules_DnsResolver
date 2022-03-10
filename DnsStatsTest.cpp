@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include "DnsStats.h"
+#include "tests/resolv_test_base.h"
 
 namespace android::net {
 
@@ -66,7 +67,7 @@ StatsData makeStatsData(const IPSockAddr& server, const int total, const microse
 
 // TODO: add StatsDataTest to ensure its methods return correct outputs.
 
-class StatsRecordsTest : public ::testing::Test {};
+class StatsRecordsTest : public ResolvTestBase {};
 
 TEST_F(StatsRecordsTest, PushRecord) {
     const IPSockAddr server = IPSockAddr::toIPSockAddr("127.0.0.2", 53);
@@ -104,7 +105,7 @@ TEST_F(StatsRecordsTest, PushRecord) {
               makeStatsData(server, 3, 750ms, {{NS_R_NO_ERROR, 0}, {NS_R_TIMEOUT, 3}}));
 }
 
-class DnsStatsTest : public ::testing::Test {
+class DnsStatsTest : public ResolvTestBase {
   protected:
     std::string captureDumpOutput() {
         netdutils::DumpWriter dw(STDOUT_FILENO);

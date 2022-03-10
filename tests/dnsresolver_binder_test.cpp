@@ -44,6 +44,7 @@
 #include "ResolverStats.h"
 #include "dns_responder.h"
 #include "dns_responder_client_ndk.h"
+#include "tests/resolv_test_base.h"
 
 using aidl::android::net::IDnsResolver;
 using aidl::android::net::ResolverHostsParcel;
@@ -92,7 +93,7 @@ std::vector<std::string> dumpService(ndk::SpAIBinder binder) {
 
 }  // namespace
 
-class DnsResolverBinderTest : public ::testing::Test {
+class DnsResolverBinderTest : public ResolvTestBase {
   public:
     DnsResolverBinderTest() {
         ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));

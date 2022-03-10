@@ -31,6 +31,7 @@
 #include "gethnamaddr.h"
 #include "resolv_cache.h"
 #include "stats.pb.h"
+#include "tests/resolv_test_base.h"
 #include "tests/resolv_test_utils.h"
 
 #define NAME(variable) #variable
@@ -49,7 +50,7 @@ constexpr unsigned int MAXPACKET = 8 * 1024;
 // that any type or protocol can be returned by getaddrinfo().
 constexpr unsigned int ANY = 0;
 
-class TestBase : public ::testing::Test {
+class TestBase : public ResolvTestBase {
   protected:
     struct DnsMessage {
         std::string host_name;   // host name
