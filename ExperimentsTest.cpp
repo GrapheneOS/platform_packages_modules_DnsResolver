@@ -25,10 +25,11 @@
 #include <gtest/gtest.h>
 
 #include "Experiments.h"
+#include "tests/resolv_test_base.h"
 
 namespace android::net {
 
-class ExperimentsTest : public ::testing::Test {
+class ExperimentsTest : public ResolvTestBase {
   public:
     ExperimentsTest() : mExperiments(fakeGetExperimentFlagInt) {}
 

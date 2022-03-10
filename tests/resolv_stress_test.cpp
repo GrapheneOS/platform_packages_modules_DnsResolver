@@ -28,10 +28,11 @@
 #include "dns_responder/dns_responder_client_ndk.h"
 #include "params.h"  // MAX_NS
 #include "resolv_test_utils.h"
+#include "tests/resolv_test_base.h"
 
 using android::net::ResolverStats;
 
-class ResolverStressTest : public ::testing::Test {
+class ResolverStressTest : public ResolvTestBase {
   public:
     ResolverStressTest() { mDnsClient.SetUp(); }
     ~ResolverStressTest() { mDnsClient.TearDown(); }
