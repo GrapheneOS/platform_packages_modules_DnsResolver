@@ -1037,6 +1037,9 @@ TEST_F(ResolvGetAddrInfoTest, MdnsResponderTimeout) {
     ASSERT_TRUE(mdnsv4.startServer());
     ASSERT_TRUE(mdnsv6.startServer());
     ASSERT_EQ(0, SetResolvers());
+    test::DNSResponder dns("127.0.0.3", test::kDefaultListenService, static_cast<ns_rcode>(-1));
+    dns.setResponseProbability(0.0);
+    ASSERT_TRUE(dns.startServer());
 
     for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
         SCOPED_TRACE(fmt::format("family: {}, host_name: {}", family, host_name));
@@ -1825,6 +1828,9 @@ TEST_F(GetHostByNameForNetContextTest, MdnsResponderTimeout) {
     ASSERT_TRUE(mdnsv4.startServer());
     ASSERT_TRUE(mdnsv6.startServer());
     ASSERT_EQ(0, SetResolvers());
+    test::DNSResponder dns("127.0.0.3", test::kDefaultListenService, static_cast<ns_rcode>(-1));
+    dns.setResponseProbability(0.0);
+    ASSERT_TRUE(dns.startServer());
 
     for (const auto& family : {AF_INET, AF_INET6}) {
         SCOPED_TRACE(fmt::format("family: {}, host_name: {}", family, host_name));
