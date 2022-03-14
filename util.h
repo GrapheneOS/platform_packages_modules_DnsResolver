@@ -61,5 +61,6 @@ inline bool isUserDebugBuild() {
 }
 
 inline bool isDoHEnabled() {
-    return android::net::Experiments::getInstance()->getFlag("doh", 0);
+    static bool isAtLeastT = android::modules::sdklevel::IsAtLeastT();
+    return android::net::Experiments::getInstance()->getFlag("doh", isAtLeastT ? 1 : 0);
 }
