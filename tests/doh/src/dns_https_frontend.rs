@@ -233,7 +233,7 @@ impl DohFrontend {
         backend_socket.connect(self.backend_socket_addr)?;
         backend_socket.set_nonblocking(true)?;
 
-        let frontend_socket = std::net::UdpSocket::bind(self.listen_socket_addr)?;
+        let frontend_socket = bind_udp_socket_retry(self.listen_socket_addr)?;
         frontend_socket.set_nonblocking(true)?;
 
         let clients = ClientMap::new(create_quiche_config(
@@ -472,4 +472,19 @@ fn build_pipe() -> Result<(File, File)> {
         }
     }
     Err(anyhow::Error::new(std::io::Error::last_os_error()).context("build_pipe failed"))
+}
+
+// Can retry to bind the socket address if it is in use.
+fn bind_udp_socket_retry(addr: std::net::SocketAddr) -> Result<std::net::UdpSocket> {
+    for _ in 0..3 {
+        match std::net::UdpSocket::bind(addr) {
+            Ok(socket) => return Ok(socket),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                warn!("Binding socket address {} that is in use. Try again", addr);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(anyhow::anyhow!(e)),
+        }
+    }
+    Err(anyhow::anyhow!(std::io::Error::last_os_error()))
 }
