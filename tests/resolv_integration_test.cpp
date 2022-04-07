@@ -4240,8 +4240,9 @@ TEST_F(ResolverTest, getDnsNetId) {
     EXPECT_EQ(500, readResponseCode(fd));
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
-TEST_F(ResolverTest, DISABLED_BlockDnsQueryWithUidRule) {
+// TODO(b/219434602): find an alternative way to block DNS packets on T+.
+TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
+    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -4289,8 +4290,9 @@ TEST_F(ResolverTest, DISABLED_BlockDnsQueryWithUidRule) {
     }
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
-TEST_F(ResolverTest, DISABLED_GetAddrinfo_BlockDnsQueryWithUidRule) {
+// TODO(b/219434602): find an alternative way to block DNS packets on T+.
+TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
+    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -4340,8 +4342,9 @@ TEST_F(ResolverTest, DISABLED_GetAddrinfo_BlockDnsQueryWithUidRule) {
     }
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
-TEST_F(ResolverTest, DISABLED_EnforceDnsUid) {
+// TODO(b/219434602): find an alternative way to block DNS packets on T+.
+TEST_F(ResolverTest, EnforceDnsUid) {
+    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -5836,8 +5839,9 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
     EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
-TEST_F(ResolverTest, DISABLED_BlockDnsQueryUidDoesNotLeadToBadServer) {
+// TODO(b/219434602): find an alternative way to block DNS packets on T+.
+TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
+    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -7087,8 +7091,9 @@ TEST_F(ResolverMultinetworkTest, OneCachePerNetwork) {
     EXPECT_EQ(GetNumQueries(*dnsPair2->dnsServer, host_name), 1U);
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets or delete the test.
-TEST_F(ResolverMultinetworkTest, DISABLED_DnsWithVpn) {
+// TODO(b/219434602): find an alternative way to block DNS packets on T+.
+TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
+    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
     constexpr char host_name[] = "ohayou.example.com.";
