@@ -89,8 +89,6 @@ union sockaddr_union {
 };
 constexpr int MAXPACKET = 8 * 1024;
 
-const unsigned C_UNICAST = 0x8000;  // unicast-response bit for MDNS
-
 struct ResState {
     ResState(const android_net_context* netcontext, android::net::NetworkDnsEventReported* dnsEvent)
         : netid(netcontext->dns_netid),

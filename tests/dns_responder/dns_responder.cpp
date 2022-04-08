@@ -978,10 +978,8 @@ bool DNSResponder::makeResponse(DNSHeader* header, int protocol, char* response,
 
 bool DNSResponder::makeResponseFromAddressOrHostname(DNSHeader* header, char* response,
                                                      size_t* response_len) const {
-    const unsigned unicast_bit = 0x8000;  // unicast-response bit for MDNS
     for (const DNSQuestion& question : header->questions) {
-        if (question.qclass != ns_class::ns_c_in && question.qclass != ns_class::ns_c_any &&
-            question.qclass != (unicast_bit | ns_class::ns_c_in)) {
+        if (question.qclass != ns_class::ns_c_in && question.qclass != ns_class::ns_c_any) {
             LOG(INFO) << "unsupported question class " << question.qclass;
             return makeErrorResponse(header, ns_rcode::ns_r_notimpl, response, response_len);
         }
