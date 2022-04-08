@@ -253,7 +253,7 @@ static struct timespec evNowTime(void) {
 // END: Code copied from ISC eventlib
 
 /* BIONIC-BEGIN: implement source port randomization */
-static int random_bind(int s, int family, bool isMdns) {
+static int random_bind(int s, int family) {
     sockaddr_union u;
     int j;
     socklen_t slen;
@@ -281,7 +281,7 @@ static int random_bind(int s, int family, bool isMdns) {
         int port = 1025 + (arc4random_uniform(65535 - 1025));
         // RFC 6762 section 5.1: Don't use 5353 source port on one-shot Multicast DNS queries. DNS
         // resolver does not fully compliant mDNS.
-        if (isMdns && port == 5353) continue;
+        if (port == 5353) continue;
 
         if (family == AF_INET)
             u.sin.sin_port = htons(port);
@@ -779,7 +779,7 @@ same_ns:
             }
         }
         errno = 0;
-        if (random_bind(statp->tcp_nssock, nsap->sa_family, false /* isMdns */) < 0) {
+        if (random_bind(statp->tcp_nssock, nsap->sa_family) < 0) {
             *terrno = errno;
             dump_error("bind/vc", nsap);
             statp->closeSockets();
@@ -1082,9 +1082,7 @@ static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd
         }
     }
 
-    const auto addr = IPSockAddr::toIPSockAddr(*sockap);
-    const bool isMdns = (addr == mdns_addrs[0] || addr == mdns_addrs[1]);
-    if (random_bind(*fd_out, sockap->sa_family, isMdns) < 0) {
+    if (random_bind(*fd_out, sockap->sa_family) < 0) {
         *terrno = errno;
         dump_error("bind", sockap);
         return 0;
