@@ -92,6 +92,7 @@ const std::string kDotValidationLatencyFactorFlag(
         "persist.device_config.netd_native.dot_validation_latency_factor");
 const std::string kDotValidationLatencyOffsetMsFlag(
         "persist.device_config.netd_native.dot_validation_latency_offset_ms");
+const std::string kDotQuickFallbackFlag("persist.device_config.netd_native.dot_quick_fallback");
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
 extern "C" int android_getaddrinfofornet(const char* hostname, const char* servname,
@@ -4913,6 +4914,77 @@ TEST_F(ResolverTest, TlsServerValidation_UdpProbe) {
             thread->join();
             thread.reset();
         }
+    }
+}
+
+// Verifies that DNS queries can quick fall back to UDP if the first DoT server is unresponsive.
+TEST_F(ResolverTest, DotQuickFallback) {
+    constexpr int DOT_CONNECT_TIMEOUT_MS = 1000;
+    const std::string addr1 = getUniqueIPv4Address();
+    const std::string addr2 = getUniqueIPv4Address();
+    test::DNSResponder dns1(addr1);
+    test::DNSResponder dns2(addr2);
+    test::DnsTlsFrontend dot1(addr1, "853", addr1, "53");
+    test::DnsTlsFrontend dot2(addr2, "853", addr2, "53");
+
+    dns1.addMapping(kHelloExampleCom, ns_type::ns_t_aaaa, kHelloExampleComAddrV6);
+    dns2.addMapping(kHelloExampleCom, ns_type::ns_t_aaaa, kHelloExampleComAddrV6);
+    ASSERT_TRUE(dns1.startServer());
+    ASSERT_TRUE(dns2.startServer());
+    ASSERT_TRUE(dot1.startServer());
+    ASSERT_TRUE(dot2.startServer());
+
+    static const struct TestConfig {
+        std::string privateDnsMode;
+        int dotQuickFallbackFlag;
+    } testConfigs[] = {
+            // clang-format off
+            {"OPPORTUNISTIC", 0},
+            {"OPPORTUNISTIC", 1},
+            {"STRICT",        0},
+            {"STRICT",        1},
+            // clang-format on
+    };
+
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(fmt::format("testConfig: [{}, {}]", config.privateDnsMode,
+                                 config.dotQuickFallbackFlag));
+
+        const bool canQuickFallback =
+                (config.dotQuickFallbackFlag == 1) && (config.privateDnsMode == "OPPORTUNISTIC");
+        ScopedSystemProperties sp1(kDotConnectTimeoutMsFlag,
+                                   std::to_string(DOT_CONNECT_TIMEOUT_MS));
+        ScopedSystemProperties sp2(kDotQuickFallbackFlag,
+                                   std::to_string(config.dotQuickFallbackFlag));
+        resetNetwork();
+
+        auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+        parcel.servers = {addr1, addr2};
+        parcel.tlsServers = {addr1, addr2};
+        parcel.tlsName = (config.privateDnsMode == "STRICT") ? kDefaultPrivateDnsHostName : "";
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+
+        EXPECT_TRUE(WaitForPrivateDnsValidation(dot1.listen_address(), true));
+        EXPECT_TRUE(WaitForPrivateDnsValidation(dot2.listen_address(), true));
+        EXPECT_TRUE(dot1.waitForQueries(1));
+        EXPECT_TRUE(dot2.waitForQueries(1));
+        dot1.clearQueries();
+        dot2.clearQueries();
+        dot1.clearConnectionsCount();
+        dot2.clearConnectionsCount();
+
+        // Set the DoT server unresponsive to connection handshake.
+        dot1.setHangOnHandshakeForTesting(true);
+
+        int fd = resNetworkQuery(TEST_NETID, kHelloExampleCom, ns_c_in, ns_t_aaaa,
+                                 ANDROID_RESOLV_NO_CACHE_LOOKUP);
+        expectAnswersValid(fd, AF_INET6, kHelloExampleComAddrV6);
+
+        EXPECT_EQ(dot1.acceptConnectionsCount(), 1);
+        EXPECT_EQ(dot2.acceptConnectionsCount(), canQuickFallback ? 0 : 1);
+        EXPECT_EQ(dot2.queries(), canQuickFallback ? 0 : 1);
+
+        dot1.setHangOnHandshakeForTesting(false);
     }
 }
 
