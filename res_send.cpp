@@ -1436,9 +1436,13 @@ int res_tls_send(const std::list<DnsTlsServer>& tlsServers, ResState* statp, con
                  const Slice answer, int* rcode, PrivateDnsMode mode) {
     if (tlsServers.empty()) return -1;
     LOG(INFO) << __func__ << ": performing query over TLS";
+    const bool dotQuickFallback =
+            (mode == PrivateDnsMode::STRICT)
+                    ? 0
+                    : Experiments::getInstance()->getFlag("dot_quick_fallback", 1);
     int resplen = 0;
-    const auto response =
-            DnsTlsDispatcher::getInstance().query(tlsServers, statp, query, answer, &resplen);
+    const auto response = DnsTlsDispatcher::getInstance().query(tlsServers, statp, query, answer,
+                                                                &resplen, dotQuickFallback);
 
     LOG(INFO) << __func__ << ": TLS query result: " << static_cast<int>(response);
     if (mode == PrivateDnsMode::OPPORTUNISTIC) {
