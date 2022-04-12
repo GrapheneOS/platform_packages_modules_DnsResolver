@@ -59,6 +59,7 @@ class Experiments {
             "dot_revalidation_threshold",
             "dot_xport_unusable_threshold",
             "dot_query_timeout_ms",
+            "dot_quick_fallback",
             "dot_validation_latency_factor",
             "dot_validation_latency_offset_ms",
             "doh",
