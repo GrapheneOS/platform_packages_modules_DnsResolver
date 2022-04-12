@@ -2190,9 +2190,10 @@ int getAsyncResponse(int fd, int* rcode, uint8_t* buf, int bufLen) {
     wait_fd[0].fd = fd;
     wait_fd[0].events = POLLIN;
     short revents;
-    int ret;
 
-    ret = poll(wait_fd, 1, -1);
+    if (int ret = poll(wait_fd, 1, -1); ret <= 0) {
+        return -1;
+    }
     revents = wait_fd[0].revents;
     if (revents & POLLIN) {
         return resNetworkResult(fd, rcode, buf, bufLen);
@@ -2202,12 +2203,10 @@ int getAsyncResponse(int fd, int* rcode, uint8_t* buf, int bufLen) {
 
 std::string toString(uint8_t* buf, int bufLen, int ipType) {
     ns_msg handle;
-    int ancount, n = 0;
     ns_rr rr;
 
     if (ns_initparse((const uint8_t*)buf, bufLen, &handle) >= 0) {
-        ancount = ns_msg_count(handle, ns_s_an);
-        if (ns_parserr(&handle, ns_s_an, n, &rr) == 0) {
+        if (ns_parserr(&handle, ns_s_an, 0, &rr) == 0) {
             const uint8_t* rdata = ns_rr_rdata(rr);
             char buffer[INET6_ADDRSTRLEN];
             if (inet_ntop(ipType, (const char*)rdata, buffer, sizeof(buffer))) {
@@ -4999,15 +4998,26 @@ TEST_F(ResolverTest, FlushNetworkCache) {
 
     const hostent* result = gethostbyname("hello");
     EXPECT_EQ(1U, GetNumQueriesForType(dns, ns_type::ns_t_a, kHelloExampleCom));
+    std::function<bool()> HasTheExpectedResult = [result]() -> bool {
+        if (result == nullptr) return false;
+        EXPECT_EQ(4, result->h_length);
+        if (result->h_addr_list[0] == nullptr) return false;
+        EXPECT_EQ(kHelloExampleComAddrV4, ToString(result));
+        EXPECT_TRUE(result->h_addr_list[1] == nullptr);
+        return true;
+    };
+    ASSERT_TRUE(HasTheExpectedResult());
 
     // get result from cache
     result = gethostbyname("hello");
     EXPECT_EQ(1U, GetNumQueriesForType(dns, ns_type::ns_t_a, kHelloExampleCom));
+    ASSERT_TRUE(HasTheExpectedResult());
 
     EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
 
     result = gethostbyname("hello");
     EXPECT_EQ(2U, GetNumQueriesForType(dns, ns_type::ns_t_a, kHelloExampleCom));
+    ASSERT_TRUE(HasTheExpectedResult());
 }
 
 TEST_F(ResolverTest, FlushNetworkCache_random) {
@@ -6645,7 +6655,6 @@ TEST_F(ResolverTest, MdnsGetAddrInfo_fallback) {
             EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
             EXPECT_EQ(2U, GetNumQueries(dns, host_name));
         }
-        std::string result_str = ToString(result);
         EXPECT_THAT(ToStrings(result), testing::UnorderedElementsAreArray(config.expected_addr));
 
         mdnsv4.clearQueries();
