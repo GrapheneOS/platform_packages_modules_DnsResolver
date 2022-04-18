@@ -3099,6 +3099,57 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64Synthesize) {
     EXPECT_EQ(ToString(result), "1.2.3.4");
 }
 
+TEST_F(ResolverTest, GetAddrInfo_Dns64Canonname) {
+    constexpr char listen_addr[] = "::1";
+    constexpr char dns64_name[] = "ipv4only.arpa.";
+    constexpr char host_name[] = "v4only.example.com.";
+    const std::vector<DnsRecord> records = {
+            {dns64_name, ns_type::ns_t_aaaa, "64:ff9b::192.0.0.170"},
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+    };
+
+    test::DNSResponder dns(listen_addr);
+    StartDns(dns, records);
+
+    std::vector<std::string> servers = {listen_addr};
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
+
+    // Start NAT64 prefix discovery and wait for it to complete.
+    EXPECT_TRUE(mDnsClient.resolvService()->startPrefix64Discovery(TEST_NETID).isOk());
+    EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
+
+    // clang-format off
+    static const struct TestConfig {
+        int family;
+        int flags;
+        std::vector<std::string> expectedAddresses;
+        const char* expectedCanonname;
+
+        std::string asParameters() const {
+            return fmt::format("family={}, flags={}", family, flags);
+        }
+    } testConfigs[]{
+        {AF_UNSPEC,            0, {"64:ff9b::102:304"}, nullptr},
+        {AF_UNSPEC, AI_CANONNAME, {"64:ff9b::102:304"}, "v4only.example.com"},
+        {AF_INET6,             0, {"64:ff9b::102:304"}, nullptr},
+        {AF_INET6,  AI_CANONNAME, {"64:ff9b::102:304"}, "v4only.example.com"},
+    };
+    // clang-format on
+
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(config.asParameters());
+
+        const addrinfo hints = {
+                .ai_family = config.family, .ai_flags = config.flags, .ai_socktype = SOCK_DGRAM};
+        ScopedAddrinfo result = safe_getaddrinfo("v4only", nullptr, &hints);
+        ASSERT_TRUE(result != nullptr);
+        EXPECT_EQ(ToString(result), "64:ff9b::102:304");
+        const auto* ai = result.get();
+        ASSERT_TRUE(ai != nullptr);
+        EXPECT_STREQ(ai->ai_canonname, config.expectedCanonname);
+    }
+}
+
 TEST_F(ResolverTest, GetAddrInfo_Dns64QuerySpecified) {
     constexpr char listen_addr[] = "::1";
     constexpr char dns64_name[] = "ipv4only.arpa.";
