@@ -3074,32 +3074,80 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64Synthesize) {
     EXPECT_TRUE(mDnsClient.resolvService()->startPrefix64Discovery(TEST_NETID).isOk());
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
 
-    // hints are necessary in order to let netd know which type of addresses the caller is
-    // interested in.
-    const addrinfo hints = {.ai_family = AF_UNSPEC};
+    // If the socket type is not specified, every address will appear twice, once for
+    // SOCK_STREAM and one for SOCK_DGRAM. Just pick one because the addresses for
+    // the second query of different socket type are responded by the cache.
+    // See android_getaddrinfofornetcontext in packages/modules/DnsResolver/getaddrinfo.cpp
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
     ScopedAddrinfo result = safe_getaddrinfo("v4only", nullptr, &hints);
     EXPECT_TRUE(result != nullptr);
-    // TODO: BUG: there should only be two queries, one AAAA (which returns no records) and one A
-    // (which returns 1.2.3.4). But there is an extra AAAA.
-    EXPECT_EQ(3U, GetNumQueries(dns, host_name));
-
-    std::string result_str = ToString(result);
-    EXPECT_EQ(result_str, "64:ff9b::102:304");
+    // Expect that there are two queries, one AAAA (which returns no records) and one A
+    // (which returns 1.2.3.4).
+    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(ToString(result), "64:ff9b::102:304");
 
     // Stopping NAT64 prefix discovery disables synthesis.
     EXPECT_TRUE(mDnsClient.resolvService()->stopPrefix64Discovery(TEST_NETID).isOk());
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_NOT_FOUND));
-
     dns.clearQueries();
 
     result = safe_getaddrinfo("v4only", nullptr, &hints);
     EXPECT_TRUE(result != nullptr);
-    // TODO: BUG: there should only be one query, an AAAA (which returns no records), because the
-    // A is already cached. But there is an extra AAAA.
-    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
+    // Expect that there is one query, an AAAA (which returns no records), because the
+    // A is already cached.
+    EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(ToString(result), "1.2.3.4");
+}
 
-    result_str = ToString(result);
-    EXPECT_EQ(result_str, "1.2.3.4");
+TEST_F(ResolverTest, GetAddrInfo_Dns64Canonname) {
+    constexpr char listen_addr[] = "::1";
+    constexpr char dns64_name[] = "ipv4only.arpa.";
+    constexpr char host_name[] = "v4only.example.com.";
+    const std::vector<DnsRecord> records = {
+            {dns64_name, ns_type::ns_t_aaaa, "64:ff9b::192.0.0.170"},
+            {host_name, ns_type::ns_t_a, "1.2.3.4"},
+    };
+
+    test::DNSResponder dns(listen_addr);
+    StartDns(dns, records);
+
+    std::vector<std::string> servers = {listen_addr};
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
+
+    // Start NAT64 prefix discovery and wait for it to complete.
+    EXPECT_TRUE(mDnsClient.resolvService()->startPrefix64Discovery(TEST_NETID).isOk());
+    EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
+
+    // clang-format off
+    static const struct TestConfig {
+        int family;
+        int flags;
+        std::vector<std::string> expectedAddresses;
+        const char* expectedCanonname;
+
+        std::string asParameters() const {
+            return fmt::format("family={}, flags={}", family, flags);
+        }
+    } testConfigs[]{
+        {AF_UNSPEC,            0, {"64:ff9b::102:304"}, nullptr},
+        {AF_UNSPEC, AI_CANONNAME, {"64:ff9b::102:304"}, "v4only.example.com"},
+        {AF_INET6,             0, {"64:ff9b::102:304"}, nullptr},
+        {AF_INET6,  AI_CANONNAME, {"64:ff9b::102:304"}, "v4only.example.com"},
+    };
+    // clang-format on
+
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(config.asParameters());
+
+        const addrinfo hints = {
+                .ai_family = config.family, .ai_flags = config.flags, .ai_socktype = SOCK_DGRAM};
+        ScopedAddrinfo result = safe_getaddrinfo("v4only", nullptr, &hints);
+        ASSERT_TRUE(result != nullptr);
+        EXPECT_EQ(ToString(result), "64:ff9b::102:304");
+        const auto* ai = result.get();
+        ASSERT_TRUE(ai != nullptr);
+        EXPECT_STREQ(ai->ai_canonname, config.expectedCanonname);
+    }
 }
 
 TEST_F(ResolverTest, GetAddrInfo_Dns64QuerySpecified) {
@@ -3120,22 +3168,22 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QuerySpecified) {
     EXPECT_TRUE(mDnsClient.resolvService()->startPrefix64Discovery(TEST_NETID).isOk());
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
 
-    // Ensure to synthesize AAAA if AF_INET6 is specified, and not to synthesize AAAA
-    // in AF_INET case.
-    addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET6;
+    // Synthesize AAAA if AF_INET6 is specified and there is A record only. Make sure that A record
+    // is not returned as well.
+    addrinfo hints = {.ai_family = AF_INET6, .ai_socktype = SOCK_DGRAM};
     ScopedAddrinfo result = safe_getaddrinfo("v4only", nullptr, &hints);
     EXPECT_TRUE(result != nullptr);
-    std::string result_str = ToString(result);
-    EXPECT_EQ(result_str, "64:ff9b::102:304");
+    // One for AAAA query without an answer and one for A query which is used for DNS64 synthesis.
+    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(ToString(result), "64:ff9b::102:304");
+    dns.clearQueries();
 
-    hints.ai_family = AF_INET;
+    // Don't synthesize AAAA if AF_INET is specified and there is A record only.
+    hints = {.ai_family = AF_INET, .ai_socktype = SOCK_DGRAM};
     result = safe_getaddrinfo("v4only", nullptr, &hints);
     EXPECT_TRUE(result != nullptr);
-    EXPECT_LE(2U, GetNumQueries(dns, host_name));
-    result_str = ToString(result);
-    EXPECT_EQ(result_str, "1.2.3.4");
+    EXPECT_EQ(0U /*cached in previous queries*/, GetNumQueries(dns, host_name));
+    EXPECT_EQ(ToString(result), "1.2.3.4");
 }
 
 TEST_F(ResolverTest, GetAddrInfo_Dns64QueryUnspecifiedV6) {
@@ -3157,17 +3205,13 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QueryUnspecifiedV6) {
     EXPECT_TRUE(mDnsClient.resolvService()->startPrefix64Discovery(TEST_NETID).isOk());
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
 
-    const addrinfo hints = {.ai_family = AF_UNSPEC};
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
     ScopedAddrinfo result = safe_getaddrinfo("v4v6", nullptr, &hints);
     EXPECT_TRUE(result != nullptr);
-    EXPECT_LE(2U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
 
-    // In AF_UNSPEC case, do not synthesize AAAA if there's at least one AAAA answer.
-    const std::vector<std::string> result_strs = ToStrings(result);
-    for (const auto& str : result_strs) {
-        EXPECT_TRUE(str == "1.2.3.4" || str == "2001:db8::102:304")
-                << ", result_str='" << str << "'";
-    }
+    // Do not synthesize AAAA if there's at least one AAAA answer.
+    EXPECT_THAT(ToStrings(result), testing::ElementsAre("2001:db8::102:304", "1.2.3.4"));
 }
 
 TEST_F(ResolverTest, GetAddrInfo_Dns64QueryUnspecifiedNoV6) {
@@ -3188,14 +3232,13 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QueryUnspecifiedNoV6) {
     EXPECT_TRUE(mDnsClient.resolvService()->startPrefix64Discovery(TEST_NETID).isOk());
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
 
-    const addrinfo hints = {.ai_family = AF_UNSPEC};
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
     ScopedAddrinfo result = safe_getaddrinfo("v4v6", nullptr, &hints);
     EXPECT_TRUE(result != nullptr);
-    EXPECT_LE(2U, GetNumQueries(dns, host_name));
+    EXPECT_EQ(2U, GetNumQueries(dns, host_name));
 
-    // In AF_UNSPEC case, synthesize AAAA if there's no AAAA answer.
-    std::string result_str = ToString(result);
-    EXPECT_EQ(result_str, "64:ff9b::102:304");
+    // Synthesize AAAA if there's no AAAA answer and AF_UNSPEC is specified.
+    EXPECT_EQ(ToString(result), "64:ff9b::102:304");
 }
 
 TEST_F(ResolverTest, GetAddrInfo_Dns64QuerySpecialUseIPv4Addresses) {
@@ -3245,24 +3288,22 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QuerySpecialUseIPv4Addresses) {
         const char* host_name = testHostName.c_str();
         dns.addMapping(host_name, ns_type::ns_t_a, config.addr.c_str());
 
-        addrinfo hints;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET6;
+        // Expect no result because AF_INET6 is specified and don't synthesize special use IPv4
+        // address.
+        addrinfo hints = {.ai_family = AF_INET6, .ai_socktype = SOCK_DGRAM};
         ScopedAddrinfo result = safe_getaddrinfo(config.name.c_str(), nullptr, &hints);
-        // In AF_INET6 case, don't return IPv4 answers
         EXPECT_TRUE(result == nullptr);
-        EXPECT_LE(2U, GetNumQueries(dns, host_name));
+        EXPECT_EQ(2U, GetNumQueries(dns, host_name));
         dns.clearQueries();
 
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_UNSPEC;
+        // Expect special use IPv4 address only because AF_UNSPEC is specified and don't synthesize
+        // special use IPv4 address.
+        hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
         result = safe_getaddrinfo(config.name.c_str(), nullptr, &hints);
         EXPECT_TRUE(result != nullptr);
         // Expect IPv6 query only. IPv4 answer has been cached in previous query.
-        EXPECT_LE(1U, GetNumQueries(dns, host_name));
-        // In AF_UNSPEC case, don't synthesize special use IPv4 address.
-        std::string result_str = ToString(result);
-        EXPECT_EQ(result_str, config.addr.c_str());
+        EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+        EXPECT_EQ(ToString(result), config.addr);
         dns.clearQueries();
     }
 }
@@ -3288,24 +3329,25 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QueryWithNullArgumentHints) {
     EXPECT_TRUE(mDnsClient.resolvService()->startPrefix64Discovery(TEST_NETID).isOk());
     EXPECT_TRUE(WaitForNat64Prefix(EXPECT_FOUND));
 
-    // Assign argument hints of getaddrinfo() as null is equivalent to set ai_family AF_UNSPEC.
-    // In AF_UNSPEC case, synthesize AAAA if there has A answer only.
+    // Synthesize AAAA if there is A answer only and AF_UNSPEC (hints NULL) is specified.
+    // Assign argument hints of getaddrinfo() as null is equivalent to set ai_family AF_UNSPEC,
+    // ai_socktype 0 (any), and ai_protocol 0 (any). Note the setting ai_socktype 0 (any) causes
+    // that every address will appear twice, once for SOCK_STREAM and one for SOCK_DGRAM.
+    // See resolv_getaddrinfo in packages/modules/DnsResolver/getaddrinfo.cpp.
     ScopedAddrinfo result = safe_getaddrinfo("v4only", nullptr, nullptr);
     EXPECT_TRUE(result != nullptr);
     EXPECT_LE(2U, GetNumQueries(dns, host_name));
-    std::string result_str = ToString(result);
-    EXPECT_EQ(result_str, "64:ff9b::102:304");
+    EXPECT_EQ(ToString(result), "64:ff9b::102:304");
     dns.clearQueries();
 
-    // In AF_UNSPEC case, do not synthesize AAAA if there's at least one AAAA answer.
+    // Do not synthesize AAAA if there's at least one AAAA answer.
+    // The reason which the addresses appear twice is as mentioned above.
     result = safe_getaddrinfo("v4v6", nullptr, nullptr);
     EXPECT_TRUE(result != nullptr);
     EXPECT_LE(2U, GetNumQueries(dns, host_name2));
-    std::vector<std::string> result_strs = ToStrings(result);
-    for (const auto& str : result_strs) {
-        EXPECT_TRUE(str == "1.2.3.4" || str == "2001:db8::102:304")
-                << ", result_str='" << str << "'";
-    }
+    EXPECT_THAT(ToStrings(result),
+                testing::UnorderedElementsAre("2001:db8::102:304", "2001:db8::102:304", "1.2.3.4",
+                                              "1.2.3.4"));
 }
 
 TEST_F(ResolverTest, GetAddrInfo_Dns64QueryNullArgumentNode) {
@@ -3363,11 +3405,11 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QueryNullArgumentNode) {
         ASSERT_TRUE(result != nullptr);
 
         // Can't be synthesized because it should not get into Netd.
-        std::vector<std::string> result_strs = ToStrings(result);
-        for (const auto& str : result_strs) {
-            EXPECT_TRUE(str == config.addr_v4 || str == config.addr_v6)
-                    << ", result_str='" << str << "'";
-        }
+        // Every address appears twice, once for SOCK_STREAM and one for SOCK_DGRAM because the
+        // socket type is not specified.
+        EXPECT_THAT(ToStrings(result),
+                    testing::UnorderedElementsAre(config.addr_v4, config.addr_v4, config.addr_v6,
+                                                  config.addr_v6));
 
         // Assign hostname as null and service as numeric port number.
         hints.ai_flags = config.flag | AI_NUMERICSERV;
@@ -3375,11 +3417,10 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64QueryNullArgumentNode) {
         ASSERT_TRUE(result != nullptr);
 
         // Can't be synthesized because it should not get into Netd.
-        result_strs = ToStrings(result);
-        for (const auto& str : result_strs) {
-            EXPECT_TRUE(str == config.addr_v4 || str == config.addr_v6)
-                    << ", result_str='" << str << "'";
-        }
+        // The reason which the addresses appear twice is as mentioned above.
+        EXPECT_THAT(ToStrings(result),
+                    testing::UnorderedElementsAre(config.addr_v4, config.addr_v4, config.addr_v6,
+                                                  config.addr_v6));
     }
 }
 
