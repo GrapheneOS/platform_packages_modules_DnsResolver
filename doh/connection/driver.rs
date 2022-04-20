@@ -264,15 +264,12 @@ impl H3Driver {
     async fn drive(mut self) -> Result<Driver> {
         let _ = self.driver.status_tx.send(Status::H3);
         loop {
-            match self.drive_once().await {
-                Err(e) => {
-                    let _ = self
-                        .driver
-                        .status_tx
-                        .send(Status::Dead { session: self.driver.quiche_conn.session() });
-                    return Err(e);
-                }
-                Ok(()) => (),
+            if let Err(e) = self.drive_once().await {
+                let _ = self
+                    .driver
+                    .status_tx
+                    .send(Status::Dead { session: self.driver.quiche_conn.session() });
+                return Err(e)
             }
         }
     }
