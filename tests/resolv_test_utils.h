@@ -109,6 +109,9 @@ static constexpr char kHelloExampleComAddrV4[] = "1.2.3.4";
 static constexpr char kHelloExampleComAddrV6[] = "::1.2.3.4";
 static constexpr char kExampleComDomain[] = ".example.com";
 
+static const std::string kNat64Prefix = "64:ff9b::/96";
+static const std::string kNat64Prefix2 = "2001:db8:6464::/96";
+
 constexpr size_t kMaxmiumLabelSize = 63;  // see RFC 1035 section 2.3.4.
 
 static const std::vector<uint8_t> kHelloExampleComQueryV4 = {
