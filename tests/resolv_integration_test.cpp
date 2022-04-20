@@ -3099,6 +3099,71 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64Synthesize) {
     EXPECT_EQ(ToString(result), "1.2.3.4");
 }
 
+// TODO: merge to #GetAddrInfo_Dns64Synthesize once DNSResponder supports multi DnsRecords for a
+// hostname.
+TEST_F(ResolverTest, GetAddrInfo_Dns64SynthesizeMultiAnswers) {
+    const std::string kNat64Prefix = "64:ff9b::/96";
+    const std::vector<uint8_t> kHelloExampleComResponsesV4 = {
+            // scapy.DNS(
+            //   id=0,
+            //   qr=1,
+            //   ra=1,
+            //   qd=scapy.DNSQR(qname="hello.example.com",qtype="A"),
+            //   an=scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='1.2.3.4') /
+            //      scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='8.8.8.8') /
+            //      scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='81.117.21.202'))
+            /* Header */
+            0x00, 0x00, /* Transaction ID: 0x0000 */
+            0x81, 0x80, /* Flags: qr rd ra */
+            0x00, 0x01, /* Questions: 1 */
+            0x00, 0x03, /* Answer RRs: 3 */
+            0x00, 0x00, /* Authority RRs: 0 */
+            0x00, 0x00, /* Additional RRs: 0 */
+            /* Queries */
+            0x05, 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x07, 0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65,
+            0x03, 0x63, 0x6F, 0x6D, 0x00, /* Name: hello.example.com */
+            0x00, 0x01,                   /* Type: A */
+            0x00, 0x01,                   /* Class: IN */
+            0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65,
+            0x03, 0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+            0x00, 0x01,                   /* Type: A */
+            0x00, 0x01,                   /* Class: IN */
+            0x00, 0x00, 0x00, 0x00,       /* Time to live: 0 */
+            0x00, 0x04,                   /* Data length: 4 */
+            0x01, 0x02, 0x03, 0x04,       /* Address: 1.2.3.4 */
+            0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65,
+            0x03, 0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+            0x00, 0x01,                   /* Type: A */
+            0x00, 0x01,                   /* Class: IN */
+            0x00, 0x00, 0x00, 0x00,       /* Time to live: 0 */
+            0x00, 0x04,                   /* Data length: 4 */
+            0x08, 0x08, 0x08, 0x08,       /* Address: 8.8.8.8 */
+            0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65,
+            0x03, 0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+            0x00, 0x01,                   /* Type: A */
+            0x00, 0x01,                   /* Class: IN */
+            0x00, 0x00, 0x00, 0x00,       /* Time to live: 0 */
+            0x00, 0x04,                   /* Data length: 4 */
+            0x51, 0x75, 0x15, 0xca        /* Address: 81.117.21.202 */
+    };
+
+    test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
+    dns.addMappingBinaryPacket(kHelloExampleComQueryV4, kHelloExampleComResponsesV4);
+    StartDns(dns, {});
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    // Set the prefix, and expect to get a synthesized AAAA record.
+    EXPECT_TRUE(mDnsClient.resolvService()->setPrefix64(TEST_NETID, kNat64Prefix).isOk());
+
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
+    ScopedAddrinfo result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+
+    // Synthesize AAAA if there's no AAAA answer and AF_UNSPEC is specified.
+    EXPECT_THAT(ToStrings(result),
+                testing::ElementsAre("64:ff9b::102:304", "64:ff9b::808:808", "64:ff9b::5175:15ca"));
+}
+
 TEST_F(ResolverTest, GetAddrInfo_Dns64Canonname) {
     constexpr char listen_addr[] = "::1";
     constexpr char dns64_name[] = "ipv4only.arpa.";
