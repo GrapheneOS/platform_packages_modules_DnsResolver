@@ -137,7 +137,7 @@ impl Cache {
     /// Behaves as `Config::from_cert_path`, but with a cache.
     /// If any object previously given out by this cache is still live,
     /// a duplicate will not be made.
-    pub fn from_key(&self, key: &Key) -> Result<Config> {
+    pub fn get(&self, key: &Key) -> Result<Config> {
         // Fast path - read-only access to state retrieves config
         if let Some(config) = self.state.read().unwrap().get_config(key) {
             return Ok(config);
@@ -191,9 +191,9 @@ fn create_quiche_config() {
 fn shared_cache() {
     let cache_a = Cache::new();
     let cache_b = cache_a.clone();
-    let config_a = cache_a.from_key(&Key { cert_path: None, max_idle_timeout: 1000 }).unwrap();
+    let config_a = cache_a.get(&Key { cert_path: None, max_idle_timeout: 1000 }).unwrap();
     assert_eq!(Arc::strong_count(&config_a.0), 2);
-    let _config_b = cache_b.from_key(&Key { cert_path: None, max_idle_timeout: 1000 }).unwrap();
+    let _config_b = cache_b.get(&Key { cert_path: None, max_idle_timeout: 1000 }).unwrap();
     assert_eq!(Arc::strong_count(&config_a.0), 3);
 }
 
@@ -203,11 +203,11 @@ fn different_keys() {
     let key_a = Key { cert_path: None, max_idle_timeout: 1000 };
     let key_b = Key { cert_path: Some("a".to_string()), max_idle_timeout: 1000 };
     let key_c = Key { cert_path: Some("a".to_string()), max_idle_timeout: 5000 };
-    let config_a = cache.from_key(&key_a).unwrap();
-    let config_b = cache.from_key(&key_b).unwrap();
-    let _config_b = cache.from_key(&key_b).unwrap();
-    let config_c = cache.from_key(&key_c).unwrap();
-    let _config_c = cache.from_key(&key_c).unwrap();
+    let config_a = cache.get(&key_a).unwrap();
+    let config_b = cache.get(&key_b).unwrap();
+    let _config_b = cache.get(&key_b).unwrap();
+    let config_c = cache.get(&key_c).unwrap();
+    let _config_c = cache.get(&key_c).unwrap();
 
     assert_eq!(Arc::strong_count(&config_a.0), 1);
     assert_eq!(Arc::strong_count(&config_b.0), 2);
@@ -222,9 +222,9 @@ fn lifetimes() {
     let cache = Cache::new();
     let key_a = Key { cert_path: Some("a".to_string()), max_idle_timeout: 1000 };
     let key_b = Key { cert_path: Some("b".to_string()), max_idle_timeout: 1000 };
-    let config_none = cache.from_key(&Key { cert_path: None, max_idle_timeout: 1000 }).unwrap();
-    let config_a = cache.from_key(&key_a).unwrap();
-    let config_b = cache.from_key(&key_b).unwrap();
+    let config_none = cache.get(&Key { cert_path: None, max_idle_timeout: 1000 }).unwrap();
+    let config_a = cache.get(&key_a).unwrap();
+    let config_b = cache.get(&key_b).unwrap();
 
     // The first two we created should have a strong count of one - those handles are the only
     // thing keeping them alive.
@@ -232,7 +232,7 @@ fn lifetimes() {
     assert_eq!(Arc::strong_count(&config_a.0), 1);
 
     // If we try to get another handle we already have, it should be the same one.
-    let _config_a2 = cache.from_key(&key_a).unwrap();
+    let _config_a2 = cache.get(&key_a).unwrap();
     assert_eq!(Arc::strong_count(&config_a.0), 2);
 
     // config_b was most recently created, so it should have a keep-alive
@@ -256,7 +256,7 @@ fn lifetimes() {
 
     // If we try to get a config which is still kept alive by the cache, we should get the same
     // one.
-    let _config_b2 = cache.from_key(&key_b).unwrap();
+    let _config_b2 = cache.get(&key_b).unwrap();
     assert_eq!(config_b_weak.strong_count(), 2);
 
     // We broke None, but "a" and "b" should still both be alive. Check that
