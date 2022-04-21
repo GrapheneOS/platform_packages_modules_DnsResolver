@@ -118,7 +118,7 @@ impl Driver {
                     cert_path: info.cert_path.clone(),
                     max_idle_timeout: info.idle_timeout_ms,
                 };
-                let config = self.config_cache.from_key(&key)?;
+                let config = self.config_cache.get(&key)?;
                 vacant.insert(
                     Network::new(info, config, self.validation.clone(), self.tagger.clone())
                         .await?,
