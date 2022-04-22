@@ -113,14 +113,10 @@ impl Driver {
     pub async fn drive(mut self) -> Result<()> {
         while let Some(cmd) = self.command_rx.recv().await {
             match cmd {
-                Command::Probe(duration) => match self.probe(duration).await {
-                    Err(e) => self.status_tx.send(Status::Failed(Arc::new(e)))?,
-                    Ok(()) => (),
-                },
-                Command::Query(query) => match self.send_query(query).await {
-                    Err(e) => debug!("Unable to send query: {:?}", e),
-                    Ok(()) => (),
-                },
+                Command::Probe(duration) =>
+                    if let Err(e) = self.probe(duration).await { self.status_tx.send(Status::Failed(Arc::new(e)))? },
+                Command::Query(query) =>
+                    if let Err(e) = self.send_query(query).await { debug!("Unable to send query: {:?}", e) },
             };
         }
         Ok(())
