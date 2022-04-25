@@ -68,6 +68,7 @@ class Experiments {
             "doh_idle_timeout_ms",
             "doh_session_resumption",
             "mdns_resolution",
+            "max_queries_global",
     };
     // This value is used in updateInternal as the default value if any flags can't be found.
     static constexpr int kFlagIntDefault = INT_MIN;
