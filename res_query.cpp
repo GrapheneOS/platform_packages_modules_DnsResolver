@@ -134,11 +134,11 @@ again:
         if ((statp->netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
             (statp->flags & RES_F_EDNS0ERR) && !retried) {
-            LOG(DEBUG) << __func__ << ": retry without EDNS0";
+            LOG(INFO) << __func__ << ": retry without EDNS0";
             retried = true;
             goto again;
         }
-        LOG(DEBUG) << __func__ << ": send error";
+        LOG(INFO) << __func__ << ": send error";
 
         // Note that rcodes SERVFAIL, NOTIMP, REFUSED may cause res_nquery() to return a general
         // error code EAI_AGAIN, but mapping the error code from rcode as res_queryN() does for
@@ -166,9 +166,9 @@ again:
     }
 
     if (hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
-        LOG(DEBUG) << __func__ << ": rcode = (" << p_rcode(hp->rcode)
-                   << "), counts = an:" << ntohs(hp->ancount) << " ns:" << ntohs(hp->nscount)
-                   << " ar:" << ntohs(hp->arcount);
+        LOG(INFO) << __func__ << ": rcode = (" << p_rcode(hp->rcode)
+                  << "), counts = an:" << ntohs(hp->ancount) << " ns:" << ntohs(hp->nscount)
+                  << " ar:" << ntohs(hp->arcount);
 
         switch (hp->rcode) {
             case NXDOMAIN:
