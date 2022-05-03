@@ -1658,7 +1658,7 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
         }
     }
 
-    LOG(DEBUG) << __func__ << ": rcode=" << hp->rcode << ", ancount=" << ntohs(hp->ancount);
+    LOG(DEBUG) << __func__ << ": rcode=" << rcode << ", ancount=" << ntohs(hp->ancount);
 
     t->n = n;
     return {
@@ -1780,7 +1780,7 @@ static int res_queryN(const char* name, res_target* target, ResState* res, int* 
                 retried = true;
                 goto again;
             }
-            LOG(DEBUG) << __func__ << ": rcode=" << hp->rcode << ", ancount=" << ntohs(hp->ancount);
+            LOG(DEBUG) << __func__ << ": rcode=" << rcode << ", ancount=" << ntohs(hp->ancount);
             continue;
         }
 
