@@ -727,9 +727,9 @@ void DnsProxyListener::GetAddrInfoHandler::doDns64Synthesis(int32_t* rv, addrinf
 }
 
 void DnsProxyListener::GetAddrInfoHandler::run() {
-    LOG(DEBUG) << "GetAddrInfoHandler::run: {" << mNetContext.app_netid << " "
-               << mNetContext.app_mark << " " << mNetContext.dns_netid << " "
-               << mNetContext.dns_mark << " " << mNetContext.uid << " " << mNetContext.flags << "}";
+    LOG(INFO) << "GetAddrInfoHandler::run: {" << mNetContext.app_netid << " "
+              << mNetContext.app_mark << " " << mNetContext.dns_netid << " " << mNetContext.dns_mark
+              << " " << mNetContext.uid << " " << mNetContext.flags << "}";
 
     addrinfo* result = nullptr;
     Stopwatch s;
@@ -902,9 +902,9 @@ DnsProxyListener::ResNSendHandler::ResNSendHandler(SocketClient* c, std::string 
     : Handler(c), mMsg(std::move(msg)), mFlags(flags), mNetContext(netcontext) {}
 
 void DnsProxyListener::ResNSendHandler::run() {
-    LOG(DEBUG) << "ResNSendHandler::run: " << mFlags << " / {" << mNetContext.app_netid << " "
-               << mNetContext.app_mark << " " << mNetContext.dns_netid << " "
-               << mNetContext.dns_mark << " " << mNetContext.uid << " " << mNetContext.flags << "}";
+    LOG(INFO) << "ResNSendHandler::run: " << mFlags << " / {" << mNetContext.app_netid << " "
+              << mNetContext.app_mark << " " << mNetContext.dns_netid << " " << mNetContext.dns_mark
+              << " " << mNetContext.uid << " " << mNetContext.flags << "}";
 
     Stopwatch s;
     maybeFixupNetContext(&mNetContext, mClient->getPid());
