@@ -1652,13 +1652,13 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
         if ((res_temp.netcontext_flags &
              (NET_CONTEXT_FLAG_USE_DNS_OVER_TLS | NET_CONTEXT_FLAG_USE_EDNS)) &&
             (res_temp.flags & RES_F_EDNS0ERR)) {
-            LOG(DEBUG) << __func__ << ": retry without EDNS0";
+            LOG(INFO) << __func__ << ": retry without EDNS0";
             n = res_nmkquery(QUERY, name, cl, type, {}, buf, res_temp.netcontext_flags);
             n = res_nsend(&res_temp, {buf, n}, {t->answer.data(), anslen}, &rcode, 0);
         }
     }
 
-    LOG(DEBUG) << __func__ << ": rcode=" << hp->rcode << ", ancount=" << ntohs(hp->ancount);
+    LOG(INFO) << __func__ << ": rcode=" << rcode << ", ancount=" << ntohs(hp->ancount);
 
     t->n = n;
     return {
@@ -1780,7 +1780,7 @@ static int res_queryN(const char* name, res_target* target, ResState* res, int* 
                 retried = true;
                 goto again;
             }
-            LOG(DEBUG) << __func__ << ": rcode=" << hp->rcode << ", ancount=" << ntohs(hp->ancount);
+            LOG(INFO) << __func__ << ": rcode=" << rcode << ", ancount=" << ntohs(hp->ancount);
             continue;
         }
 
