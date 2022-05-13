@@ -67,8 +67,7 @@ std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedAndUsableServerList(
 
         for (const auto& tlsServer : tlsServers) {
             const Key key = std::make_pair(mark, tlsServer);
-            if (const Transport* xport = getTransport(key); xport != nullptr) {
-                // DoT revalidation specific feature.
+            if (Transport* xport = getTransport(key); xport != nullptr) {
                 if (!xport->usable()) {
                     // Don't use this xport. It will be removed after timeout
                     // (IDLE_TIMEOUT minutes).
@@ -209,9 +208,14 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
         std::lock_guard guard(sLock);
         --xport->useCount;
         xport->lastUsed = now;
+        if (code == DnsTlsTransport::Response::network_error) {
+            xport->continuousfailureCount++;
+        } else {
+            xport->continuousfailureCount = 0;
+        }
 
         // DoT revalidation specific feature.
-        if (xport->checkRevalidationNecessary(code)) {
+        if (xport->checkRevalidationNecessary()) {
             // Even if the revalidation passes, it doesn't guarantee that DoT queries
             // to the xport can stop failing because revalidation creates a new connection
             // to probe while the xport still uses an existing connection. So far, there isn't
@@ -336,26 +340,23 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::getTransport(const Key& key) {
     return (it == mStore.end() ? nullptr : it->second.get());
 }
 
-bool DnsTlsDispatcher::Transport::checkRevalidationNecessary(DnsTlsTransport::Response code) {
+bool DnsTlsDispatcher::Transport::checkRevalidationNecessary() {
     if (triggerThreshold <= 0) return false;
+    if (continuousfailureCount < triggerThreshold) return false;
+    if (isRevalidationThresholdReached) return false;
 
-    if (code == DnsTlsTransport::Response::network_error) {
-        continuousfailureCount++;
-    } else {
-        continuousfailureCount = 0;
-    }
-
-    // triggerThreshold must be greater than 0 because the value of revalidationEnabled is true.
-    if (usable() && continuousfailureCount == triggerThreshold) {
-        return true;
-    }
-    return false;
+    isRevalidationThresholdReached = true;
+    return true;
 }
 
-bool DnsTlsDispatcher::Transport::usable() const {
+bool DnsTlsDispatcher::Transport::usable() {
     if (unusableThreshold <= 0) return true;
 
-    return continuousfailureCount < unusableThreshold;
+    if (continuousfailureCount >= unusableThreshold) {
+        // Once reach the threshold, mark this Transport as unusable.
+        isXportUnusableThresholdReached = true;
+    }
+    return !isXportUnusableThresholdReached;
 }
 
 }  // end of namespace net

@@ -105,9 +105,12 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
 
         // If DoT revalidation is disabled, it returns true; otherwise, it returns
         // whether or not this Transport is usable.
-        bool usable() const REQUIRES(sLock);
+        bool usable() REQUIRES(sLock);
 
-        bool checkRevalidationNecessary(DnsTlsTransport::Response code) REQUIRES(sLock);
+        // Used to track if this Transport is usable.
+        int continuousfailureCount GUARDED_BY(sLock) = 0;
+
+        bool checkRevalidationNecessary() REQUIRES(sLock);
 
         std::chrono::milliseconds timeout() const { return mTimeout; }
 
@@ -116,8 +119,11 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
         static constexpr int kDotQueryTimeoutMs = -1;
 
       private:
-        // Used to track if this Transport is usable.
-        int continuousfailureCount GUARDED_BY(sLock) = 0;
+        // The flag to record whether or not dot_revalidation_threshold is ever reached.
+        bool isRevalidationThresholdReached GUARDED_BY(sLock) = false;
+
+        // The flag to record whether or not dot_xport_unusable_threshold is ever reached.
+        bool isXportUnusableThresholdReached GUARDED_BY(sLock) = false;
 
         // If the number of continuous query timeouts reaches the threshold, mark the
         // server as unvalidated and trigger a validation.
