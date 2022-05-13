@@ -60,6 +60,8 @@ const std::string kDohProbeTimeoutFlag("persist.device_config.netd_native.doh_pr
 const std::string kDohIdleTimeoutFlag("persist.device_config.netd_native.doh_idle_timeout_ms");
 const std::string kDohSessionResumptionFlag(
         "persist.device_config.netd_native.doh_session_resumption");
+const std::string kDotAsyncHandshakeFlag("persist.device_config.netd_native.dot_async_handshake");
+const std::string kDotMaxretriesFlag("persist.device_config.netd_native.dot_maxtries");
 
 constexpr int MAXPACKET = (8 * 1024);
 
@@ -403,6 +405,11 @@ INSTANTIATE_TEST_SUITE_P(PrivateDns, TransportParameterizedTest,
                          });
 
 TEST_P(TransportParameterizedTest, GetAddrInfo) {
+    // TODO: Remove the flags and fix the test.
+    ScopedSystemProperties sp1(kDotAsyncHandshakeFlag, "0");
+    ScopedSystemProperties sp2(kDotMaxretriesFlag, "3");
+    resetNetwork();
+
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
@@ -445,6 +452,11 @@ TEST_P(TransportParameterizedTest, GetAddrInfo) {
 }
 
 TEST_P(TransportParameterizedTest, MdnsGetAddrInfo_fallback) {
+    // TODO: Remove the flags and fix the test.
+    ScopedSystemProperties sp1(kDotAsyncHandshakeFlag, "0");
+    ScopedSystemProperties sp2(kDotMaxretriesFlag, "3");
+    resetNetwork();
+
     constexpr char host_name[] = "hello.local.";
     test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService,
                               static_cast<ns_rcode>(-1));
@@ -570,6 +582,11 @@ TEST_F(PrivateDnsDohTest, ValidationFail) {
 //   - Fallback to UDP if DoH query times out
 //   - Fallback to DoT if DoH validation is in progress or has failed.
 TEST_F(PrivateDnsDohTest, QueryFailover) {
+    // TODO: Remove the flags and fix the test.
+    ScopedSystemProperties sp1(kDotAsyncHandshakeFlag, "0");
+    ScopedSystemProperties sp2(kDotMaxretriesFlag, "3");
+    resetNetwork();
+
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
     EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
