@@ -308,12 +308,11 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& 
     int queryTimeout = instance->getFlag("dot_query_timeout_ms", Transport::kDotQueryTimeoutMs);
 
     // Check and adjust the parameters if they are improperly set.
-    bool revalidationEnabled = false;
     const bool isForOpportunisticMode = server.name.empty();
-    if (triggerThr > 0 && unusableThr > 0 && isForOpportunisticMode) {
-        revalidationEnabled = true;
-    } else {
+    if (triggerThr <= 0 || !isForOpportunisticMode) {
         triggerThr = -1;
+    }
+    if (unusableThr <= 0 || !isForOpportunisticMode) {
         unusableThr = -1;
     }
     if (queryTimeout < 0) {
@@ -322,11 +321,10 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& 
         queryTimeout = 1000;
     }
 
-    ret = new Transport(server, mark, netId, mFactory.get(), revalidationEnabled, triggerThr,
-                        unusableThr, queryTimeout);
-    LOG(DEBUG) << "Transport is initialized with { " << triggerThr << ", " << unusableThr << ", "
-               << queryTimeout << "ms }"
-               << " for server { " << server.toIpString() << "/" << server.name << " }";
+    ret = new Transport(server, mark, netId, mFactory.get(), triggerThr, unusableThr, queryTimeout);
+    LOG(INFO) << "Transport is initialized with { " << triggerThr << ", " << unusableThr << ", "
+              << queryTimeout << "ms }"
+              << " for server { " << server.toIpString() << "/" << server.name << " }";
 
     mStore[key].reset(ret);
 
@@ -339,7 +337,7 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::getTransport(const Key& key) {
 }
 
 bool DnsTlsDispatcher::Transport::checkRevalidationNecessary(DnsTlsTransport::Response code) {
-    if (!revalidationEnabled) return false;
+    if (triggerThreshold <= 0) return false;
 
     if (code == DnsTlsTransport::Response::network_error) {
         continuousfailureCount++;
@@ -355,7 +353,7 @@ bool DnsTlsDispatcher::Transport::checkRevalidationNecessary(DnsTlsTransport::Re
 }
 
 bool DnsTlsDispatcher::Transport::usable() const {
-    if (!revalidationEnabled) return true;
+    if (unusableThreshold <= 0) return true;
 
     return continuousfailureCount < unusableThreshold;
 }
