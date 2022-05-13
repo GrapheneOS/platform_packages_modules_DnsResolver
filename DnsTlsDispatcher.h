@@ -83,11 +83,10 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
     // usage monitoring so we can expire idle sessions from the cache.
     struct Transport {
         Transport(const DnsTlsServer& server, unsigned mark, unsigned netId,
-                  IDnsTlsSocketFactory* _Nonnull factory, bool revalidationEnabled, int triggerThr,
-                  int unusableThr, int timeout)
+                  IDnsTlsSocketFactory* _Nonnull factory, int triggerThr, int unusableThr,
+                  int timeout)
             : transport(server, mark, factory),
               mNetId(netId),
-              revalidationEnabled(revalidationEnabled),
               triggerThreshold(triggerThr),
               unusableThreshold(unusableThr),
               mTimeout(timeout) {}
@@ -120,22 +119,18 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
         // Used to track if this Transport is usable.
         int continuousfailureCount GUARDED_BY(sLock) = 0;
 
-        // Used to indicate whether DoT revalidation is enabled for this Transport.
-        // The value is set to true only if:
-        //    1. both triggerThreshold and unusableThreshold are  positive values.
-        //    2. private DNS mode is opportunistic.
-        const bool revalidationEnabled;
-
-        // The number of continuous failures to trigger a validation. It takes effect when DoT
-        // revalidation is on. If the value is not a positive value, DoT revalidation is disabled.
-        // Note that it must be at least 10, or it breaks ConnectTlsServerTimeout_ConcurrentQueries
-        // test.
+        // If the number of continuous query timeouts reaches the threshold, mark the
+        // server as unvalidated and trigger a validation.
+        // If the value is not a positive value or private DNS mode is strict mode, no threshold is
+        // set. Note that it must be at least 10, or it breaks
+        // ConnectTlsServerTimeout_ConcurrentQueries test.
         const int triggerThreshold;
 
         // The threshold to determine if this Transport is considered unusable.
-        // If continuousfailureCount reaches this value, this Transport is no longer used. It
-        // takes effect when DoT revalidation is on. If the value is not a positive value, DoT
-        // revalidation is disabled.
+        // If the number of continuous query timeouts reaches the threshold, mark this
+        // Transport as unusable. An unusable Transport won't be used anymore.
+        // If the value is not a positive value or private DNS mode is strict mode, no threshold is
+        // set.
         const int unusableThreshold;
 
         // The time to await a future (the result of a DNS request) from the DnsTlsTransport
