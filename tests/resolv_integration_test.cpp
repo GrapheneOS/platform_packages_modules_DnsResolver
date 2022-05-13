@@ -5159,6 +5159,12 @@ TEST_F(ResolverTest, DotQuickFallback) {
 
         // Disable revalidation because we are reusing the same IP address of DoT servers.
         ScopedSystemProperties sp3(kDotRevalidationThresholdFlag, "-1");
+
+        // TODO: Remove the flags and fix the test.
+        ScopedSystemProperties sp4(kDotAsyncHandshakeFlag, "0");
+        ScopedSystemProperties sp5(kDotMaxretriesFlag, "3");
+        resetNetwork();
+
         resetNetwork();
 
         auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
