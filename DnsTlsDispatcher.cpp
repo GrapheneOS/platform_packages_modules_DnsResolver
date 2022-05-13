@@ -111,7 +111,13 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const std::list<DnsTlsServer>&
     const std::list<DnsTlsServer> servers(
             getOrderedAndUsableServerList(tlsServers, statp->netid, statp->mark));
 
-    if (servers.empty()) LOG(WARNING) << "No usable DnsTlsServers";
+    if (servers.empty()) {
+        LOG(WARNING) << "No usable DnsTlsServers";
+
+        // Call cleanup so the expired Transports can be removed as expected.
+        std::lock_guard guard(sLock);
+        cleanup(std::chrono::steady_clock::now());
+    }
 
     DnsTlsTransport::Response code = DnsTlsTransport::Response::internal_error;
     int serverCount = 0;
