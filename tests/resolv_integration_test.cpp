@@ -4787,7 +4787,7 @@ TEST_F(ResolverTest, QueryTlsServerTimeout) {
             // Also check how much time the resolver processed the query.
             timeTakenMs = s.timeTakenUs() / 1000;
             EXPECT_LE(timeTakenMs, 500);
-            EXPECT_EQ(2, tls.queries());
+            EXPECT_TRUE(tls.waitForQueries(2));
         }
     }
 }
@@ -5087,7 +5087,7 @@ TEST_F(ResolverTest, DotQuickFallback) {
 
         EXPECT_EQ(dot1.acceptConnectionsCount(), 1);
         EXPECT_EQ(dot2.acceptConnectionsCount(), canQuickFallback ? 0 : 1);
-        EXPECT_EQ(dot2.queries(), canQuickFallback ? 0 : 1);
+        EXPECT_TRUE(dot2.waitForQueries(canQuickFallback ? 0 : 1));
 
         dot1.setHangOnHandshakeForTesting(false);
     }
