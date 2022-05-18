@@ -1093,7 +1093,7 @@ TEST_F(PrivateDnsDohTest, SessionResumption) {
 
         EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
         EXPECT_EQ(doh.connections(), 3);
-        EXPECT_EQ(doh.resumedConnections(), (flag == "1" ? 2 : 0));
+        EXPECT_EQ(doh.resumedConnections(), (strcmp(flag, "1") ? 0 : 2));
     }
 }
 
