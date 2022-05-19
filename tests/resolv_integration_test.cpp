@@ -49,6 +49,7 @@
 #include <chrono>
 #include <iterator>
 #include <numeric>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 
@@ -4677,7 +4678,7 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
         ScopedSystemProperties sp6(kDotRevalidationThresholdFlag, "-1");
         resetNetwork();
 
-        for (const auto& dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
+        for (const std::string_view dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
             SCOPED_TRACE(fmt::format("testConfig: [{}, {}]", testConfigCount, dnsMode));
 
             // Because a DnsTlsTransport lasts at least 5 minutes in spite of network
@@ -4747,7 +4748,7 @@ TEST_F(ResolverTest, QueryTlsServerTimeout) {
     };
 
     for (const int queryTimeoutMs : {INFINITE_QUERY_TIMEOUT, 1000}) {
-        for (const auto& dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
+        for (const std::string_view dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
             SCOPED_TRACE(fmt::format("testConfig: [{}] [{}]", dnsMode, queryTimeoutMs));
 
             const std::string addr = getUniqueIPv4Address();
