@@ -83,6 +83,7 @@ cc_library_static {
 cc_test {
     name: "resolv_gold_test",
     test_suites: ["general-tests", "mts-dnsresolver"],
+    isolated: false,
     require_root: true,
     // b/151392634, this is a workaround because MTS
     // can not handle the test with testdata correctly.
@@ -124,6 +125,7 @@ cc_test {
 cc_test {
     name: "resolv_stress_test",
     test_suites: ["general-tests", "mts-dnsresolver"],
+    isolated: false,
     // This won't work with test_config
     // require_root: true,
     // TODO: Remove resolv_test_mts_coverage_defaults after mts coverage switched to 64-bit device.
@@ -153,6 +155,7 @@ cc_test {
 cc_test {
     name: "resolv_integration_test",
     test_suites: ["general-tests", "mts-dnsresolver"],
+    isolated: false,
     require_root: true,
     test_config_template: ":resolv_test_config_template",
     defaults: ["netd_defaults", "resolv_test_defaults"],
@@ -213,6 +216,7 @@ cc_test {
         "general-tests",
         "mts-dnsresolver",
     ],
+    isolated: false,
     require_root: true,
     // TODO: Drop root privileges and make it be an real unit test.
     // TODO: Remove resolv_test_mts_coverage_defaults after mts coverage switched to 64-bit device.
