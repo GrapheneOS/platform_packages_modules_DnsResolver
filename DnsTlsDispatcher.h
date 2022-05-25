@@ -160,12 +160,12 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
     DnsTlsTransport::Result queryInternal(Transport& transport, const netdutils::Slice query)
             EXCLUDES(sLock);
 
+    void maybeCleanup(std::chrono::time_point<std::chrono::steady_clock> now) REQUIRES(sLock);
+
     // Drop any cache entries whose useCount is zero and which have not been used recently.
     // This function performs a linear scan of mStore.
-    void cleanup(std::chrono::time_point<std::chrono::steady_clock> now) REQUIRES(sLock);
-
-    // Force dropping any Transports whose useCount is zero.
-    void forceCleanupLocked(unsigned netId) REQUIRES(sLock);
+    void cleanup(std::chrono::time_point<std::chrono::steady_clock> now,
+                 std::optional<unsigned> netId) REQUIRES(sLock);
 
     // Return a sorted list of usable DnsTlsServers in preference order.
     std::list<DnsTlsServer> getOrderedAndUsableServerList(const std::list<DnsTlsServer>& tlsServers,
