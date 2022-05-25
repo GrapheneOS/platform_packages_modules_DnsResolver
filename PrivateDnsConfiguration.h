@@ -185,6 +185,7 @@ class PrivateDnsConfiguration {
     PrivateDnsValidationObserver* mObserver GUARDED_BY(mPrivateDnsLock);
 
     DohDispatcher* mDohDispatcher;
+    std::condition_variable mCv;
 
     friend class PrivateDnsConfigurationTest;
 
