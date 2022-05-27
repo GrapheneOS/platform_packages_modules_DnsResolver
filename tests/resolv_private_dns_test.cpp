@@ -284,11 +284,11 @@ class BasePrivateDnsTest : public BaseTest {
 
   protected:
     void SetUp() override {
-        mDohScopedProp = make_unique<ScopedSystemProperties>(kDohFlag, "1");
+        mDohScopedProp = std::make_unique<ScopedSystemProperties>(kDohFlag, "1");
         mDohQueryTimeoutScopedProp =
-                make_unique<ScopedSystemProperties>(kDohQueryTimeoutFlag, "1000");
+                std::make_unique<ScopedSystemProperties>(kDohQueryTimeoutFlag, "1000");
         unsigned int expectedProbeTimeout = kExpectedDohValidationTimeWhenTimeout.count();
-        mDohProbeTimeoutScopedProp = make_unique<ScopedSystemProperties>(
+        mDohProbeTimeoutScopedProp = std::make_unique<ScopedSystemProperties>(
                 kDohProbeTimeoutFlag, std::to_string(expectedProbeTimeout));
         BaseTest::SetUp();
 
@@ -852,6 +852,10 @@ TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
     ASSERT_TRUE(dns_ipv6.startServer());
     ASSERT_TRUE(dot_ipv6.startServer());
     ASSERT_TRUE(doh_ipv6.startServer());
+
+    // It might already take several seconds before we are here. Add a ScopedSystemProperties
+    // to ensure the doh flag is 1 before creating a new network.
+    ScopedSystemProperties sp1(kDohFlag, "1");
     mDnsClient.SetupOemNetwork(TEST_NETID_2);
 
     parcel.netId = TEST_NETID_2;
@@ -870,6 +874,10 @@ TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
 
     // Expect two queries: one for DoH probe and the other one for kQueryHostname.
     EXPECT_EQ(doh_ipv6.queries(), 2);
+
+    // Add a ScopedSystemProperties here as well since DnsResolver will update its cached flags
+    // when the networks is removed.
+    ScopedSystemProperties sp2(kDohFlag, "1");
     mDnsClient.TearDownOemNetwork(TEST_NETID_2);
 
     // The DnsResolver will reconnect to the DoH server for the query that gets blocked at
@@ -1058,13 +1066,13 @@ TEST_F(PrivateDnsDohTest, SessionResumption) {
     const int initial_max_idle_timeout_ms = 1000;
     for (const auto& flag : {"0", "1"}) {
         SCOPED_TRACE(fmt::format("flag: {}", flag));
-        auto sp = make_unique<ScopedSystemProperties>(kDohSessionResumptionFlag, flag);
+        ScopedSystemProperties sp(kDohSessionResumptionFlag, flag);
 
         // Each loop takes around 3 seconds, if the system property "doh" is reset in the middle
         // of the first loop, this test will fail when running the second loop because DnsResolver
         // updates its "doh" flag when resetNetwork() is called. Therefore, add another
         // ScopedSystemProperties for "doh" to make the test more robust.
-        auto sp2 = make_unique<ScopedSystemProperties>(kDohFlag, "1");
+        ScopedSystemProperties sp2(kDohFlag, "1");
         resetNetwork();
 
         ASSERT_TRUE(doh.stopServer());
