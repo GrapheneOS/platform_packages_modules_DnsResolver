@@ -524,7 +524,8 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, struct 
 }
 
 bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinfo** res,
-                                      bool unspecWantedButNoIPv6) {
+                                      bool unspecWantedButNoIPv6,
+                                      const android_net_context* netcontext) {
     if (*res == nullptr) return false;
     if (!onlyNonSpecialUseIPv4Addresses(*res)) return false;
     if (!isValidNat64Prefix(prefix)) return false;
@@ -621,16 +622,20 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinf
     }
 
     // Simply concatenate the synthesized AAAA addrinfo list and the queried A addrinfo list when
-    // AF_UNSPEC is specified. Prefer that synthesized IPv6 addresses have higher precedence than
-    // IPv4 addresses because having a NAT64 prefix implies that there is an IPv6-only network.
+    // AF_UNSPEC is specified. In the other words, the IPv6 addresses are listed first and then
+    // IPv4 addresses. For example:
+    //     64:ff9b::102:304 (socktype=2, protocol=17) ->
+    //     64:ff9b::102:304 (socktype=1, protocol=6) ->
+    //     1.2.3.4 (socktype=2, protocol=17) ->
+    //     1.2.3.4 (socktype=1, protocol=6)
     // Note that head6 and cur6 should be non-null because there was at least one IPv4 address
-    // synthesized.
-    // TODO: Sort the concatenated addresses by RFC 6724 section 2.1. Note that the
-    // socket type and protocol may be considered as well. Currently, resolv_getaddrinfo() calls
-    // explore_fqdn() times by the different items of explore_options. It means that
-    // _rfc6724_sort() only sorts the results in each explore_options and concatenates each results
-    // into one. For example, getaddrinfo() is called with null hints for a domain name which has
-    // both IPv4 and IPv6 addresses. The address order of the result addrinfo may be:
+    // synthesized. From the above example, the synthesized addrinfo list puts IPv6 and IPv4 in
+    // groups and sort by RFC 6724 later. This ordering is different from no synthesized case
+    // because resolv_getaddrinfo() sorts results in explore_options. resolv_getaddrinfo() calls
+    // explore_fqdn() many times by the different items of explore_options. It means that
+    // resolv_rfc6724_sort() only sorts the results in each explore_options and concatenates each
+    // results into one. For example, getaddrinfo() is called with null hints for a domain name
+    // which has both IPv4 and IPv6 addresses. The address order of the result addrinfo may be:
     //     2001:db8::102:304 (socktype=2, protocol=17) -> 1.2.3.4 (socktype=2, protocol=17) ->
     //     2001:db8::102:304 (socktype=1, protocol=6) -> 1.2.3.4 (socktype=1, protocol=6)
     // In above example, the first two results come from one explore option and the last two come
@@ -641,8 +646,12 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinf
     } else {
         freeaddrinfo(head4);
     }
-    *res = head6;
 
+    // Sort the concatenated addresses by RFC 6724 section 2.1.
+    struct addrinfo sorting_head = {.ai_next = head6};
+    resolv_rfc6724_sort(&sorting_head, netcontext->app_mark, netcontext->uid);
+
+    *res = sorting_head.ai_next;
     logDnsQueryResult(*res);
     return true;
 }
@@ -802,7 +811,7 @@ void DnsProxyListener::GetAddrInfoHandler::doDns64Synthesis(int32_t* rv, addrinf
         }
     }
 
-    if (!synthesizeNat64PrefixWithARecord(prefix, res, unspecWantedButNoIPv6)) {
+    if (!synthesizeNat64PrefixWithARecord(prefix, res, unspecWantedButNoIPv6, &mNetContext)) {
         if (ipv6WantedButNoData) {
             // If caller wants IPv6 answers but no data and failed to synthesize IPv6 answers,
             // don't return the IPv4 answers.
