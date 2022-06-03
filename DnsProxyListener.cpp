@@ -469,7 +469,7 @@ void logDnsQueryResult(const addrinfo* res) {
                               NI_NUMERICHOST);
         if (!ret) {
             LOG(DEBUG) << __func__ << ": [" << i << "] " << ai->ai_flags << " " << ai->ai_family
-                       << " " << ai->ai_socktype << " " << ai->ai_protocol;
+                       << " " << ai->ai_socktype << " " << ai->ai_protocol << " " << ip_addr;
         } else {
             LOG(DEBUG) << __func__ << ": [" << i << "] numeric hostname translation fail " << ret;
         }
@@ -523,30 +523,96 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, struct 
     return true;
 }
 
-bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinfo* result) {
-    if (result == nullptr) return false;
-    if (!onlyNonSpecialUseIPv4Addresses(result)) return false;
+bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinfo** res,
+                                      bool unspecWantedButNoIPv6,
+                                      const android_net_context* netcontext) {
+    if (*res == nullptr) return false;
+    if (!onlyNonSpecialUseIPv4Addresses(*res)) return false;
     if (!isValidNat64Prefix(prefix)) return false;
 
-    struct sockaddr_storage ss = netdutils::IPSockAddr(prefix.ip());
-    struct sockaddr_in6* v6prefix = (struct sockaddr_in6*)&ss;
-    for (addrinfo* ai = result; ai; ai = ai->ai_next) {
-        struct sockaddr_in sinOriginal = *(struct sockaddr_in*)ai->ai_addr;
-        struct sockaddr_in6* sin6 = (struct sockaddr_in6*)ai->ai_addr;
-        memset(sin6, 0, sizeof(sockaddr_in6));
+    const sockaddr_storage ss = netdutils::IPSockAddr(prefix.ip());
+    const sockaddr_in6* v6prefix = (sockaddr_in6*)&ss;
+    addrinfo* const head4 = *res;
+    addrinfo* head6 = nullptr;
+    addrinfo* cur6 = nullptr;
 
-        // Synthesize /96 NAT64 prefix in place. The space has reserved by get_ai() in
-        // system/netd/resolv/getaddrinfo.cpp.
+    // Build a synthesized AAAA addrinfo list from the queried A addrinfo list. Here is the diagram
+    // for the relationship of pointers.
+    //
+    // head4: point to the first queried A addrinfo
+    // |
+    // v
+    // +-------------+   +-------------+
+    // | addrinfo4#1 |-->| addrinfo4#2 |--> .. queried A addrinfo(s) for DNS64 synthesis
+    // +-------------+   +-------------+
+    //                   ^
+    //                   |
+    //                   cur4: current worked-on queried A addrinfo
+    //
+    // head6: point to the first synthesized AAAA addrinfo
+    // |
+    // v
+    // +-------------+   +-------------+
+    // | addrinfo6#1 |-->| addrinfo6#2 |--> .. synthesized DNS64 AAAA addrinfo(s)
+    // +-------------+   +-------------+
+    //                   ^
+    //                   |
+    //                   cur6: current worked-on synthesized addrinfo
+    //
+    for (const addrinfo* cur4 = head4; cur4; cur4 = cur4->ai_next) {
+        // Allocate a space for a synthesized AAAA addrinfo. Note that the addrinfo and sockaddr
+        // occupy one contiguous block of memory and are allocated and freed as a single block.
+        // See get_ai and freeaddrinfo in packages/modules/DnsResolver/getaddrinfo.cpp.
+        addrinfo* sa = (addrinfo*)calloc(1, sizeof(addrinfo) + sizeof(sockaddr_in6));
+        if (sa == nullptr) {
+            LOG(ERROR) << "allocate memory failed for synthesized result";
+            freeaddrinfo(head6);
+            return false;
+        }
+
+        // Initialize the synthesized AAAA addrinfo by the queried A addrinfo. The ai_addr will be
+        // set lately.
+        sa->ai_flags = cur4->ai_flags;
+        sa->ai_family = AF_INET6;
+        sa->ai_socktype = cur4->ai_socktype;
+        sa->ai_protocol = cur4->ai_protocol;
+        sa->ai_addrlen = sizeof(sockaddr_in6);
+        sa->ai_addr = (sockaddr*)(sa + 1);
+        sa->ai_canonname = nullptr;
+        sa->ai_next = nullptr;
+
+        if (cur4->ai_canonname != nullptr) {
+            sa->ai_canonname = strdup(cur4->ai_canonname);
+            if (sa->ai_canonname == nullptr) {
+                LOG(ERROR) << "allocate memory failed for canonname";
+                freeaddrinfo(sa);
+                freeaddrinfo(head6);
+                return false;
+            }
+        }
+
+        // Synthesize /96 NAT64 prefix with the queried IPv4 address.
+        const sockaddr_in* sin4 = (sockaddr_in*)cur4->ai_addr;
+        sockaddr_in6* sin6 = (sockaddr_in6*)sa->ai_addr;
         sin6->sin6_addr = v6prefix->sin6_addr;
-        sin6->sin6_addr.s6_addr32[3] = sinOriginal.sin_addr.s_addr;
+        sin6->sin6_addr.s6_addr32[3] = sin4->sin_addr.s_addr;
         sin6->sin6_family = AF_INET6;
-        sin6->sin6_port = sinOriginal.sin_port;
-        ai->ai_addrlen = sizeof(struct sockaddr_in6);
-        ai->ai_family = AF_INET6;
+        sin6->sin6_port = sin4->sin_port;
+
+        // If the synthesized list is empty, this becomes the first element.
+        if (head6 == nullptr) {
+            head6 = sa;
+        }
+
+        // Add this element to the end of the synthesized list.
+        if (cur6 != nullptr) {
+            cur6->ai_next = sa;
+        }
+        cur6 = sa;
 
         if (WOULD_LOG(VERBOSE)) {
             char buf[INET6_ADDRSTRLEN];  // big enough for either IPv4 or IPv6
-            inet_ntop(AF_INET, &sinOriginal.sin_addr.s_addr, buf, sizeof(buf));
+            inet_ntop(AF_INET, &sin4->sin_addr.s_addr, buf, sizeof(buf));
             LOG(VERBOSE) << __func__ << ": DNS A record: " << buf;
             inet_ntop(AF_INET6, &v6prefix->sin6_addr, buf, sizeof(buf));
             LOG(VERBOSE) << __func__ << ": NAT64 prefix: " << buf;
@@ -554,7 +620,39 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinf
             LOG(VERBOSE) << __func__ << ": DNS64 Synthesized AAAA record: " << buf;
         }
     }
-    logDnsQueryResult(result);
+
+    // Simply concatenate the synthesized AAAA addrinfo list and the queried A addrinfo list when
+    // AF_UNSPEC is specified. In the other words, the IPv6 addresses are listed first and then
+    // IPv4 addresses. For example:
+    //     64:ff9b::102:304 (socktype=2, protocol=17) ->
+    //     64:ff9b::102:304 (socktype=1, protocol=6) ->
+    //     1.2.3.4 (socktype=2, protocol=17) ->
+    //     1.2.3.4 (socktype=1, protocol=6)
+    // Note that head6 and cur6 should be non-null because there was at least one IPv4 address
+    // synthesized. From the above example, the synthesized addrinfo list puts IPv6 and IPv4 in
+    // groups and sort by RFC 6724 later. This ordering is different from no synthesized case
+    // because resolv_getaddrinfo() sorts results in explore_options. resolv_getaddrinfo() calls
+    // explore_fqdn() many times by the different items of explore_options. It means that
+    // resolv_rfc6724_sort() only sorts the results in each explore_options and concatenates each
+    // results into one. For example, getaddrinfo() is called with null hints for a domain name
+    // which has both IPv4 and IPv6 addresses. The address order of the result addrinfo may be:
+    //     2001:db8::102:304 (socktype=2, protocol=17) -> 1.2.3.4 (socktype=2, protocol=17) ->
+    //     2001:db8::102:304 (socktype=1, protocol=6) -> 1.2.3.4 (socktype=1, protocol=6)
+    // In above example, the first two results come from one explore option and the last two come
+    // from another one. They are sorted first, and then concatenate together to be the result.
+    // See also resolv_getaddrinfo in packages/modules/DnsResolver/getaddrinfo.cpp.
+    if (unspecWantedButNoIPv6) {
+        cur6->ai_next = head4;
+    } else {
+        freeaddrinfo(head4);
+    }
+
+    // Sort the concatenated addresses by RFC 6724 section 2.1.
+    struct addrinfo sorting_head = {.ai_next = head6};
+    resolv_rfc6724_sort(&sorting_head, netcontext->app_mark, netcontext->uid);
+
+    *res = sorting_head.ai_next;
+    logDnsQueryResult(*res);
     return true;
 }
 
@@ -713,7 +811,7 @@ void DnsProxyListener::GetAddrInfoHandler::doDns64Synthesis(int32_t* rv, addrinf
         }
     }
 
-    if (!synthesizeNat64PrefixWithARecord(prefix, *res)) {
+    if (!synthesizeNat64PrefixWithARecord(prefix, res, unspecWantedButNoIPv6, &mNetContext)) {
         if (ipv6WantedButNoData) {
             // If caller wants IPv6 answers but no data and failed to synthesize IPv6 answers,
             // don't return the IPv4 answers.
