@@ -1851,7 +1851,10 @@ int resolv_cache_get_resolver_stats(unsigned netid, res_params* params, res_stat
                                     const std::vector<IPSockAddr>& serverSockAddrs) {
     std::lock_guard guard(cache_mutex);
     NetConfig* info = find_netconfig_locked(netid);
-    if (!info) return -1;
+    if (!info) {
+        LOG(WARNING) << __func__ << ": NetConfig for netid " << netid << " not found";
+        return -1;
+    }
 
     for (size_t i = 0; i < serverSockAddrs.size(); i++) {
         for (size_t j = 0; j < info->nameserverSockAddrs.size(); j++) {
