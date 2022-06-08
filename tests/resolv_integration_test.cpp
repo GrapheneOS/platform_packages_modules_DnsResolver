@@ -780,6 +780,25 @@ TEST_F(ResolverTest, GetAddrInfo_localhost) {
     EXPECT_EQ(kIp6LocalHostAddr, ToString(result));
 }
 
+TEST_F(ResolverTest, GetAddrInfo_NumericHostname) {
+    // Add a no-op nameserver which shouldn't receive any queries
+    test::DNSResponder dns;
+    StartDns(dns, {});
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    ScopedAddrinfo result = safe_getaddrinfo("1.2.3.4", nullptr, nullptr);
+    EXPECT_TRUE(result != nullptr);
+    // Expect no DNS queries. Numeric hostname doesn't need to resolve.
+    EXPECT_TRUE(dns.queries().empty()) << dns.dumpQueries();
+    EXPECT_EQ("1.2.3.4", ToString(result));
+
+    result = safe_getaddrinfo("2001:db8::1", nullptr, nullptr);
+    EXPECT_TRUE(result != nullptr);
+    // Expect no DNS queries. Numeric hostname doesn't need to resolve.
+    EXPECT_TRUE(dns.queries().empty()) << dns.dumpQueries();
+    EXPECT_EQ("2001:db8::1", ToString(result));
+}
+
 TEST_F(ResolverTest, GetAddrInfo_InvalidSocketType) {
     test::DNSResponder dns;
     StartDns(dns, {{kHelloExampleCom, ns_type::ns_t_a, "1.2.3.5"}});
