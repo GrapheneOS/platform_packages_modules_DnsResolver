@@ -165,7 +165,8 @@ class DnsTlsDispatcher : public PrivateDnsValidationObserver {
     // Drop any cache entries whose useCount is zero and which have not been used recently.
     // This function performs a linear scan of mStore.
     void cleanup(std::chrono::time_point<std::chrono::steady_clock> now,
-                 std::optional<unsigned> netId) REQUIRES(sLock);
+                 std::chrono::seconds unusable_xport_idle_timeout, std::optional<unsigned> netId)
+            REQUIRES(sLock);
 
     // Return a sorted list of usable DnsTlsServers in preference order.
     std::list<DnsTlsServer> getOrderedAndUsableServerList(const std::list<DnsTlsServer>& tlsServers,
