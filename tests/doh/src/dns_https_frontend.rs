@@ -143,6 +143,9 @@ impl DohFrontend {
             }
 
             worker_thread.abort();
+            RUNTIME_STATIC.block_on(async {
+                debug!("worker_thread result: {:?}", worker_thread.await);
+            })
         }
 
         debug!("DohFrontend: stopped: {:?}", self);
