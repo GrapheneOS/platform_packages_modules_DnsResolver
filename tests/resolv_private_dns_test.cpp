@@ -314,7 +314,7 @@ class BasePrivateDnsTest : public BaseTest {
         const addrinfo hints = {.ai_socktype = SOCK_DGRAM};
         ScopedAddrinfo result = safe_getaddrinfo(host_name, nullptr, &hints);
         EXPECT_THAT(ToStrings(result),
-                    testing::ElementsAreArray({kQueryAnswerAAAA, kQueryAnswerA}));
+                    testing::UnorderedElementsAreArray({kQueryAnswerAAAA, kQueryAnswerA}));
     };
 
     void expectQueries(int dnsQueries, int dotQueries, int dohQueries) {
