@@ -35,8 +35,7 @@ use tokio::task::JoinHandle;
 lazy_static! {
     static ref RUNTIME_STATIC: Arc<Runtime> = Arc::new(
         Builder::new_multi_thread()
-            .worker_threads(2)
-            .max_blocking_threads(1)
+            .worker_threads(1)
             .enable_all()
             .thread_name("DohFrontend")
             .build()
@@ -144,6 +143,9 @@ impl DohFrontend {
             }
 
             worker_thread.abort();
+            RUNTIME_STATIC.block_on(async {
+                debug!("worker_thread result: {:?}", worker_thread.await);
+            })
         }
 
         debug!("DohFrontend: stopped: {:?}", self);
