@@ -1454,9 +1454,7 @@ int res_tls_send(const std::list<DnsTlsServer>& tlsServers, ResState* statp, con
             // It's OPPORTUNISTIC mode,
             // hence it's not required to do anything because it'll fallback to UDP.
             case DnsTlsTransport::Response::network_error:
-                [[fallthrough]];
             case DnsTlsTransport::Response::internal_error:
-                [[fallthrough]];
             default:
                 return -1;
         }
