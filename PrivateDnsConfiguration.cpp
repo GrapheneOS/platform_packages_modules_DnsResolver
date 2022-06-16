@@ -301,11 +301,8 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& i
     }
 
     bool reevaluationStatus = NEEDS_REEVALUATION;
-    if (success) {
-        reevaluationStatus = DONT_REEVALUATE;
-    } else if (mode->second == PrivateDnsMode::OFF) {
-        reevaluationStatus = DONT_REEVALUATE;
-    } else if (mode->second == PrivateDnsMode::OPPORTUNISTIC && !isRevalidation) {
+    if (success || (mode->second == PrivateDnsMode::OFF) ||
+        (mode->second == PrivateDnsMode::OPPORTUNISTIC && !isRevalidation)) {
         reevaluationStatus = DONT_REEVALUATE;
     }
 
