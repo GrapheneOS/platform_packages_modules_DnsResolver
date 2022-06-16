@@ -55,7 +55,6 @@ class Experiments {
             "sort_nameservers",
             "dot_async_handshake",
             "dot_connect_timeout_ms",
-            "dot_keep_unusable_xport_sec",
             "dot_maxtries",
             "dot_revalidation_threshold",
             "dot_xport_unusable_threshold",
