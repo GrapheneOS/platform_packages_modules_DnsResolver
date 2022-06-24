@@ -867,7 +867,9 @@ TEST_F(ServerTest, State) {
     EXPECT_FALSE(s2.active());
 }
 
-TEST(QueryMapTest, Basic) {
+class QueryMapTest : public ResolvTestBase {};
+
+TEST_F(QueryMapTest, Basic) {
     DnsTlsQueryMap map;
 
     EXPECT_TRUE(map.empty());
@@ -932,7 +934,7 @@ TEST(QueryMapTest, Basic) {
     EXPECT_EQ(bytevec(a2.begin() + 2, a2.end()), bytevec(d2.begin() + 2, d2.end()));
 }
 
-TEST(QueryMapTest, FillHole) {
+TEST_F(QueryMapTest, FillHole) {
     DnsTlsQueryMap map;
     std::vector<std::unique_ptr<DnsTlsQueryMap::QueryFuture>> futures(UINT16_MAX + 1);
     for (uint32_t i = 0; i <= UINT16_MAX; ++i) {

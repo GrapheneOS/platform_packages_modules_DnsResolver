@@ -18,10 +18,14 @@
 
 #include <gtest/gtest-spi.h>
 
+#include "resolv_test_base.h"
+
 namespace android {
 namespace netdutils {
 
-TEST(OperationLimiter, limits) {
+class OperationLimiterTest : public ResolvTestBase {};
+
+TEST_F(OperationLimiterTest, limits) {
     OperationLimiter<int> limiter(3);
 
     EXPECT_TRUE(limiter.start(42));
@@ -50,7 +54,7 @@ TEST(OperationLimiter, limits) {
     limiter.finish(42);
 }
 
-TEST(OperationLimiter, finishWithoutStart) {
+TEST_F(OperationLimiterTest, finishWithoutStart) {
     OperationLimiter<int> limiter(1);
 
     // Will output a LOG(FATAL_WITHOUT_ABORT), but we have no way to probe this.
@@ -61,7 +65,7 @@ TEST(OperationLimiter, finishWithoutStart) {
     EXPECT_FALSE(limiter.start(42));
 }
 
-TEST(OperationLimiter, destroyWithActiveOperations) {
+TEST_F(OperationLimiterTest, destroyWithActiveOperations) {
     // The death message doesn't seem to be captured on Android.
     EXPECT_DEBUG_DEATH(
             {
