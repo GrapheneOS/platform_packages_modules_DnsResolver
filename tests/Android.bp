@@ -293,7 +293,10 @@ cc_test {
     test_suites: [
         "general-tests",
     ],
-    defaults: ["netd_defaults"],
+    defaults: [
+        "netd_defaults",
+        "resolv_test_defaults",
+    ],
     header_libs: [
         "libnetd_resolv_internal_headers",
     ],
@@ -302,11 +305,9 @@ cc_test {
         "libcrypto_static",
         "libdoh_ffi_for_test",
         "libgmock",
-        "liblog",
         "libssl",
     ],
     shared_libs: [
         "libnetd_client",
     ],
-    min_sdk_version: "29",
 }
