@@ -510,10 +510,12 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
                         getTimeoutFromFlag("doh_idle_timeout_ms", kDohIdleDefaultTimeoutMs),
                 .use_session_resumption =
                         Experiments::getInstance()->getFlag("doh_session_resumption", 0) == 1,
+                .enable_early_data = Experiments::getInstance()->getFlag("doh_early_data", 0) == 1,
         };
         LOG(DEBUG) << __func__ << ": probe_timeout_ms=" << flags.probe_timeout_ms
                    << ", idle_timeout_ms=" << flags.idle_timeout_ms
-                   << ", use_session_resumption=" << flags.use_session_resumption;
+                   << ", use_session_resumption=" << flags.use_session_resumption
+                   << ", enable_early_data=" << flags.enable_early_data;
 
         return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
                            dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags);

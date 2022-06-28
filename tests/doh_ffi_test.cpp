@@ -61,6 +61,7 @@ TEST_F(DoHFFITest, SmokeTest) {
             .probe_timeout_ms = TIMEOUT_MS,
             .idle_timeout_ms = TIMEOUT_MS,
             .use_session_resumption = true,
+            .enable_early_data = true,
     };
 
     // TODO: Use a local server instead of dns.google.

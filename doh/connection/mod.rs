@@ -142,6 +142,8 @@ impl Connection {
         let scid = new_scid();
         let mut quiche_conn =
             quiche::connect(server_name, &quiche::ConnectionId::from_ref(&scid), to, config)?;
+
+        // We will fall back to a full handshake if the session is expired.
         if let Some(session) = session {
             debug!("Setting session");
             quiche_conn.set_session(&session)?;

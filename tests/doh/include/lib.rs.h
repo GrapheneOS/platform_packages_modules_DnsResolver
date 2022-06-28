@@ -5,7 +5,7 @@
 
 #pragma once
 
-/* Generated with cbindgen:0.19.0 */
+/* Generated with cbindgen:0.24.2 */
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -13,15 +13,17 @@
 namespace test {
 namespace rust {
 
-static const uintptr_t DNS_HEADER_SIZE = 12;
+constexpr static const uintptr_t DNS_HEADER_SIZE = 12;
 
-static const uintptr_t MAX_UDP_PAYLOAD_SIZE = 1350;
+constexpr static const uintptr_t MAX_UDP_PAYLOAD_SIZE = 1350;
+
+constexpr static const uintptr_t CONN_ID_LEN = 8;
 
 /// Default value for max_idle_timeout transport parameter.
-static const uint64_t QUICHE_IDLE_TIMEOUT_MS = 10000;
+constexpr static const uint64_t QUICHE_IDLE_TIMEOUT_MS = 10000;
 
 /// Default value for initial_max_streams_bidi transport parameter.
-static const uint64_t MAX_STREAMS_BIDI = 100;
+constexpr static const uint64_t MAX_STREAMS_BIDI = 100;
 
 /// Frontend object.
 struct DohFrontend;
@@ -35,6 +37,8 @@ struct Stats {
     uint32_t alive_connections;
     /// The number of QUIC connections using session resumption.
     uint32_t resumed_connections;
+    /// The number of QUIC connections that received early data.
+    uint32_t early_data_connections;
 };
 
 extern "C" {
