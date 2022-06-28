@@ -60,6 +60,7 @@ const std::string kDohProbeTimeoutFlag("persist.device_config.netd_native.doh_pr
 const std::string kDohIdleTimeoutFlag("persist.device_config.netd_native.doh_idle_timeout_ms");
 const std::string kDohSessionResumptionFlag(
         "persist.device_config.netd_native.doh_session_resumption");
+const std::string kDohEarlyDataFlag("persist.device_config.netd_native.doh_early_data");
 const std::string kDotAsyncHandshakeFlag("persist.device_config.netd_native.dot_async_handshake");
 const std::string kDotMaxretriesFlag("persist.device_config.netd_native.dot_maxtries");
 
@@ -805,6 +806,12 @@ TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
     // connection mpsc channel; the other one that will get blocked at dispatcher sending channel).
     const int timeout_queries = 52;
 
+    // If early data flag is enabled, DnsResolver doesn't wait for the connection established.
+    // It will send DNS queries along with 0-RTT rather than queue them in connection mpsc channel.
+    // So we disable the flag.
+    ScopedSystemProperties sp(kDohEarlyDataFlag, "0");
+    resetNetwork();
+
     const int initial_max_idle_timeout_ms = 2000;
     ASSERT_TRUE(doh.stopServer());
     EXPECT_TRUE(doh.setMaxIdleTimeout(initial_max_idle_timeout_ms));
@@ -1102,6 +1109,38 @@ TEST_F(PrivateDnsDohTest, SessionResumption) {
         EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
         EXPECT_EQ(doh.connections(), 3);
         EXPECT_EQ(doh.resumedConnections(), (strcmp(flag, "1") ? 0 : 2));
+    }
+}
+
+// Tests that the flag "doh_early_data" works as expected.
+TEST_F(PrivateDnsDohTest, TestEarlyDataFlag) {
+    const int initial_max_idle_timeout_ms = 1000;
+    for (const auto& flag : {"0", "1"}) {
+        SCOPED_TRACE(fmt::format("flag: {}", flag));
+        ScopedSystemProperties sp1(kDohSessionResumptionFlag, flag);
+        ScopedSystemProperties sp2(kDohEarlyDataFlag, flag);
+        resetNetwork();
+
+        ASSERT_TRUE(doh.stopServer());
+        EXPECT_TRUE(doh.setMaxIdleTimeout(initial_max_idle_timeout_ms));
+        ASSERT_TRUE(doh.startServer());
+
+        const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+        EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+        EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+        EXPECT_TRUE(dot.waitForQueries(1));
+        dot.clearQueries();
+        doh.clearQueries();
+        dns.clearQueries();
+
+        // Wait for the connection closed, and then send a DNS query.
+        // Expect the query to be sent in early data if the flag is on.
+        sleep_for(milliseconds(initial_max_idle_timeout_ms + 500));
+        int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_aaaa,
+                                 ANDROID_RESOLV_NO_CACHE_LOOKUP);
+        expectAnswersValid(fd, AF_INET6, kQueryAnswerAAAA);
+        EXPECT_EQ(doh.earlyDataConnections(), (strcmp(flag, "1") ? 0 : 1));
     }
 }
 

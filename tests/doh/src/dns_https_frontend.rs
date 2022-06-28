@@ -397,6 +397,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                             connections_accepted: clients.len() as u32,
                             alive_connections: clients.iter().filter(|(_, client)| client.is_alive()).count() as u32,
                             resumed_connections: clients.iter().filter(|(_, client)| client.is_resumed()).count() as u32,
+                            early_data_connections: clients.iter().filter(|(_, client)| client.handled_early_data()).count() as u32,
                         };
                         if let Err(e) = resp.send(stats) {
                             error!("Failed to send ControlCommand::Stats response: {:?}", e);
@@ -452,6 +453,7 @@ fn create_quiche_config(
     quiche_config.set_initial_max_streams_bidi(config.lock().unwrap().max_streams_bidi);
     quiche_config.set_initial_max_streams_uni(100);
     quiche_config.set_disable_active_migration(true);
+    quiche_config.enable_early_data();
 
     Ok(quiche_config)
 }
