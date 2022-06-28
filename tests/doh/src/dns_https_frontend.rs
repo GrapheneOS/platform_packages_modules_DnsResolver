@@ -16,7 +16,7 @@
 
 //! DoH server frontend.
 
-use crate::client::{ClientMap, ConnectionID, DNS_HEADER_SIZE, MAX_UDP_PAYLOAD_SIZE};
+use crate::client::{ClientMap, ConnectionID, CONN_ID_LEN, DNS_HEADER_SIZE, MAX_UDP_PAYLOAD_SIZE};
 use crate::config::{Config, QUICHE_IDLE_TIMEOUT_MS};
 use crate::stats::Stats;
 use anyhow::{bail, ensure, Result};
@@ -309,7 +309,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
 
                 // Parse QUIC packet.
                 let pkt_buf = &mut frontend_buf[..len];
-                let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
+                let hdr = match quiche::Header::from_slice(pkt_buf, CONN_ID_LEN) {
                     Ok(v) => v,
                     Err(e) => {
                         error!("Failed to parse QUIC header: {:?}", e);
