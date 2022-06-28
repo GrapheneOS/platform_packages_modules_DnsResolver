@@ -1542,17 +1542,6 @@ static NetConfig* find_netconfig_locked(unsigned netid) {
     return nullptr;
 }
 
-static void resolv_set_experiment_params(res_params* params) {
-    if (params->retry_count == 0) {
-        params->retry_count = getExperimentFlagInt("retry_count", RES_DFLRETRY);
-    }
-
-    if (params->base_timeout_msec == 0) {
-        params->base_timeout_msec =
-                getExperimentFlagInt("retransmission_time_interval", RES_TIMEOUT);
-    }
-}
-
 android::net::NetworkType resolv_get_network_types_for_net(unsigned netid) {
     std::lock_guard guard(cache_mutex);
     NetConfig* netconfig = find_netconfig_locked(netid);
@@ -1660,7 +1649,20 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
 
     uint8_t old_max_samples = netconfig->params.max_samples;
     netconfig->params = params;
-    resolv_set_experiment_params(&netconfig->params);
+
+    const int retryCount = Experiments::getInstance()->getFlag("retry_count", RES_DFLRETRY);
+    const int retransmissionInterval =
+            Experiments::getInstance()->getFlag("retransmission_time_interval", RES_TIMEOUT);
+    // This check must always be true, but add a protection against OEMs configure negative values
+    // for retry_count and base_timeout_msec.
+    if (netconfig->params.retry_count == 0) {
+        netconfig->params.retry_count = (retryCount <= 0) ? RES_DFLRETRY : retryCount;
+    }
+    if (netconfig->params.base_timeout_msec == 0) {
+        netconfig->params.base_timeout_msec =
+                (retransmissionInterval <= 0) ? RES_TIMEOUT : retransmissionInterval;
+    }
+
     if (!resolv_is_nameservers_equal(netconfig->nameservers, nameservers)) {
         // free current before adding new
         free_nameservers_locked(netconfig);

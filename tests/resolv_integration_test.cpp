@@ -79,6 +79,10 @@
 constexpr int TEST_VPN_NETID = 65502;
 constexpr int MAXPACKET = (8 * 1024);
 
+// Sync from packages/modules/DnsResolver/resolv_private.h
+constexpr int RES_TIMEOUT = 5000; /* min. milliseconds between retries */
+constexpr int RES_DFLRETRY = 2;   /* Default #/tries. */
+
 const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
 const std::string kDotConnectTimeoutMsFlag(
         "persist.device_config.netd_native.dot_connect_timeout_ms");
@@ -94,6 +98,9 @@ const std::string kDotValidationLatencyFactorFlag(
 const std::string kDotValidationLatencyOffsetMsFlag(
         "persist.device_config.netd_native.dot_validation_latency_offset_ms");
 const std::string kDotQuickFallbackFlag("persist.device_config.netd_native.dot_quick_fallback");
+const std::string kRetransIntervalFlag(
+        "persist.device_config.netd_native.retransmission_time_interval");
+const std::string kRetryCountFlag("persist.device_config.netd_native.retry_count");
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
 extern "C" int android_getaddrinfofornet(const char* hostname, const char* servname,
@@ -7618,4 +7625,48 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
         expectDnsQueryCountsFn(*appDefaultNwDnsSv, host_name, expectedDnsReply.size(),
                                appDefaultNetId);
     }
+}
+
+TEST_F(ResolverTest, NegativeValueInExperimentFlag_WithValidParams) {
+    ScopedSystemProperties sp1(kRetransIntervalFlag, "-3000");
+    ScopedSystemProperties sp2(kRetryCountFlag, "-2");
+    resetNetwork();
+
+    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+
+    std::vector<std::string> res_servers;
+    std::vector<std::string> res_domains;
+    std::vector<std::string> res_tls_servers;
+    res_params res_params;
+    std::vector<ResolverStats> res_stats;
+    int wait_for_pending_req_timeout_count;
+    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
+            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
+            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
+    EXPECT_EQ(setupParams.retryCount, res_params.retry_count);
+    EXPECT_EQ(setupParams.baseTimeoutMsec, res_params.base_timeout_msec);
+}
+
+TEST_F(ResolverTest, NegativeValueInExperimentFlag_WithZeroParams) {
+    ScopedSystemProperties sp1(kRetransIntervalFlag, "-3000");
+    ScopedSystemProperties sp2(kRetryCountFlag, "-2");
+    resetNetwork();
+
+    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    setupParams.retryCount = 0;
+    setupParams.baseTimeoutMsec = 0;
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+
+    std::vector<std::string> res_servers;
+    std::vector<std::string> res_domains;
+    std::vector<std::string> res_tls_servers;
+    res_params res_params;
+    std::vector<ResolverStats> res_stats;
+    int wait_for_pending_req_timeout_count;
+    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
+            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
+            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
+    EXPECT_EQ(RES_DFLRETRY, res_params.retry_count);
+    EXPECT_EQ(RES_TIMEOUT, res_params.base_timeout_msec);
 }
