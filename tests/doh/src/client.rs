@@ -53,6 +53,9 @@ pub struct Client {
     /// Queues the second part DNS answers needed to be sent after first part.
     /// <Stream ID, ans>
     pending_answers: Vec<(u64, Vec<u8>)>,
+
+    /// Returns true if early data is received.
+    handled_early_data: bool,
 }
 
 impl Client {
@@ -64,6 +67,7 @@ impl Client {
             id,
             in_flight_queries: HashMap::new(),
             pending_answers: Vec::new(),
+            handled_early_data: false,
         }
     }
 
@@ -190,12 +194,16 @@ impl Client {
         self.conn.recv(data, recv_info)?;
 
         if (self.conn.is_in_early_data() || self.conn.is_established()) && self.h3_conn.is_none() {
-            // Create a HTTP3 connection as soon as the QUIC connection is established.
+            // Create a HTTP3 connection as soon as either the QUIC connection is established or
+            // the handshake has progressed enough to receive early data.
             self.create_http3_connection()?;
             info!("HTTP/3 connection created");
         }
 
         if self.h3_conn.is_some() {
+            if self.conn.is_in_early_data() {
+                self.handled_early_data = true;
+            }
             return self.handle_http3_request();
         }
 
@@ -232,6 +240,10 @@ impl Client {
 
     pub fn close(&mut self) {
         let _ = self.conn.close(false, 0, b"Graceful shutdown");
+    }
+
+    pub fn handled_early_data(&self) -> bool {
+        self.handled_early_data
     }
 }
 
