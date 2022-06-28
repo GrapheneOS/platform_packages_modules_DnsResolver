@@ -63,6 +63,7 @@ class Experiments {
             "dot_validation_latency_factor",
             "dot_validation_latency_offset_ms",
             "doh",
+            "doh_early_data",
             "doh_query_timeout_ms",
             "doh_probe_timeout_ms",
             "doh_idle_timeout_ms",
