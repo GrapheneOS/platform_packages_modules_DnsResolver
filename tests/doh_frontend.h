@@ -60,6 +60,9 @@ class DohFrontend {
     // Returns the number of connections using session resumption.
     int resumedConnections() const;
 
+    // Returns the number of connections that had early data.
+    int earlyDataConnections() const;
+
     void clearQueries();
     bool block_sending(bool block);
     bool waitForAllClientsDisconnected() const;

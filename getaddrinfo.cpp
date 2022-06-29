@@ -1660,7 +1660,8 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
         }
     }
 
-    LOG(INFO) << __func__ << ": rcode=" << rcode << ", ancount=" << ntohs(hp->ancount);
+    LOG(INFO) << __func__ << ": rcode=" << rcode << ", ancount=" << ntohs(hp->ancount)
+              << ", return value=" << n;
 
     t->n = n;
     return {

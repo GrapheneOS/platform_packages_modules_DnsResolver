@@ -19,8 +19,6 @@
 use anyhow::{anyhow, bail, ensure, Result};
 use log::{debug, error, info, warn};
 use quiche::h3::NameValue;
-use ring::hmac;
-use ring::rand::SystemRandom;
 use std::collections::{hash_map, HashMap};
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -28,6 +26,7 @@ use std::time::Duration;
 
 pub const DNS_HEADER_SIZE: usize = 12;
 pub const MAX_UDP_PAYLOAD_SIZE: usize = 1350;
+pub const CONN_ID_LEN: usize = 8;
 
 pub type ConnectionID = Vec<u8>;
 
@@ -54,6 +53,9 @@ pub struct Client {
     /// Queues the second part DNS answers needed to be sent after first part.
     /// <Stream ID, ans>
     pending_answers: Vec<(u64, Vec<u8>)>,
+
+    /// Returns true if early data is received.
+    handled_early_data: bool,
 }
 
 impl Client {
@@ -65,6 +67,7 @@ impl Client {
             id,
             in_flight_queries: HashMap::new(),
             pending_answers: Vec::new(),
+            handled_early_data: false,
         }
     }
 
@@ -191,12 +194,16 @@ impl Client {
         self.conn.recv(data, recv_info)?;
 
         if (self.conn.is_in_early_data() || self.conn.is_established()) && self.h3_conn.is_none() {
-            // Create a HTTP3 connection as soon as the QUIC connection is established.
+            // Create a HTTP3 connection as soon as either the QUIC connection is established or
+            // the handshake has progressed enough to receive early data.
             self.create_http3_connection()?;
             info!("HTTP/3 connection created");
         }
 
         if self.h3_conn.is_some() {
+            if self.conn.is_in_early_data() {
+                self.handled_early_data = true;
+            }
             return self.handle_http3_request();
         }
 
@@ -234,6 +241,10 @@ impl Client {
     pub fn close(&mut self) {
         let _ = self.conn.close(false, 0, b"Graceful shutdown");
     }
+
+    pub fn handled_early_data(&self) -> bool {
+        self.handled_early_data
+    }
 }
 
 impl std::fmt::Debug for Client {
@@ -247,18 +258,12 @@ impl std::fmt::Debug for Client {
 
 pub struct ClientMap {
     clients: HashMap<ConnectionID, Client>,
-    conn_id_seed: hmac::Key,
     config: quiche::Config,
 }
 
 impl ClientMap {
     pub fn new(config: quiche::Config) -> Result<ClientMap> {
-        let conn_id_seed = match hmac::Key::generate(hmac::HMAC_SHA256, &SystemRandom::new()) {
-            Ok(v) => v,
-            Err(e) => bail!("Failed to generate a seed: {}", e),
-        };
-
-        Ok(ClientMap { clients: HashMap::new(), conn_id_seed, config })
+        Ok(ClientMap { clients: HashMap::new(), config })
     }
 
     pub fn get_or_create(
@@ -266,27 +271,26 @@ impl ClientMap {
         hdr: &quiche::Header,
         addr: &SocketAddr,
     ) -> Result<&mut Client> {
-        let dcid = hdr.dcid.as_ref().to_vec();
-        let client = if !self.clients.contains_key(&dcid) {
-            ensure!(hdr.ty == quiche::Type::Initial, "Packet is not Initial");
-            ensure!(quiche::version_is_supported(hdr.version), "Protocol version not supported");
-
-            let scid = generate_conn_id(&self.conn_id_seed, &dcid);
-            let conn = quiche::accept(
-                &quiche::ConnectionId::from_ref(&scid),
-                None, /* odcid */
-                *addr,
-                &mut self.config,
-            )?;
-            let client = Client::new(conn, addr, scid.clone());
-
-            info!("New client: {:?}", client);
-            self.clients.insert(scid.clone(), client);
-            self.clients.get_mut(&scid).unwrap()
-        } else {
-            self.clients.get_mut(&dcid).unwrap()
+        let conn_id = get_conn_id(hdr)?;
+        let client = match self.clients.entry(conn_id.clone()) {
+            hash_map::Entry::Occupied(client) => client.into_mut(),
+            hash_map::Entry::Vacant(vacant) => {
+                ensure!(hdr.ty == quiche::Type::Initial, "Packet is not Initial");
+                ensure!(
+                    quiche::version_is_supported(hdr.version),
+                    "Protocol version not supported"
+                );
+                let conn = quiche::accept(
+                    &quiche::ConnectionId::from_ref(&conn_id),
+                    None, /* odcid */
+                    *addr,
+                    &mut self.config,
+                )?;
+                let client = Client::new(conn, addr, conn_id.clone());
+                info!("New client: {:?}", client);
+                vacant.insert(client)
+            }
         };
-
         Ok(client)
     }
 
@@ -307,8 +311,15 @@ impl ClientMap {
     }
 }
 
-fn generate_conn_id(conn_id_seed: &hmac::Key, dcid: &[u8]) -> ConnectionID {
-    let conn_id = hmac::sign(conn_id_seed, dcid);
-    let conn_id = &conn_id.as_ref()[..quiche::MAX_CONN_ID_LEN];
-    conn_id.to_vec()
+// Per RFC 9000 section 7.2, an Initial packet's dcid from a new client must be
+// at least 8 bytes in length. We use the first 8 bytes of dcid as new connection
+// ID to identify the client.
+// This is helpful to identify 0-RTT packets. In 0-RTT handshake, 0-RTT packets
+// are followed after the Initial packet with the same dcid. With this function, we
+// know which 0-RTT packets belong to which client.
+fn get_conn_id(hdr: &quiche::Header) -> Result<ConnectionID> {
+    if let Some(v) = hdr.dcid.as_ref().get(0..CONN_ID_LEN) {
+        return Ok(v.to_vec());
+    }
+    bail!("QUIC packet {:?} dcid too small", hdr.ty)
 }
