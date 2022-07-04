@@ -25,8 +25,7 @@
 #include <NetdClient.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-
-#include "resolv_test_base.h"
+#include <netdutils/NetNativeTestBase.h>
 
 static const char* GOOGLE_SERVER_IP = "8.8.8.8";
 static const int TIMEOUT_MS = 3000;
@@ -37,7 +36,7 @@ std::mutex m;
 std::condition_variable cv;
 unsigned int dnsNetId;
 
-class DoHFFITest : public ResolvTestBase {};
+class DoHFFITest : public NetNativeTestBase {};
 
 TEST_F(DoHFFITest, SmokeTest) {
     getNetworkForDns(&dnsNetId);
