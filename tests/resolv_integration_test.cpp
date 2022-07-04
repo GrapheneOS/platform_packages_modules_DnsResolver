@@ -659,12 +659,12 @@ TEST_F(ResolverTest, GetHostByName_Binder) {
     ASSERT_EQ(1U, mappings.size());
     const DnsResponderClient::Mapping& mapping = mappings[0];
 
-    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
-                                                          .setDomains(domains)
-                                                          .setDnsServers(servers)
-                                                          .setDotServers({})
-                                                          .setParams(kDefaultParams)
-                                                          .build()));
+    const auto resolverParams = ResolverParams::Builder()
+                                        .setDomains(domains)
+                                        .setDnsServers(servers)
+                                        .setDotServers({})
+                                        .build();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(resolverParams));
 
     const hostent* result = gethostbyname(mapping.host.c_str());
     const size_t total_queries =
@@ -691,15 +691,12 @@ TEST_F(ResolverTest, GetHostByName_Binder) {
     EXPECT_EQ(servers.size(), res_servers.size());
     EXPECT_EQ(domains.size(), res_domains.size());
     EXPECT_EQ(0U, res_tls_servers.size());
-    ASSERT_EQ(static_cast<size_t>(IDnsResolver::RESOLVER_PARAMS_COUNT), kDefaultParams.size());
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_SAMPLE_VALIDITY],
-              res_params.sample_validity);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_SUCCESS_THRESHOLD],
-              res_params.success_threshold);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_MIN_SAMPLES], res_params.min_samples);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_MAX_SAMPLES], res_params.max_samples);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC],
-              res_params.base_timeout_msec);
+    EXPECT_EQ(resolverParams.sampleValiditySeconds, res_params.sample_validity);
+    EXPECT_EQ(resolverParams.successThreshold, res_params.success_threshold);
+    EXPECT_EQ(resolverParams.minSamples, res_params.min_samples);
+    EXPECT_EQ(resolverParams.maxSamples, res_params.max_samples);
+    EXPECT_EQ(resolverParams.baseTimeoutMsec, res_params.base_timeout_msec);
+    EXPECT_EQ(resolverParams.retryCount, res_params.retry_count);
     EXPECT_EQ(servers.size(), res_stats.size());
 
     EXPECT_THAT(res_servers, testing::UnorderedElementsAreArray(servers));
@@ -1516,9 +1513,7 @@ TEST_F(ResolverTest, GetAddrInfoFromCustTable_Modify) {
 }
 
 TEST_F(ResolverTest, EmptySetup) {
-    std::vector<std::string> servers;
-    std::vector<std::string> domains;
-    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers, domains));
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParamsParcel{.netId = TEST_NETID}));
     std::vector<std::string> res_servers;
     std::vector<std::string> res_domains;
     std::vector<std::string> res_tls_servers;
@@ -1531,16 +1526,12 @@ TEST_F(ResolverTest, EmptySetup) {
     EXPECT_EQ(0U, res_servers.size());
     EXPECT_EQ(0U, res_domains.size());
     EXPECT_EQ(0U, res_tls_servers.size());
-    ASSERT_EQ(static_cast<size_t>(IDnsResolver::RESOLVER_PARAMS_COUNT), kDefaultParams.size());
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_SAMPLE_VALIDITY],
-              res_params.sample_validity);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_SUCCESS_THRESHOLD],
-              res_params.success_threshold);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_MIN_SAMPLES], res_params.min_samples);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_MAX_SAMPLES], res_params.max_samples);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC],
-              res_params.base_timeout_msec);
-    EXPECT_EQ(kDefaultParams[IDnsResolver::RESOLVER_PARAMS_RETRY_COUNT], res_params.retry_count);
+    EXPECT_EQ(0U, res_params.sample_validity);
+    EXPECT_EQ(0U, res_params.success_threshold);
+    EXPECT_EQ(0U, res_params.min_samples);
+    EXPECT_EQ(0U, res_params.max_samples);
+    // We don't check baseTimeoutMsec and retryCount because their value differ depending on
+    // the experiment flags.
 }
 
 TEST_F(ResolverTest, SearchPathChange) {
