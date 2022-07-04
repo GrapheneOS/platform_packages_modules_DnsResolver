@@ -24,6 +24,7 @@
 #include <android-base/macros.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <netdutils/NetNativeTestBase.h>
 #include <netdutils/Slice.h>
 
 #include "DnsTlsDispatcher.h"
@@ -37,7 +38,6 @@
 #include "IDnsTlsSocketFactory.h"
 #include "IDnsTlsSocketObserver.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
-#include "tests/resolv_test_base.h"
 
 namespace android {
 namespace net {
@@ -58,7 +58,7 @@ static const IPAddress V6ADDR1 = IPAddress::forString("2001:db8::1");
 static const IPAddress V6ADDR2 = IPAddress::forString("2001:db8::2");
 
 // BaseTest just provides constants that are useful for the tests.
-class BaseTest : public ResolvTestBase {
+class BaseTest : public NetNativeTestBase {
   protected:
     BaseTest() {
         SERVER1.name = SERVERNAME1;
@@ -867,7 +867,7 @@ TEST_F(ServerTest, State) {
     EXPECT_FALSE(s2.active());
 }
 
-class QueryMapTest : public ResolvTestBase {};
+class QueryMapTest : public NetNativeTestBase {};
 
 TEST_F(QueryMapTest, Basic) {
     DnsTlsQueryMap map;
@@ -969,7 +969,7 @@ TEST_F(QueryMapTest, FillHole) {
     EXPECT_FALSE(map.recordQuery(makeSlice(QUERY)));
 }
 
-class DnsTlsSocketTest : public ResolvTestBase {
+class DnsTlsSocketTest : public NetNativeTestBase {
   protected:
     class MockDnsTlsSocketObserver : public IDnsTlsSocketObserver {
       public:

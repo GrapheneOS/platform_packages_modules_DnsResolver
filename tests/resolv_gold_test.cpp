@@ -24,6 +24,7 @@
 #include <android-base/result.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <netdutils/NetNativeTestBase.h>
 
 #include "PrivateDnsConfiguration.h"
 #include "getaddrinfo.h"
@@ -35,7 +36,6 @@
 #include "tests/dns_responder/dns_responder_client_ndk.h"
 #include "tests/dns_responder/dns_tls_certificate.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
-#include "tests/resolv_test_base.h"
 
 namespace android::net {
 
@@ -63,7 +63,7 @@ const std::vector<std::string> kGoldFilesGetHostByNameTls = {
         "gethostbyname.tls.topsite.youtube.pb"};
 
 // Fixture test class definition.
-class TestBase : public ResolvTestBase {
+class TestBase : public NetNativeTestBase {
   protected:
     static void SetUpTestSuite() {
         // Unzip *.pb from pb.zip. The unzipped files get 777 permission by default. Remove execute
