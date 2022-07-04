@@ -359,7 +359,6 @@ rust_test {
     edition: "2018",
     test_suites: ["general-tests"],
     auto_gen_config: true,
-    require_root: true,
     rustlibs: doh_rust_deps + ["libquiche_static"],
     min_sdk_version: "29",
 }
