@@ -16,14 +16,14 @@
 
 #include <android-base/strings.h>
 #include <gtest/gtest.h>
+#include <netdutils/NetNativeTestBase.h>
 #include <stats.pb.h>
 
 #include "resolv_stats_test_utils.h"
-#include "resolv_test_base.h"
 
 namespace android::net {
 
-class ResolvStatsUtilsTest : public ResolvTestBase {};
+class ResolvStatsUtilsTest : public NetNativeTestBase {};
 
 TEST_F(ResolvStatsUtilsTest, NetworkDnsEventEq) {
     NetworkDnsEventReported event1;

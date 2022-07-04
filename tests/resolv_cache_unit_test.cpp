@@ -29,12 +29,12 @@
 #include <cutils/properties.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <netdutils/NetNativeTestBase.h>
 
 #include "resolv_cache.h"
 #include "resolv_private.h"
 #include "stats.h"
 #include "tests/dns_responder/dns_responder.h"
-#include "tests/resolv_test_base.h"
 #include "tests/resolv_test_utils.h"
 
 using namespace std::chrono_literals;
@@ -129,7 +129,7 @@ bool operator==(const res_params& a, const res_params& b) {
 
 }  // namespace
 
-class ResolvCacheTest : public ResolvTestBase {
+class ResolvCacheTest : public NetNativeTestBase {
   protected:
     static constexpr res_params kParams = {
             .sample_validity = 300,

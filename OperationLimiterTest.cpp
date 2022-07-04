@@ -17,13 +17,12 @@
 #include "OperationLimiter.h"
 
 #include <gtest/gtest-spi.h>
-
-#include "resolv_test_base.h"
+#include <netdutils/NetNativeTestBase.h>
 
 namespace android {
 namespace netdutils {
 
-class OperationLimiterTest : public ResolvTestBase {};
+class OperationLimiterTest : public NetNativeTestBase {};
 
 TEST_F(OperationLimiterTest, limits) {
     OperationLimiter<int> limiter(3);
