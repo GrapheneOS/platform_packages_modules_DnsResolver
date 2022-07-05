@@ -7627,46 +7627,39 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
     }
 }
 
-TEST_F(ResolverTest, NegativeValueInExperimentFlag_WithValidParams) {
-    ScopedSystemProperties sp1(kRetransIntervalFlag, "-3000");
-    ScopedSystemProperties sp2(kRetryCountFlag, "-2");
-    resetNetwork();
+TEST_F(ResolverTest, NegativeValueInExperimentFlag) {
+    // Test setting up different retry count and BASE_TIMEOUT_MSEC in DNS server.
+    const struct TestConfig {
+        int retryCount;
+        int baseTimeoutMsec;
+        int expectedRetryCount;
+        int expectedBaseTimeoutMsec;
+    } TestConfigs[]{{2, 1000, 2, 1000}, {0, 0, RES_DFLRETRY, RES_TIMEOUT}};
 
-    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
-    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+    for (const auto& config : TestConfigs) {
+        SCOPED_TRACE(fmt::format("Setting up retryCount = {}, baseTimeoutMsec = {}",
+                                 config.retryCount, config.baseTimeoutMsec));
+        // Initiate negative values in experiment flags.
+        ScopedSystemProperties sp1(kRetryCountFlag, "-2");
+        ScopedSystemProperties sp2(kRetransIntervalFlag, "-3000");
+        resetNetwork();
 
-    std::vector<std::string> res_servers;
-    std::vector<std::string> res_domains;
-    std::vector<std::string> res_tls_servers;
-    res_params res_params;
-    std::vector<ResolverStats> res_stats;
-    int wait_for_pending_req_timeout_count;
-    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
-            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
-            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
-    EXPECT_EQ(setupParams.retryCount, res_params.retry_count);
-    EXPECT_EQ(setupParams.baseTimeoutMsec, res_params.base_timeout_msec);
-}
+        ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+        setupParams.retryCount = config.retryCount;
+        setupParams.baseTimeoutMsec = config.baseTimeoutMsec;
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
 
-TEST_F(ResolverTest, NegativeValueInExperimentFlag_WithZeroParams) {
-    ScopedSystemProperties sp1(kRetransIntervalFlag, "-3000");
-    ScopedSystemProperties sp2(kRetryCountFlag, "-2");
-    resetNetwork();
+        std::vector<std::string> res_servers;
+        std::vector<std::string> res_domains;
+        std::vector<std::string> res_tls_servers;
+        res_params res_params;
+        std::vector<ResolverStats> res_stats;
+        int wait_for_pending_req_timeout_count;
+        ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
+                mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains,
+                &res_tls_servers, &res_params, &res_stats, &wait_for_pending_req_timeout_count));
 
-    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
-    setupParams.retryCount = 0;
-    setupParams.baseTimeoutMsec = 0;
-    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
-
-    std::vector<std::string> res_servers;
-    std::vector<std::string> res_domains;
-    std::vector<std::string> res_tls_servers;
-    res_params res_params;
-    std::vector<ResolverStats> res_stats;
-    int wait_for_pending_req_timeout_count;
-    ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
-            mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains, &res_tls_servers,
-            &res_params, &res_stats, &wait_for_pending_req_timeout_count));
-    EXPECT_EQ(RES_DFLRETRY, res_params.retry_count);
-    EXPECT_EQ(RES_TIMEOUT, res_params.base_timeout_msec);
+        EXPECT_EQ(config.expectedRetryCount, res_params.retry_count);
+        EXPECT_EQ(config.expectedBaseTimeoutMsec, res_params.base_timeout_msec);
+    }
 }

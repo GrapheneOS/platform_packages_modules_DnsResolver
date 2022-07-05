@@ -1650,15 +1650,15 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     uint8_t old_max_samples = netconfig->params.max_samples;
     netconfig->params = params;
 
-    const int retryCount = Experiments::getInstance()->getFlag("retry_count", RES_DFLRETRY);
-    const int retransmissionInterval =
-            Experiments::getInstance()->getFlag("retransmission_time_interval", RES_TIMEOUT);
     // This check must always be true, but add a protection against OEMs configure negative values
     // for retry_count and base_timeout_msec.
     if (netconfig->params.retry_count == 0) {
+        const int retryCount = Experiments::getInstance()->getFlag("retry_count", RES_DFLRETRY);
         netconfig->params.retry_count = (retryCount <= 0) ? RES_DFLRETRY : retryCount;
     }
     if (netconfig->params.base_timeout_msec == 0) {
+        const int retransmissionInterval =
+                Experiments::getInstance()->getFlag("retransmission_time_interval", RES_TIMEOUT);
         netconfig->params.base_timeout_msec =
                 (retransmissionInterval <= 0) ? RES_TIMEOUT : retransmissionInterval;
     }
