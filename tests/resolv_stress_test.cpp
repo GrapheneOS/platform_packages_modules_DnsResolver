@@ -23,16 +23,16 @@
 #include <android-base/logging.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <netdutils/NetNativeTestBase.h>
 
 #include "ResolverStats.h"
 #include "dns_responder/dns_responder_client_ndk.h"
 #include "params.h"  // MAX_NS
 #include "resolv_test_utils.h"
-#include "tests/resolv_test_base.h"
 
 using android::net::ResolverStats;
 
-class ResolverStressTest : public ResolvTestBase {
+class ResolverStressTest : public NetNativeTestBase {
   public:
     ResolverStressTest() { mDnsClient.SetUp(); }
     ~ResolverStressTest() { mDnsClient.TearDown(); }

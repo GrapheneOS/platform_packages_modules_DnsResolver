@@ -282,6 +282,7 @@ cc_test {
     test_suites: ["general-tests"],
     static_libs: [
         "libgmock",
+        "libnetdutils",
         "libprotobuf-cpp-lite",
         "resolv_stats_test_utils",
         "stats_proto",
@@ -305,6 +306,7 @@ cc_test {
         "libcrypto_static",
         "libdoh_ffi_for_test",
         "libgmock",
+        "libnetdutils",
         "libssl",
     ],
     shared_libs: [

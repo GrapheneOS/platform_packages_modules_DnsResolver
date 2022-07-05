@@ -35,6 +35,7 @@
 #include <android/binder_process.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+#include <netdutils/NetNativeTestBase.h>
 #include <netdutils/Stopwatch.h>
 
 #include <util.h>
@@ -45,7 +46,6 @@
 #include "ResolverStats.h"
 #include "dns_responder.h"
 #include "dns_responder_client_ndk.h"
-#include "tests/resolv_test_base.h"
 
 using aidl::android::net::IDnsResolver;
 using aidl::android::net::ResolverHostsParcel;
@@ -94,7 +94,7 @@ std::vector<std::string> dumpService(ndk::SpAIBinder binder) {
 
 }  // namespace
 
-class DnsResolverBinderTest : public ResolvTestBase {
+class DnsResolverBinderTest : public NetNativeTestBase {
   public:
     DnsResolverBinderTest() {
         ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));
