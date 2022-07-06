@@ -35,12 +35,15 @@ using android::net::ResolverStats;
 ResolverParams::Builder::Builder() {
     // Default resolver configuration for opportunistic mode.
     mParcel.netId = TEST_NETID;
-    mParcel.sampleValiditySeconds = kDefaultParams[0];
-    mParcel.successThreshold = kDefaultParams[1];
-    mParcel.minSamples = kDefaultParams[2];
-    mParcel.maxSamples = kDefaultParams[3];
-    mParcel.baseTimeoutMsec = kDefaultParams[4];
-    mParcel.retryCount = kDefaultParams[5];
+
+    // Default Resolver params.
+    mParcel.sampleValiditySeconds = 300;
+    mParcel.successThreshold = 25;
+    mParcel.minSamples = 8;
+    mParcel.maxSamples = 8;
+    mParcel.baseTimeoutMsec = 1000;
+    mParcel.retryCount = 2;
+
     mParcel.servers = {kDefaultServer};
     mParcel.domains = {kDefaultSearchDomain};
     mParcel.tlsServers = {kDefaultServer};
