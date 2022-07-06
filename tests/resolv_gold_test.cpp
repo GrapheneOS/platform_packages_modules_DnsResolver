@@ -111,14 +111,14 @@ class TestBase : public NetNativeTestBase {
         ASSERT_EQ(resolv_set_nameservers(TEST_NETID, servers, domains, kParams, std::nullopt), 0);
     }
 
-    void SetResolvers() { SetResolverConfiguration(kDefaultServers, kDefaultSearchDomains); }
+    void SetResolvers() { SetResolverConfiguration({kDefaultServer}, {kDefaultSearchDomain}); }
 
     void SetResolversWithTls() {
         // Pass servers as both network-assigned and TLS servers. Tests can
         // determine on which server and by which protocol queries arrived.
         // See also DnsClient::SetResolversWithTls() in
         // packages/modules/DnsResolver/tests/dns_responder/dns_responder_client.h.
-        SetResolverConfiguration(kDefaultServers, kDefaultSearchDomains, kDefaultServers,
+        SetResolverConfiguration({kDefaultServer}, {kDefaultSearchDomain}, {kDefaultServer},
                                  kDefaultPrivateDnsHostName, kCaCert);
     }
 
