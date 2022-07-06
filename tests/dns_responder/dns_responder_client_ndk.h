@@ -37,14 +37,6 @@ using aidl::android::net::NativeVpnType;
 
 inline constexpr char kDefaultServer[] = "127.0.0.3";
 inline constexpr char kDefaultSearchDomain[] = "example.com";
-inline const std::array<int, aidl::android::net::IDnsResolver::RESOLVER_PARAMS_COUNT>
-        kDefaultParams = {
-                300,      // sample validity in seconds
-                25,       // success threshod in percent
-                8,    8,  // {MIN,MAX}_SAMPLES
-                1000,     // BASE_TIMEOUT_MSEC
-                2,        // retry count
-};
 
 #define SKIP_IF_REMOTE_VERSION_LESS_THAN(service, version)                                         \
     do {                                                                                           \
