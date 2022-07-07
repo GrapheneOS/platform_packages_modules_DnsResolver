@@ -38,8 +38,7 @@ class ResolverStressTest : public NetNativeTestBase {
     ~ResolverStressTest() { mDnsClient.TearDown(); }
 
   protected:
-    void RunGetAddrInfoStressTest(unsigned num_hosts, unsigned num_threads,
-                                         unsigned num_queries) {
+    void RunGetAddrInfoStressTest(unsigned num_hosts, unsigned num_threads, unsigned num_queries) {
         std::vector<std::string> domains = {"example.com"};
         std::vector<std::unique_ptr<test::DNSResponder>> dns;
         std::vector<std::string> servers;
@@ -47,7 +46,7 @@ class ResolverStressTest : public NetNativeTestBase {
         ASSERT_NO_FATAL_FAILURE(mDnsClient.SetupMappings(num_hosts, domains, &mappings));
         ASSERT_NO_FATAL_FAILURE(mDnsClient.SetupDNSServers(MAXNS, mappings, &dns, &servers));
 
-        ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers, domains, kDefaultParams));
+        ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
 
         auto t0 = std::chrono::steady_clock::now();
         std::vector<std::thread> threads(num_threads);

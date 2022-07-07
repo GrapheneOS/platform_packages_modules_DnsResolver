@@ -32,6 +32,25 @@ using aidl::android::net::ResolverOptionsParcel;
 using aidl::android::net::ResolverParamsParcel;
 using android::net::ResolverStats;
 
+ResolverParams::Builder::Builder() {
+    // Default resolver configuration for opportunistic mode.
+    mParcel.netId = TEST_NETID;
+
+    // Default Resolver params.
+    mParcel.sampleValiditySeconds = 300;
+    mParcel.successThreshold = 25;
+    mParcel.minSamples = 8;
+    mParcel.maxSamples = 8;
+    mParcel.baseTimeoutMsec = 1000;
+    mParcel.retryCount = 2;
+
+    mParcel.servers = {kDefaultServer};
+    mParcel.domains = {kDefaultSearchDomain};
+    mParcel.tlsServers = {kDefaultServer};
+    mParcel.caCertificate = kCaCert;
+    mParcel.resolverOptions = ResolverOptionsParcel{};  // optional, must be explicitly set.
+}
+
 void DnsResponderClient::SetupMappings(unsigned numHosts, const std::vector<std::string>& domains,
                                        std::vector<Mapping>* mappings) {
     mappings->resize(numHosts * domains.size());
@@ -45,45 +64,6 @@ void DnsResponderClient::SetupMappings(unsigned numHosts, const std::vector<std:
             ++mappingsIt;
         }
     }
-}
-
-// TODO: Use SetResolverConfiguration() with ResolverParamsParcel struct directly.
-// DEPRECATED: Use SetResolverConfiguration() in new code
-ResolverParamsParcel DnsResponderClient::makeResolverParamsParcel(
-        int netId, const std::vector<int>& params, const std::vector<std::string>& servers,
-        const std::vector<std::string>& domains, const std::string& tlsHostname,
-        const std::vector<std::string>& tlsServers, const std::string& caCert) {
-    ResolverParamsParcel paramsParcel;
-
-    paramsParcel.netId = netId;
-    paramsParcel.sampleValiditySeconds = params[IDnsResolver::RESOLVER_PARAMS_SAMPLE_VALIDITY];
-    paramsParcel.successThreshold = params[IDnsResolver::RESOLVER_PARAMS_SUCCESS_THRESHOLD];
-    paramsParcel.minSamples = params[IDnsResolver::RESOLVER_PARAMS_MIN_SAMPLES];
-    paramsParcel.maxSamples = params[IDnsResolver::RESOLVER_PARAMS_MAX_SAMPLES];
-    if (params.size() > IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC) {
-        paramsParcel.baseTimeoutMsec = params[IDnsResolver::RESOLVER_PARAMS_BASE_TIMEOUT_MSEC];
-    } else {
-        paramsParcel.baseTimeoutMsec = 0;
-    }
-    if (params.size() > IDnsResolver::RESOLVER_PARAMS_RETRY_COUNT) {
-        paramsParcel.retryCount = params[IDnsResolver::RESOLVER_PARAMS_RETRY_COUNT];
-    } else {
-        paramsParcel.retryCount = 0;
-    }
-    paramsParcel.servers = servers;
-    paramsParcel.domains = domains;
-    paramsParcel.tlsName = tlsHostname;
-    paramsParcel.tlsServers = tlsServers;
-    paramsParcel.tlsFingerprints = {};
-    paramsParcel.caCertificate = caCert;
-    paramsParcel.resolverOptions = ResolverOptionsParcel{};  // optional, must be explicitly set.
-
-    // Note, do not remove this otherwise the ResolverTest#ConnectTlsServerTimeout won't pass in M4
-    // module.
-    // TODO: remove after 2020-01 rolls out.
-    paramsParcel.tlsConnectTimeoutMs = 1000;
-
-    return paramsParcel;
 }
 
 bool DnsResponderClient::GetResolverInfo(aidl::android::net::IDnsResolver* dnsResolverService,
@@ -120,22 +100,28 @@ bool DnsResponderClient::GetResolverInfo(aidl::android::net::IDnsResolver* dnsRe
 
 bool DnsResponderClient::SetResolversForNetwork(const std::vector<std::string>& servers,
                                                 const std::vector<std::string>& domains,
-                                                const std::vector<int>& params) {
-    const auto& resolverParams =
-            makeResolverParamsParcel(TEST_NETID, params, servers, domains, "", {}, "");
+                                                std::vector<int> params) {
+    params.resize(IDnsResolver::RESOLVER_PARAMS_COUNT);
+    std::array<int, IDnsResolver::RESOLVER_PARAMS_COUNT> arr;
+    std::copy_n(params.begin(), arr.size(), arr.begin());
+    const auto resolverParams = ResolverParams::Builder()
+                                        .setDomains(domains)
+                                        .setDnsServers(servers)
+                                        .setDotServers({})
+                                        .setParams(arr)
+                                        .build();
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
     return rv.isOk();
 }
 
-bool DnsResponderClient::SetResolversWithTls(const std::vector<std::string>& servers,
-                                             const std::vector<std::string>& domains,
-                                             const std::vector<int>& params,
-                                             const std::vector<std::string>& tlsServers,
-                                             const std::string& name) {
-    const auto& resolverParams = makeResolverParamsParcel(TEST_NETID, params, servers, domains,
-                                                          name, tlsServers, kCaCert);
+bool DnsResponderClient::SetResolversForNetwork(const std::vector<std::string>& servers,
+                                                const std::vector<std::string>& domains) {
+    const auto resolverParams = ResolverParams::Builder()
+                                        .setDomains(domains)
+                                        .setDnsServers(servers)
+                                        .setDotServers({})
+                                        .build();
     const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
-    if (!rv.isOk()) LOG(ERROR) << "SetResolversWithTls() -> " << rv.getMessage();
     return rv.isOk();
 }
 
@@ -146,9 +132,7 @@ bool DnsResponderClient::SetResolversFromParcel(const ResolverParamsParcel& reso
 }
 
 ResolverParamsParcel DnsResponderClient::GetDefaultResolverParamsParcel() {
-    return makeResolverParamsParcel(TEST_NETID, kDefaultParams, kDefaultServers,
-                                    kDefaultSearchDomains, {} /* tlsHostname */, kDefaultServers,
-                                    kCaCert);
+    return ResolverParams::Builder().build();
 }
 
 void DnsResponderClient::SetupDNSServers(unsigned numServers, const std::vector<Mapping>& mappings,
