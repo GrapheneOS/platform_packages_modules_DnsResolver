@@ -38,7 +38,6 @@
 #include <arpa/nameser.h>
 #include <assert.h>
 #include <ctype.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <net/if.h>
 #include <netdb.h>
@@ -57,6 +56,7 @@
 #include <future>
 
 #include <android-base/logging.h>
+#include <android-base/parseint.h>
 
 #include "Experiments.h"
 #include "netd_resolv/resolv.h"
@@ -64,7 +64,6 @@
 #include "res_debug.h"
 #include "resolv_cache.h"
 #include "resolv_private.h"
-#include "util.h"
 
 #define ANY 0
 
@@ -123,7 +122,6 @@ struct res_target {
     int n = 0;                                                         // result length
 };
 
-static int str2number(const char*);
 static int explore_fqdn(const struct addrinfo*, const char*, const char*, struct addrinfo**,
                         const struct android_net_context*, NetworkDnsEventReported* event);
 static int explore_null(const struct addrinfo*, const char*, struct addrinfo**);
@@ -211,22 +209,6 @@ void freeaddrinfo(struct addrinfo* ai) {
         free(ai);
         ai = next;
     }
-}
-
-static int str2number(const char* p) {
-    char* ep;
-    unsigned long v;
-
-    assert(p != NULL);
-
-    if (*p == '\0') return -1;
-    ep = NULL;
-    errno = 0;
-    v = strtoul(p, &ep, 10);
-    if (errno == 0 && ep && *ep == '\0' && v <= UINT_MAX)
-        return v;
-    else
-        return -1;
 }
 
 /*
@@ -711,7 +693,7 @@ static int get_portmatch(const struct addrinfo* ai, const char* servname) {
 static int get_port(const struct addrinfo* ai, const char* servname, int matchonly) {
     const char* proto;
     struct servent* sp;
-    int port;
+    uint port;
     int allownumeric;
 
     assert(ai != NULL);
@@ -738,10 +720,9 @@ static int get_port(const struct addrinfo* ai, const char* servname, int matchon
             return EAI_SOCKTYPE;
     }
 
-    port = str2number(servname);
-    if (port >= 0) {
+    if (android::base::ParseUint(servname, &port)) {
         if (!allownumeric) return EAI_SERVICE;
-        if (port < 0 || port > 65535) return EAI_SERVICE;
+        if (port > 65535) return EAI_SERVICE;
         port = htons(port);
     } else {
         if (ai->ai_flags & AI_NUMERICSERV) return EAI_NONAME;
@@ -788,9 +769,7 @@ static const struct afd* find_afd(int af) {
 
 // Convert a string to a scope identifier.
 static int ip6_str2scopeid(const char* scope, struct sockaddr_in6* sin6, uint32_t* scopeid) {
-    uint64_t lscopeid;
     struct in6_addr* a6;
-    char* ep;
 
     assert(scope != NULL);
     assert(sin6 != NULL);
@@ -811,14 +790,10 @@ static int ip6_str2scopeid(const char* scope, struct sockaddr_in6* sin6, uint32_
         if (*scopeid != 0) return 0;
     }
 
-    // try to convert to a numeric id as a last resort
-    errno = 0;
-    lscopeid = strtoul(scope, &ep, 10);
-    *scopeid = (uint32_t)(lscopeid & 0xffffffffUL);
-    if (errno == 0 && ep && *ep == '\0' && *scopeid == lscopeid)
-        return 0;
-    else
-        return -1;
+    /* try to convert to a numeric id as a last resort*/
+    if (!android::base::ParseUint(scope, scopeid)) return -1;
+
+    return 0;
 }
 
 /* code duplicate with gethnamaddr.c */
