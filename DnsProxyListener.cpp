@@ -18,7 +18,6 @@
 
 #include <arpa/inet.h>
 #include <dirent.h>
-#include <errno.h>
 #include <linux/if.h>
 #include <math.h>
 #include <net/if.h>
@@ -34,6 +33,7 @@
 #include <algorithm>
 #include <vector>
 
+#include <android-base/parseint.h>
 #include <android/multinetwork.h>  // ResNsendFlags
 #include <cutils/misc.h>           // FIRST_APPLICATION_UID
 #include <cutils/multiuser.h>
@@ -63,6 +63,8 @@
 using aidl::android::net::metrics::INetdEventListener;
 using aidl::android::net::resolv::aidl::DnsHealthEventParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
+using android::base::ParseInt;
+using android::base::ParseUint;
 using std::span;
 
 namespace android {
@@ -233,20 +235,6 @@ int resNSendToAiError(int err, int rcode) {
         return NETD_RESOLV_TIMEOUT;
     }
     return EAI_SYSTEM;
-}
-
-template <typename IntegralType>
-bool simpleStrtoul(const char* input, IntegralType* output, int base = 10) {
-    char* endPtr;
-    errno = 0;
-    auto result = strtoul(input, &endPtr, base);
-    // Check the length in order to ensure there is no "-" sign
-    if (!*input || *endPtr || (endPtr - input) != static_cast<ptrdiff_t>(strlen(input)) ||
-        (errno == ERANGE && (result == ULONG_MAX))) {
-        return false;
-    }
-    *output = result;
-    return true;
 }
 
 bool setQueryId(span<uint8_t> msg, uint16_t query_id) {
@@ -703,6 +691,17 @@ static bool evaluate_domain_name(const android_net_context& netcontext, const ch
     return gResNetdCallbacks.evaluate_domain_name(netcontext, host);
 }
 
+static int HandleArgumentError(SocketClient* cli, int errorcode, std::string strerrormessage,
+                               int argc, char** argv) {
+    for (int i = 0; i < argc; i++) {
+        strerrormessage += "argv[" + std::to_string(i) + "]=" + (argv[i] ? argv[i] : "null") + " ";
+    }
+
+    LOG(WARNING) << strerrormessage;
+    cli->sendMsg(errorcode, strerrormessage.c_str(), false);
+    return -1;
+}
+
 static bool sendBE32(SocketClient* c, uint32_t data) {
     uint32_t be_data = htonl(data);
     return c->sendData(&be_data, sizeof(be_data)) == 0;
@@ -911,22 +910,31 @@ DnsProxyListener::GetAddrInfoCmd::GetAddrInfoCmd() : FrameworkCommand("getaddrin
 int DnsProxyListener::GetAddrInfoCmd::runCommand(SocketClient* cli, int argc, char** argv) {
     logArguments(argc, argv);
 
+    int ai_flags = 0;
+    int ai_family = 0;
+    int ai_socktype = 0;
+    int ai_protocol = 0;
+    unsigned netId = 0;
+    std::string strErr = "GetAddrInfoCmd::runCommand: ";
+
     if (argc != 8) {
-        char* msg = nullptr;
-        asprintf(&msg, "Invalid number of arguments to getaddrinfo: %i", argc);
-        LOG(WARNING) << "GetAddrInfoCmd::runCommand: " << (msg ? msg : "null");
-        cli->sendMsg(ResponseCode::CommandParameterError, msg, false);
-        free(msg);
-        return -1;
+        strErr = strErr + "invalid number of arguments: " + std::to_string(argc);
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, 0, NULL);
     }
 
     const std::string name = argv[1];
     const std::string service = argv[2];
-    int ai_flags = strtol(argv[3], nullptr, 10);
-    int ai_family = strtol(argv[4], nullptr, 10);
-    int ai_socktype = strtol(argv[5], nullptr, 10);
-    int ai_protocol = strtol(argv[6], nullptr, 10);
-    unsigned netId = strtoul(argv[7], nullptr, 10);
+    if (!ParseInt(argv[3], &ai_flags))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+    if (!ParseInt(argv[4], &ai_family))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+    if (!ParseInt(argv[5], &ai_socktype))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+    if (!ParseInt(argv[6], &ai_protocol))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+    if (!ParseUint(argv[7], &netId))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+
     const bool useLocalNameservers = checkAndClearUseLocalNameserversFlag(&netId);
     const uid_t uid = cli->getUid();
 
@@ -967,7 +975,7 @@ int DnsProxyListener::ResNSendCommand::runCommand(SocketClient* cli, int argc, c
     }
 
     unsigned netId;
-    if (!simpleStrtoul(argv[1], &netId)) {
+    if (!ParseUint(argv[1], &netId)) {
         LOG(WARNING) << "ResNSendCommand::runCommand: resnsend: from UID " << uid
                      << ", invalid netId";
         sendBE32(cli, -EINVAL);
@@ -975,7 +983,7 @@ int DnsProxyListener::ResNSendCommand::runCommand(SocketClient* cli, int argc, c
     }
 
     uint32_t flags;
-    if (!simpleStrtoul(argv[2], &flags)) {
+    if (!ParseUint(argv[2], &flags)) {
         LOG(WARNING) << "ResNSendCommand::runCommand: resnsend: from UID " << uid
                      << ", invalid flags";
         sendBE32(cli, -EINVAL);
@@ -1124,7 +1132,7 @@ int DnsProxyListener::GetDnsNetIdCommand::runCommand(SocketClient* cli, int argc
     }
 
     unsigned netId;
-    if (!simpleStrtoul(argv[1], &netId)) {
+    if (!ParseUint(argv[1], &netId)) {
         LOG(WARNING) << "GetDnsNetIdCommand::runCommand: getdnsnetid: from UID " << uid
                      << ", invalid netId";
         sendCodeAndBe32(cli, ResponseCode::DnsProxyQueryResult, -EINVAL);
@@ -1158,20 +1166,22 @@ DnsProxyListener::GetHostByNameCmd::GetHostByNameCmd() : FrameworkCommand("getho
 int DnsProxyListener::GetHostByNameCmd::runCommand(SocketClient* cli, int argc, char** argv) {
     logArguments(argc, argv);
 
+    unsigned netId = 0;
+    int af = 0;
+    std::string strErr = "GetHostByNameCmd::runCommand: ";
+
     if (argc != 4) {
-        char* msg = nullptr;
-        asprintf(&msg, "Invalid number of arguments to gethostbyname: %i", argc);
-        LOG(WARNING) << "GetHostByNameCmd::runCommand: " << (msg ? msg : "null");
-        cli->sendMsg(ResponseCode::CommandParameterError, msg, false);
-        free(msg);
-        return -1;
+        strErr = strErr + "invalid number of arguments: " + std::to_string(argc);
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, 0, NULL);
     }
 
-    uid_t uid = cli->getUid();
-    unsigned netId = strtoul(argv[1], nullptr, 10);
-    const bool useLocalNameservers = checkAndClearUseLocalNameserversFlag(&netId);
+    if (!ParseUint(argv[1], &netId))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
     std::string name = argv[2];
-    int af = strtol(argv[3], nullptr, 10);
+    if (!ParseInt(argv[3], &af))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+    uid_t uid = cli->getUid();
+    const bool useLocalNameservers = checkAndClearUseLocalNameserversFlag(&netId);
 
     android_net_context netcontext;
     gResNetdCallbacks.get_network_context(netId, uid, &netcontext);
@@ -1292,33 +1302,32 @@ DnsProxyListener::GetHostByAddrCmd::GetHostByAddrCmd() : FrameworkCommand("getho
 
 int DnsProxyListener::GetHostByAddrCmd::runCommand(SocketClient* cli, int argc, char** argv) {
     logArguments(argc, argv);
+    int addrLen = 0;
+    int addrFamily = 0;
+    unsigned netId = 0;
+    std::string strErr = "GetHostByAddrCmd::runCommand: ";
 
     if (argc != 5) {
-        char* msg = nullptr;
-        asprintf(&msg, "Invalid number of arguments to gethostbyaddr: %i", argc);
-        LOG(WARNING) << "GetHostByAddrCmd::runCommand: " << (msg ? msg : "null");
-        cli->sendMsg(ResponseCode::CommandParameterError, msg, false);
-        free(msg);
-        return -1;
+        strErr = strErr + "invalid number of arguments: " + std::to_string(argc);
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, 0, NULL);
     }
 
     char* addrStr = argv[1];
-    int addrLen = strtol(argv[2], nullptr, 10);
-    int addrFamily = strtol(argv[3], nullptr, 10);
+    if (!ParseInt(argv[2], &addrLen))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+    if (!ParseInt(argv[3], &addrFamily))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
+    if (!ParseUint(argv[4], &netId))
+        return HandleArgumentError(cli, ResponseCode::CommandParameterError, strErr, argc, argv);
     uid_t uid = cli->getUid();
-    unsigned netId = strtoul(argv[4], nullptr, 10);
     const bool useLocalNameservers = checkAndClearUseLocalNameserversFlag(&netId);
 
     in6_addr addr;
     errno = 0;
     int result = inet_pton(addrFamily, addrStr, &addr);
     if (result <= 0) {
-        char* msg = nullptr;
-        asprintf(&msg, "inet_pton(\"%s\") failed %s", addrStr, strerror(errno));
-        LOG(WARNING) << "GetHostByAddrCmd::runCommand: " << (msg ? msg : "null");
-        cli->sendMsg(ResponseCode::OperationFailed, msg, false);
-        free(msg);
-        return -1;
+        strErr = strErr + "inet_pton(\"" + addrStr + "\") failed " + strerror(errno);
+        return HandleArgumentError(cli, ResponseCode::OperationFailed, strErr, 0, NULL);
     }
 
     android_net_context netcontext;
