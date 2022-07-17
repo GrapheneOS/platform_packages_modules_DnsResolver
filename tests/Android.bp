@@ -114,9 +114,17 @@ cc_test {
         "server_configurable_flags",
         "stats_proto",
     ],
-    // MTS test binary can't be built under compile_multilib = "both" and having test data.
-    // However, MTS coverage requires 32 bit test binary to run.
-    compile_multilib: "prefer32",
+    // TODO: Remove multilib after coverage test switched to 64-bit device.
+    // See comments in target "resolv_test_mts_coverage_defaults".
+    compile_multilib: "both",
+    multilib: {
+        lib32: {
+            suffix: "32",
+        },
+        lib64: {
+            suffix: "64",
+        },
+    },
 }
 
 cc_test {
