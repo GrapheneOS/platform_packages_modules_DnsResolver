@@ -100,6 +100,7 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
     domains->clear();
     *params = res_params{};
     stats->clear();
+    wait_for_pending_req_timeout_count->clear();
     int res_wait_for_pending_req_timeout_count;
     int revision_id = android_net_res_stats_get_info_for_net(
             netId, &nscount, res_servers, &dcount, res_domains, params, res_stats,
@@ -149,7 +150,7 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
         domains->push_back(res_domains[i]);
     }
 
-    (*wait_for_pending_req_timeout_count)[0] = res_wait_for_pending_req_timeout_count;
+    wait_for_pending_req_timeout_count->push_back(res_wait_for_pending_req_timeout_count);
     return 0;
 }
 
