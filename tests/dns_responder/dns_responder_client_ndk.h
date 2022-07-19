@@ -23,6 +23,7 @@
 
 #include <android-base/format.h>
 #include <android-base/logging.h>
+#include <android-base/result.h>
 
 #include <aidl/android/net/IDnsResolver.h>
 #include <aidl/android/net/INetd.h>
@@ -46,6 +47,16 @@ inline constexpr char kDefaultSearchDomain[] = "example.com";
             return;                                                                                \
         }                                                                                          \
     } while (0)
+
+// A thin wrapper to store the outputs of DnsResolver::getResolverInfo().
+struct ResolverInfo {
+    std::vector<std::string> dnsServers;
+    std::vector<std::string> domains;
+    std::vector<std::string> dotServers;
+    res_params params;
+    std::vector<android::net::ResolverStats> stats;
+    int waitForPendingReqTimeoutCount;
+};
 
 class ResolverParams {
   public:
@@ -132,12 +143,7 @@ class DnsResponderClient {
     static NativeNetworkConfig makeNativeNetworkConfig(int netId, NativeNetworkType networkType,
                                                        int permission, bool secure);
 
-    static bool GetResolverInfo(aidl::android::net::IDnsResolver* dnsResolverService,
-                                unsigned netId, std::vector<std::string>* servers,
-                                std::vector<std::string>* domains,
-                                std::vector<std::string>* tlsServers, res_params* params,
-                                std::vector<android::net::ResolverStats>* stats,
-                                int* waitForPendingReqTimeoutCount);
+    android::base::Result<ResolverInfo> getResolverInfo();
 
     // Return a default resolver configuration for opportunistic mode.
     static aidl::android::net::ResolverParamsParcel GetDefaultResolverParamsParcel();
