@@ -25,12 +25,8 @@
 #include <gtest/gtest.h>
 #include <netdutils/NetNativeTestBase.h>
 
-#include "ResolverStats.h"
 #include "dns_responder/dns_responder_client_ndk.h"
-#include "params.h"  // MAX_NS
 #include "resolv_test_utils.h"
-
-using android::net::ResolverStats;
 
 class ResolverStressTest : public NetNativeTestBase {
   public:
@@ -79,16 +75,9 @@ class ResolverStressTest : public NetNativeTestBase {
         LOG(INFO) << fmt::format("{} hosts, {} threads, {} queries, {:E}s", num_hosts, num_threads,
                                  num_queries, std::chrono::duration<double>(t1 - t0).count());
 
-        std::vector<std::string> res_servers;
-        std::vector<std::string> res_domains;
-        std::vector<std::string> res_tls_servers;
-        res_params res_params;
-        std::vector<ResolverStats> res_stats;
-        int wait_for_pending_req_timeout_count;
-        ASSERT_TRUE(DnsResponderClient::GetResolverInfo(
-                mDnsClient.resolvService(), TEST_NETID, &res_servers, &res_domains,
-                &res_tls_servers, &res_params, &res_stats, &wait_for_pending_req_timeout_count));
-        EXPECT_EQ(0, wait_for_pending_req_timeout_count);
+        const auto resolvInfo = mDnsClient.getResolverInfo();
+        ASSERT_RESULT_OK(resolvInfo);
+        EXPECT_EQ(0, resolvInfo.value().waitForPendingReqTimeoutCount);
     }
 
     DnsResponderClient mDnsClient;
