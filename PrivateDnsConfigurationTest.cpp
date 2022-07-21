@@ -124,7 +124,7 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
     }
 
     bool hasPrivateDnsServer(const ServerIdentity& identity, unsigned netId) {
-        return mPdc.getPrivateDns(identity, netId).ok();
+        return mPdc.getDotServer(identity, netId).ok();
     }
 
     static constexpr uint32_t kNetId = 30;
@@ -198,7 +198,7 @@ TEST_F(PrivateDnsConfigurationTest, Revalidation_Opportunistic) {
         backend.startServer();
     });
     backend.stopServer();
-    EXPECT_TRUE(mPdc.requestValidation(kNetId, ServerIdentity(server), kMark).ok());
+    EXPECT_TRUE(mPdc.requestDotValidation(kNetId, ServerIdentity(server), kMark).ok());
 
     t.join();
     expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
@@ -343,18 +343,18 @@ TEST_F(PrivateDnsConfigurationTest, RequestValidation) {
             EXPECT_CALL(mObserver,
                         onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
             EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
-            EXPECT_TRUE(mPdc.requestValidation(kNetId, identity, kMark).ok());
+            EXPECT_TRUE(mPdc.requestDotValidation(kNetId, identity, kMark).ok());
         } else if (config == "IN_PROGRESS") {
             EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
-            EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark).ok());
+            EXPECT_FALSE(mPdc.requestDotValidation(kNetId, identity, kMark).ok());
         } else if (config == "FAIL") {
-            EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark).ok());
+            EXPECT_FALSE(mPdc.requestDotValidation(kNetId, identity, kMark).ok());
         }
 
         // Resending the same request or requesting nonexistent servers are denied.
-        EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark).ok());
-        EXPECT_FALSE(mPdc.requestValidation(kNetId, identity, kMark + 1).ok());
-        EXPECT_FALSE(mPdc.requestValidation(kNetId + 1, identity, kMark).ok());
+        EXPECT_FALSE(mPdc.requestDotValidation(kNetId, identity, kMark).ok());
+        EXPECT_FALSE(mPdc.requestDotValidation(kNetId, identity, kMark + 1).ok());
+        EXPECT_FALSE(mPdc.requestDotValidation(kNetId + 1, identity, kMark).ok());
 
         // Reset the test state.
         backend.setDeferredResp(false);
