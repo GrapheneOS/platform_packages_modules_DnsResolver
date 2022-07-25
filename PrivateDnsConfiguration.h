@@ -105,14 +105,9 @@ class PrivateDnsConfiguration {
 
     void initDoh() EXCLUDES(mPrivateDnsLock);
 
-    int setDoh(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
-               const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
-
     PrivateDnsStatus getStatus(unsigned netId) const EXCLUDES(mPrivateDnsLock);
 
     void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
-
-    void clearDoh(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
     ssize_t dohQuery(unsigned netId, const netdutils::Slice query, const netdutils::Slice answer,
                      uint64_t timeoutMs) EXCLUDES(mPrivateDnsLock);
@@ -136,6 +131,11 @@ class PrivateDnsConfiguration {
     typedef std::map<ServerIdentity, std::unique_ptr<IPrivateDnsServer>> PrivateDnsTracker;
 
     PrivateDnsConfiguration() = default;
+
+    int setDot(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
+               const std::string& name, const std::string& caCert) REQUIRES(mPrivateDnsLock);
+
+    void clearDot(int32_t netId) REQUIRES(mPrivateDnsLock);
 
     // Launchs a thread to run the validation for |server| on the network |netId|.
     // |isRevalidation| is true if this call is due to a revalidation request.
@@ -164,7 +164,9 @@ class PrivateDnsConfiguration {
                                                          unsigned netId) REQUIRES(mPrivateDnsLock);
 
     void initDohLocked() REQUIRES(mPrivateDnsLock);
-    void clearDohLocked(unsigned netId) REQUIRES(mPrivateDnsLock);
+    int setDoh(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
+               const std::string& name, const std::string& caCert) REQUIRES(mPrivateDnsLock);
+    void clearDoh(unsigned netId) REQUIRES(mPrivateDnsLock);
 
     mutable std::mutex mPrivateDnsLock;
     std::map<unsigned, PrivateDnsMode> mPrivateDnsModes GUARDED_BY(mPrivateDnsLock);
