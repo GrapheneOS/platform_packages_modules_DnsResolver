@@ -131,12 +131,7 @@ int PrivateDnsConfiguration::setDot(int32_t netId, uint32_t mark,
         }
     }
 
-    if (int n = resolv_stats_set_addrs(netId, PROTO_DOT, servers, kDotPort); n != 0) {
-        LOG(WARNING) << "Failed to set DoT stats";
-        return n;
-    }
-
-    return 0;
+    return resolv_stats_set_addrs(netId, PROTO_DOT, servers, kDotPort);
 }
 
 void PrivateDnsConfiguration::clearDot(int32_t netId) {
