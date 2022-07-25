@@ -239,7 +239,7 @@ int resNSendToAiError(int err, int rcode) {
 
 bool setQueryId(span<uint8_t> msg, uint16_t query_id) {
     if ((size_t)msg.size() < sizeof(HEADER)) {
-        errno = EINVAL;
+        LOG(ERROR) << __func__ << ": Invalid parameter";
         return false;
     }
     auto hp = reinterpret_cast<HEADER*>(msg.data());
@@ -1085,9 +1085,14 @@ void DnsProxyListener::ResNSendHandler::run() {
         return;
     }
 
-    // Restore query id and send answer
-    if (!setQueryId({ansBuf.data(), ansLen}, original_query_id) ||
-        !sendLenAndData(mClient, ansLen, ansBuf.data())) {
+    // Restore query id
+    if (!setQueryId({ansBuf.data(), ansLen}, original_query_id)) {
+        LOG(WARNING) << "ResNSendHandler::run: resnsend: failed to restore query id";
+        return;
+    }
+
+    // Send answer
+    if (!sendLenAndData(mClient, ansLen, ansBuf.data())) {
         PLOG(WARNING) << "ResNSendHandler::run: resnsend: failed to send answer to uid " << uid
                       << " pid " << mClient->getPid();
         return;
