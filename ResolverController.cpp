@@ -169,7 +169,6 @@ void ResolverController::destroyNetworkCache(unsigned netId) {
     resolv_delete_cache_for_net(netId);
     mDns64Configuration.stopPrefixDiscovery(netId);
     PrivateDnsConfiguration::getInstance().clear(netId);
-    if (isDoHEnabled()) PrivateDnsConfiguration::getInstance().clearDoh(netId);
 
     // Don't get this instance in PrivateDnsConfiguration. It's probe to deadlock.
     DnsTlsDispatcher::getInstance().forceCleanup(netId);
@@ -215,24 +214,10 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
         return err;
     }
 
-    if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_DOT, tlsServers, 853);
-        err != 0) {
-        return err;
-    }
-
     if (is_mdns_supported_transport_types(resolverParams.transportTypes)) {
         if (err = resolv_stats_set_addrs(resolverParams.netId, PROTO_MDNS,
                                          {"ff02::fb", "224.0.0.251"}, 5353);
             err != 0) {
-            return err;
-        }
-    }
-
-    if (isDoHEnabled()) {
-        err = privateDnsConfiguration.setDoh(resolverParams.netId, netcontext.app_mark, tlsServers,
-                                             resolverParams.tlsName, resolverParams.caCertificate);
-
-        if (err != 0) {
             return err;
         }
     }
