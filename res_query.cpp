@@ -211,7 +211,6 @@ int res_nsearch(ResState* statp, const char* name, /* domain name */
     int got_nodata = 0, got_servfail = 0, root_on_list = 0;
     int tried_as_is = 0;
 
-    errno = 0;
     *herrno = HOST_NOT_FOUND; /* True if we never query. */
 
     dots = 0;
