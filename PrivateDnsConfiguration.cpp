@@ -46,38 +46,64 @@ using std::chrono::milliseconds;
 namespace android {
 namespace net {
 
+namespace {
+
+bool ensureNoInvalidIp(const std::vector<std::string>& servers) {
+    IPAddress ip;
+    for (const auto& s : servers) {
+        if (!IPAddress::forString(s, &ip)) {
+            LOG(WARNING) << "Invalid IP address: " << s;
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
 int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
                                  const std::vector<std::string>& servers, const std::string& name,
                                  const std::string& caCert) {
     LOG(DEBUG) << "PrivateDnsConfiguration::set(" << netId << ", 0x" << std::hex << mark << std::dec
                << ", " << servers.size() << ", " << name << ")";
 
-    // Parse the list of servers that has been passed in
-    PrivateDnsTracker tmp;
-    for (const auto& s : servers) {
-        IPAddress ip;
-        if (!IPAddress::forString(s, &ip)) {
-            LOG(WARNING) << "Failed to parse server address (" << s << ")";
-            return -EINVAL;
-        }
-
-        auto server = std::make_unique<DnsTlsServer>(ip);
-        server->name = name;
-        server->certificate = caCert;
-        server->mark = mark;
-        tmp[ServerIdentity(*server)] = std::move(server);
-    }
+    if (!ensureNoInvalidIp(servers)) return -EINVAL;
 
     std::lock_guard guard(mPrivateDnsLock);
     if (!name.empty()) {
         mPrivateDnsModes[netId] = PrivateDnsMode::STRICT;
-    } else if (!tmp.empty()) {
+    } else if (!servers.empty()) {
         mPrivateDnsModes[netId] = PrivateDnsMode::OPPORTUNISTIC;
     } else {
         mPrivateDnsModes[netId] = PrivateDnsMode::OFF;
-        mPrivateDnsTransports.erase(netId);
-        // TODO: signal validation threads to stop.
+        clearDot(netId);
+        clearDoh(netId);
         return 0;
+        // TODO: signal validation threads to stop.
+    }
+
+    if (int n = setDot(netId, mark, servers, name, caCert); n != 0) {
+        return n;
+    }
+    if (isDoHEnabled()) {
+        return setDoh(netId, mark, servers, name, caCert);
+    }
+
+    return 0;
+}
+
+int PrivateDnsConfiguration::setDot(int32_t netId, uint32_t mark,
+                                    const std::vector<std::string>& servers,
+                                    const std::string& name, const std::string& caCert) {
+    // Parse the list of servers that has been passed in
+    PrivateDnsTracker tmp;
+    for (const auto& s : servers) {
+        // The IP addresses are guaranteed to be valid.
+        auto server = std::make_unique<DnsTlsServer>(IPAddress::forString(s));
+        server->name = name;
+        server->certificate = caCert;
+        server->mark = mark;
+        tmp[ServerIdentity(*server)] = std::move(server);
     }
 
     // Create the tracker if it was not present
@@ -105,7 +131,12 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
         }
     }
 
-    return 0;
+    return resolv_stats_set_addrs(netId, PROTO_DOT, servers, kDotPort);
+}
+
+void PrivateDnsConfiguration::clearDot(int32_t netId) {
+    mPrivateDnsTransports.erase(netId);
+    resolv_stats_set_addrs(netId, PROTO_DOT, {}, kDotPort);
 }
 
 PrivateDnsStatus PrivateDnsConfiguration::getStatus(unsigned netId) const {
@@ -144,7 +175,8 @@ void PrivateDnsConfiguration::clear(unsigned netId) {
     LOG(DEBUG) << "PrivateDnsConfiguration::clear(" << netId << ")";
     std::lock_guard guard(mPrivateDnsLock);
     mPrivateDnsModes.erase(netId);
-    mPrivateDnsTransports.erase(netId);
+    clearDot(netId);
+    clearDoh(netId);
 
     // Notify the relevant private DNS validations, if they are waiting, to finish.
     mCv.notify_all();
@@ -451,9 +483,8 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
                                     const std::string& name, const std::string& caCert) {
     LOG(DEBUG) << "PrivateDnsConfiguration::setDoh(" << netId << ", 0x" << std::hex << mark
                << std::dec << ", " << servers.size() << ", " << name << ")";
-    std::lock_guard guard(mPrivateDnsLock);
     if (servers.empty()) {
-        clearDohLocked(netId);
+        clearDoh(netId);
         return 0;
     }
 
@@ -522,20 +553,15 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
     }
 
     LOG(INFO) << __func__ << ": No suitable DoH server found";
-    clearDohLocked(netId);
+    clearDoh(netId);
     return 0;
 }
 
-void PrivateDnsConfiguration::clearDohLocked(unsigned netId) {
-    LOG(DEBUG) << "PrivateDnsConfiguration::clearDohLocked (" << netId << ")";
+void PrivateDnsConfiguration::clearDoh(unsigned netId) {
+    LOG(DEBUG) << "PrivateDnsConfiguration::clearDoh (" << netId << ")";
     if (mDohDispatcher != nullptr) doh_net_delete(mDohDispatcher, netId);
     mDohTracker.erase(netId);
     resolv_stats_set_addrs(netId, PROTO_DOH, {}, kDohPort);
-}
-
-void PrivateDnsConfiguration::clearDoh(unsigned netId) {
-    std::lock_guard guard(mPrivateDnsLock);
-    clearDohLocked(netId);
 }
 
 ssize_t PrivateDnsConfiguration::dohQuery(unsigned netId, const Slice query, const Slice answer,

@@ -1792,7 +1792,6 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
 
     hp = (HEADER*)(void*)target->answer.data();
 
-    errno = 0;
     *herrno = HOST_NOT_FOUND; /* default, if we never query */
     dots = 0;
     for (cp = name; *cp; cp++) dots += (*cp == '.');

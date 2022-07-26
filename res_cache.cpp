@@ -70,9 +70,6 @@ using aidl::android::net::ResolverOptionsParcel;
 using android::net::DnsQueryEvent;
 using android::net::DnsStats;
 using android::net::Experiments;
-using android::net::PROTO_DOH;
-using android::net::PROTO_DOT;
-using android::net::PROTO_MDNS;
 using android::net::PROTO_TCP;
 using android::net::PROTO_UDP;
 using android::net::Protocol;
@@ -1938,29 +1935,16 @@ int resolv_cache_get_expiration(unsigned netid, span<const uint8_t> query, time_
     return 0;
 }
 
-static const char* protocol_to_str(const Protocol proto) {
-    switch (proto) {
-        case PROTO_UDP:
-            return "UDP";
-        case PROTO_TCP:
-            return "TCP";
-        case PROTO_DOT:
-            return "DOT";
-        case PROTO_DOH:
-            return "DOH";
-        case PROTO_MDNS:
-            return "MDNS";
-        default:
-            return "UNKNOWN";
-    }
-}
-
 int resolv_stats_set_addrs(unsigned netid, Protocol proto, const std::vector<std::string>& addrs,
                            int port) {
     std::lock_guard guard(cache_mutex);
     const auto info = find_netconfig_locked(netid);
 
-    if (info == nullptr) return -ENONET;
+    if (info == nullptr) {
+        LOG(WARNING) << __func__ << ": Network " << netid << " not found for "
+                     << Protocol_Name(proto);
+        return -ENONET;
+    }
 
     std::vector<IPSockAddr> sockAddrs;
     sockAddrs.reserve(addrs.size());
@@ -1969,8 +1953,8 @@ int resolv_stats_set_addrs(unsigned netid, Protocol proto, const std::vector<std
     }
 
     if (!info->dnsStats.setAddrs(sockAddrs, proto)) {
-        LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set "
-                     << protocol_to_str(proto) << " stats";
+        LOG(WARNING) << __func__ << ": Failed to set " << Protocol_Name(proto) << " on network "
+                     << netid;
         return -EINVAL;
     }
 
