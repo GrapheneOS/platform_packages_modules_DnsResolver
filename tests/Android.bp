@@ -18,9 +18,15 @@ cc_test_library {
     ],
     static_libs: [
         "netd_aidl_interface-lateststable-ndk",
+        "libconnectivity_native_test_utils",
+        "libmodules-utils-build",
         "libnetd_test_dnsresponder_ndk",
         "libnetdutils",
         "libgmock",
+    ],
+    export_static_lib_headers: [
+        "libconnectivity_native_test_utils",
+        "libmodules-utils-build",
     ],
 }
 
@@ -185,6 +191,7 @@ cc_test {
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
+        "libconnectivity_native_test_utils",
         "libcrypto_static",
         "libgmock",
         "libmodules-utils-build",
