@@ -25,6 +25,8 @@
 
 #include <aidl/android/net/INetd.h>
 #include <android-base/properties.h>
+#include <android-modules-utils/sdk_level.h>
+#include <firewall.h>
 #include <gtest/gtest.h>
 #include <netdutils/InternetAddresses.h>
 
@@ -41,24 +43,38 @@ class ScopeBlockedUIDRule {
         // this purpose because netd calls fchown() on the DNS query sockets, and "iptables -m
         // owner" matches the UID of the socket creator, not the UID set by fchown().
         // TODO: migrate FIREWALL_CHAIN_NONE to eBPF as well.
-        EXPECT_TRUE(mNetSrv->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, true).isOk());
-        EXPECT_TRUE(mNetSrv->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, mTestUid,
-                                                INetd::FIREWALL_RULE_DENY)
-                            .isOk());
+        if (android::modules::sdklevel::IsAtLeastT()) {
+            mFw = Firewall::getInstance();
+            EXPECT_RESULT_OK(mFw->toggleStandbyMatch(true));
+            EXPECT_RESULT_OK(mFw->addRule(mTestUid, STANDBY_MATCH));
+        } else {
+            EXPECT_TRUE(
+                    mNetSrv->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, true).isOk());
+            EXPECT_TRUE(mNetSrv->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, mTestUid,
+                                                    INetd::FIREWALL_RULE_DENY)
+                                .isOk());
+        }
         EXPECT_TRUE(seteuid(mTestUid) == 0);
     };
     ~ScopeBlockedUIDRule() {
         // Restore uid
         EXPECT_TRUE(seteuid(mSavedUid) == 0);
         // Remove drop rule for testUid, and disable the standby chain.
-        EXPECT_TRUE(mNetSrv->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, mTestUid,
-                                                INetd::FIREWALL_RULE_ALLOW)
-                            .isOk());
-        EXPECT_TRUE(mNetSrv->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, false).isOk());
+        if (android::modules::sdklevel::IsAtLeastT()) {
+            EXPECT_RESULT_OK(mFw->removeRule(mTestUid, STANDBY_MATCH));
+            EXPECT_RESULT_OK(mFw->toggleStandbyMatch(false));
+        } else {
+            EXPECT_TRUE(mNetSrv->firewallSetUidRule(INetd::FIREWALL_CHAIN_STANDBY, mTestUid,
+                                                    INetd::FIREWALL_RULE_ALLOW)
+                                .isOk());
+            EXPECT_TRUE(
+                    mNetSrv->firewallEnableChildChain(INetd::FIREWALL_CHAIN_STANDBY, false).isOk());
+        }
     }
 
   private:
     INetd* mNetSrv;
+    Firewall* mFw;
     const uid_t mTestUid;
     const uid_t mSavedUid;
 };
