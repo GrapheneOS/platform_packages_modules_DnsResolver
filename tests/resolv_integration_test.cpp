@@ -4319,9 +4319,7 @@ TEST_F(ResolverTest, getDnsNetId) {
     EXPECT_EQ(500, readResponseCode(fd));
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets on T+.
 TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
-    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -4369,9 +4367,7 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     }
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets on T+.
 TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
-    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -4421,9 +4417,7 @@ TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
     }
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets on T+.
 TEST_F(ResolverTest, EnforceDnsUid) {
-    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -6103,9 +6097,7 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
     EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets on T+.
 TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
-    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "::1";
@@ -6975,7 +6967,11 @@ class ResolverMultinetworkTest : public ResolverTest {
       public:
         ScopedVirtualNetwork(unsigned netId, ConnectivityType type, INetd* netdSrv,
                              IDnsResolver* dnsResolvSrv, const char* name, bool isSecure)
-            : ScopedNetwork(netId, type, netdSrv, dnsResolvSrv, name), mIsSecure(isSecure) {}
+            : ScopedNetwork(netId, type, netdSrv, dnsResolvSrv, name), mIsSecure(isSecure) {
+            if (android::modules::sdklevel::IsAtLeastT()) {
+                mFw = Firewall::getInstance();
+            }
+        }
         ~ScopedVirtualNetwork() {
             if (!mVpnIsolationUids.empty()) {
                 const std::vector<int> tmpUids(mVpnIsolationUids.begin(), mVpnIsolationUids.end());
@@ -6984,15 +6980,22 @@ class ResolverMultinetworkTest : public ResolverTest {
         }
         // Enable VPN isolation. Ensures that uid can only receive packets on mIfname.
         Result<void> enableVpnIsolation(int uid) {
-            if (auto r = mNetdSrv->firewallAddUidInterfaceRules(mIfname, {uid}); !r.isOk()) {
+            if (android::modules::sdklevel::IsAtLeastT()) {
+                if (auto r = mFw->addUidInterfaceRules(mIfname, {uid}); !r.ok()) {
+                    return r;
+                }
+            } else if (auto r = mNetdSrv->firewallAddUidInterfaceRules(mIfname, {uid}); !r.isOk()) {
                 return Error() << r.getMessage();
             }
             mVpnIsolationUids.insert(uid);
             return {};
         }
         Result<void> disableVpnIsolation(int uid) {
-            if (auto r = mNetdSrv->firewallRemoveUidInterfaceRules({static_cast<int>(uid)});
-                !r.isOk()) {
+            if (android::modules::sdklevel::IsAtLeastT()) {
+                if (auto r = mFw->removeUidInterfaceRules({uid}); !r.ok()) {
+                    return r;
+                }
+            } else if (auto r = mNetdSrv->firewallRemoveUidInterfaceRules({uid}); !r.isOk()) {
                 return Error() << r.getMessage();
             }
             mVpnIsolationUids.erase(uid);
@@ -7021,6 +7024,7 @@ class ResolverMultinetworkTest : public ResolverTest {
 
         bool mIsSecure = false;
         std::unordered_set<int> mVpnIsolationUids;
+        Firewall* mFw;
     };
 
     void SetUp() override {
@@ -7354,9 +7358,7 @@ TEST_F(ResolverMultinetworkTest, OneCachePerNetwork) {
     EXPECT_EQ(GetNumQueries(*dnsPair2->dnsServer, host_name), 1U);
 }
 
-// TODO(b/219434602): find an alternative way to block DNS packets on T+.
 TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
-    if (android::modules::sdklevel::IsAtLeastT()) GTEST_SKIP() << "T+ device.";
     SKIP_IF_BPF_NOT_SUPPORTED;
     SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 4);
     constexpr char host_name[] = "ohayou.example.com.";
