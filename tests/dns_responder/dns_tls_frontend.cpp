@@ -299,7 +299,7 @@ again:
     }
 
     const int replyLen = reply.size();
-    LOG(DEBUG) << "Sending " << queryCounts << "queries at once, byte = " << replyLen;
+    LOG(DEBUG) << "Sending " << queryCounts << " queries at once, byte = " << replyLen;
     if (SSL_write(ssl, reply.data(), replyLen) != replyLen) {
         LOG(WARNING) << "Failed to write response body";
     }
