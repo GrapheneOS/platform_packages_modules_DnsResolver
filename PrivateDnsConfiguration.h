@@ -39,7 +39,6 @@
 namespace android {
 namespace net {
 
-// TODO: decouple the dependency of DnsTlsServer.
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
 
@@ -81,7 +80,7 @@ class PrivateDnsConfiguration {
         const netdutils::IPSockAddr sockaddr;
         const std::string provider;
 
-        explicit ServerIdentity(const IPrivateDnsServer& server)
+        explicit ServerIdentity(const DnsTlsServer& server)
             : sockaddr(server.addr()), provider(server.provider()) {}
         ServerIdentity(const netdutils::IPSockAddr& addr, const std::string& host)
             : sockaddr(addr), provider(host) {}
@@ -128,7 +127,7 @@ class PrivateDnsConfiguration {
             EXCLUDES(mPrivateDnsLock);
 
   private:
-    typedef std::map<ServerIdentity, std::unique_ptr<IPrivateDnsServer>> PrivateDnsTracker;
+    typedef std::map<ServerIdentity, DnsTlsServer> PrivateDnsTracker;
 
     PrivateDnsConfiguration() = default;
 
@@ -151,17 +150,17 @@ class PrivateDnsConfiguration {
     // Decide if a validation for |server| is needed. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
     // thread running are marked as being Validation::in_process.
-    bool needsValidation(const IPrivateDnsServer& server) const REQUIRES(mPrivateDnsLock);
+    bool needsValidation(const DnsTlsServer& server) const REQUIRES(mPrivateDnsLock);
 
     void updateServerState(const ServerIdentity& identity, Validation state, uint32_t netId)
             REQUIRES(mPrivateDnsLock);
 
     // For testing.
-    base::Result<IPrivateDnsServer*> getPrivateDns(const ServerIdentity& identity, unsigned netId)
+    base::Result<DnsTlsServer*> getPrivateDns(const ServerIdentity& identity, unsigned netId)
             EXCLUDES(mPrivateDnsLock);
 
-    base::Result<IPrivateDnsServer*> getPrivateDnsLocked(const ServerIdentity& identity,
-                                                         unsigned netId) REQUIRES(mPrivateDnsLock);
+    base::Result<DnsTlsServer*> getPrivateDnsLocked(const ServerIdentity& identity, unsigned netId)
+            REQUIRES(mPrivateDnsLock);
 
     void initDohLocked() REQUIRES(mPrivateDnsLock);
     int setDoh(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
