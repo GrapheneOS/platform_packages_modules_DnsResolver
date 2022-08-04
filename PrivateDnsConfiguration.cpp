@@ -96,7 +96,7 @@ int PrivateDnsConfiguration::setDot(int32_t netId, uint32_t mark,
                                     const std::vector<std::string>& servers,
                                     const std::string& name, const std::string& caCert) {
     // Parse the list of servers that has been passed in
-    PrivateDnsTracker tmp;
+    std::map<ServerIdentity, DnsTlsServer> tmp;
     for (const auto& s : servers) {
         // The IP addresses are guaranteed to be valid.
         DnsTlsServer server(IPAddress::forString(s));
@@ -107,7 +107,7 @@ int PrivateDnsConfiguration::setDot(int32_t netId, uint32_t mark,
     }
 
     // Create the tracker if it was not present
-    auto& tracker = mPrivateDnsTransports[netId];
+    auto& tracker = mDotTracker[netId];
 
     // Add the servers if not contained in tracker.
     for (const auto& [identity, server] : tmp) {
@@ -127,7 +127,7 @@ int PrivateDnsConfiguration::setDot(int32_t netId, uint32_t mark,
 
         if (needsValidation(server)) {
             updateServerState(identity, Validation::in_process, netId);
-            startValidation(identity, netId, false);
+            startDotValidation(identity, netId, false);
         }
     }
 
@@ -135,7 +135,7 @@ int PrivateDnsConfiguration::setDot(int32_t netId, uint32_t mark,
 }
 
 void PrivateDnsConfiguration::clearDot(int32_t netId) {
-    mPrivateDnsTransports.erase(netId);
+    mDotTracker.erase(netId);
     resolv_stats_set_addrs(netId, PROTO_DOT, {}, kDotPort);
 }
 
@@ -151,8 +151,8 @@ PrivateDnsStatus PrivateDnsConfiguration::getStatus(unsigned netId) const {
     if (mode == mPrivateDnsModes.end()) return status;
     status.mode = mode->second;
 
-    const auto netPair = mPrivateDnsTransports.find(netId);
-    if (netPair != mPrivateDnsTransports.end()) {
+    const auto netPair = mDotTracker.find(netId);
+    if (netPair != mDotTracker.end()) {
         for (const auto& [_, server] : netPair->second) {
             if (server.active()) {
                 status.dotServersMap.emplace(server, server.validationState());
@@ -181,9 +181,9 @@ void PrivateDnsConfiguration::clear(unsigned netId) {
     mCv.notify_all();
 }
 
-base::Result<void> PrivateDnsConfiguration::requestValidation(unsigned netId,
-                                                              const ServerIdentity& identity,
-                                                              uint32_t mark) {
+base::Result<void> PrivateDnsConfiguration::requestDotValidation(unsigned netId,
+                                                                 const ServerIdentity& identity,
+                                                                 uint32_t mark) {
     std::lock_guard guard(mPrivateDnsLock);
 
     // Running revalidation requires to mark the server as in_process, which means the server
@@ -196,7 +196,7 @@ base::Result<void> PrivateDnsConfiguration::requestValidation(unsigned netId,
         return Errorf("Private DNS setting is not opportunistic mode");
     }
 
-    auto result = getPrivateDnsLocked(identity, netId);
+    auto result = getDotServerLocked(identity, netId);
     if (!result.ok()) {
         return result.error();
     }
@@ -215,16 +215,16 @@ base::Result<void> PrivateDnsConfiguration::requestValidation(unsigned netId,
     if (target->validationMark() != mark) return Errorf("Socket mark mismatched");
 
     updateServerState(identity, Validation::in_process, netId);
-    startValidation(identity, netId, true);
+    startDotValidation(identity, netId, true);
     return {};
 }
 
-void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, unsigned netId,
-                                              bool isRevalidation) {
+void PrivateDnsConfiguration::startDotValidation(const ServerIdentity& identity, unsigned netId,
+                                                 bool isRevalidation) {
     // This ensures that the thread sends probe at least once in case
     // the server is removed before the thread starts running.
     // TODO: consider moving these code to the thread.
-    const auto result = getPrivateDnsLocked(identity, netId);
+    const auto result = getDotServerLocked(identity, netId);
     if (!result.ok()) return;
     DnsTlsServer server = *result.value();
 
@@ -256,7 +256,7 @@ void PrivateDnsConfiguration::startValidation(const ServerIdentity& identity, un
                          << server.toIpString();
 
             const bool needs_reeval =
-                    this->recordPrivateDnsValidation(identity, netId, success, isRevalidation);
+                    this->recordDotValidation(identity, netId, success, isRevalidation);
 
             if (!needs_reeval || !backoff.hasNextTimeout()) {
                 break;
@@ -309,16 +309,15 @@ void PrivateDnsConfiguration::sendPrivateDnsValidationEvent(const ServerIdentity
     }
 }
 
-bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& identity,
-                                                         unsigned netId, bool success,
-                                                         bool isRevalidation) {
+bool PrivateDnsConfiguration::recordDotValidation(const ServerIdentity& identity, unsigned netId,
+                                                  bool success, bool isRevalidation) {
     constexpr bool NEEDS_REEVALUATION = true;
     constexpr bool DONT_REEVALUATE = false;
 
     std::lock_guard guard(mPrivateDnsLock);
 
-    auto netPair = mPrivateDnsTransports.find(netId);
-    if (netPair == mPrivateDnsTransports.end()) {
+    auto netPair = mDotTracker.find(netId);
+    if (netPair == mDotTracker.end()) {
         LOG(WARNING) << "netId " << netId << " was erased during private DNS validation";
         notifyValidationStateUpdate(identity.sockaddr, Validation::fail, netId);
         return DONT_REEVALUATE;
@@ -373,7 +372,7 @@ bool PrivateDnsConfiguration::recordPrivateDnsValidation(const ServerIdentity& i
 
 void PrivateDnsConfiguration::updateServerState(const ServerIdentity& identity, Validation state,
                                                 uint32_t netId) {
-    const auto result = getPrivateDnsLocked(identity, netId);
+    const auto result = getDotServerLocked(identity, netId);
     if (!result.ok()) {
         notifyValidationStateUpdate(identity.sockaddr, Validation::fail, netId);
         return;
@@ -404,16 +403,16 @@ bool PrivateDnsConfiguration::needsValidation(const DnsTlsServer& server) const 
     return false;
 }
 
-base::Result<DnsTlsServer*> PrivateDnsConfiguration::getPrivateDns(const ServerIdentity& identity,
-                                                                   unsigned netId) {
+base::Result<DnsTlsServer*> PrivateDnsConfiguration::getDotServer(const ServerIdentity& identity,
+                                                                  unsigned netId) {
     std::lock_guard guard(mPrivateDnsLock);
-    return getPrivateDnsLocked(identity, netId);
+    return getDotServerLocked(identity, netId);
 }
 
-base::Result<DnsTlsServer*> PrivateDnsConfiguration::getPrivateDnsLocked(
+base::Result<DnsTlsServer*> PrivateDnsConfiguration::getDotServerLocked(
         const ServerIdentity& identity, unsigned netId) {
-    auto netPair = mPrivateDnsTransports.find(netId);
-    if (netPair == mPrivateDnsTransports.end()) {
+    auto netPair = mDotTracker.find(netId);
+    if (netPair == mDotTracker.end()) {
         return Errorf("Failed to get private DNS: netId {} not found", netId);
     }
 
@@ -605,8 +604,8 @@ bool PrivateDnsConfiguration::needReportEvent(uint32_t netId, ServerIdentity ide
     switch (identity.sockaddr.port()) {
         // DoH
         case kDohPort: {
-            auto netPair = mPrivateDnsTransports.find(netId);
-            if (netPair == mPrivateDnsTransports.end()) return true;
+            auto netPair = mDotTracker.find(netId);
+            if (netPair == mDotTracker.end()) return true;
             for (const auto& [id, server] : netPair->second) {
                 if ((identity.sockaddr.ip() == id.sockaddr.ip()) &&
                     (identity.sockaddr.port() != id.sockaddr.port()) &&
