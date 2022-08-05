@@ -39,7 +39,6 @@
 namespace android {
 namespace net {
 
-// TODO: decouple the dependency of DnsTlsServer.
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
 
@@ -81,7 +80,7 @@ class PrivateDnsConfiguration {
         const netdutils::IPSockAddr sockaddr;
         const std::string provider;
 
-        explicit ServerIdentity(const IPrivateDnsServer& server)
+        explicit ServerIdentity(const DnsTlsServer& server)
             : sockaddr(server.addr()), provider(server.provider()) {}
         ServerIdentity(const netdutils::IPSockAddr& addr, const std::string& host)
             : sockaddr(addr), provider(host) {}
@@ -114,8 +113,8 @@ class PrivateDnsConfiguration {
 
     // Request the server to be revalidated on a connection tagged with |mark|.
     // Returns a Result to indicate if the request is accepted.
-    base::Result<void> requestValidation(unsigned netId, const ServerIdentity& identity,
-                                         uint32_t mark) EXCLUDES(mPrivateDnsLock);
+    base::Result<void> requestDotValidation(unsigned netId, const ServerIdentity& identity,
+                                            uint32_t mark) EXCLUDES(mPrivateDnsLock);
 
     void setObserver(PrivateDnsValidationObserver* observer);
 
@@ -128,8 +127,6 @@ class PrivateDnsConfiguration {
             EXCLUDES(mPrivateDnsLock);
 
   private:
-    typedef std::map<ServerIdentity, std::unique_ptr<IPrivateDnsServer>> PrivateDnsTracker;
-
     PrivateDnsConfiguration() = default;
 
     int setDot(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
@@ -137,13 +134,20 @@ class PrivateDnsConfiguration {
 
     void clearDot(int32_t netId) REQUIRES(mPrivateDnsLock);
 
-    // Launchs a thread to run the validation for |server| on the network |netId|.
-    // |isRevalidation| is true if this call is due to a revalidation request.
-    void startValidation(const ServerIdentity& identity, unsigned netId, bool isRevalidation)
+    // For testing.
+    base::Result<DnsTlsServer*> getDotServer(const ServerIdentity& identity, unsigned netId)
+            EXCLUDES(mPrivateDnsLock);
+
+    base::Result<DnsTlsServer*> getDotServerLocked(const ServerIdentity& identity, unsigned netId)
             REQUIRES(mPrivateDnsLock);
 
-    bool recordPrivateDnsValidation(const ServerIdentity& identity, unsigned netId, bool success,
-                                    bool isRevalidation) EXCLUDES(mPrivateDnsLock);
+    // Launchs a thread to run the validation for the DoT server |server| on the network |netId|.
+    // |isRevalidation| is true if this call is due to a revalidation request.
+    void startDotValidation(const ServerIdentity& identity, unsigned netId, bool isRevalidation)
+            REQUIRES(mPrivateDnsLock);
+
+    bool recordDotValidation(const ServerIdentity& identity, unsigned netId, bool success,
+                             bool isRevalidation) EXCLUDES(mPrivateDnsLock);
 
     void sendPrivateDnsValidationEvent(const ServerIdentity& identity, unsigned netId,
                                        bool success) const REQUIRES(mPrivateDnsLock);
@@ -151,17 +155,10 @@ class PrivateDnsConfiguration {
     // Decide if a validation for |server| is needed. Note that servers that have failed
     // multiple validation attempts but for which there is still a validating
     // thread running are marked as being Validation::in_process.
-    bool needsValidation(const IPrivateDnsServer& server) const REQUIRES(mPrivateDnsLock);
+    bool needsValidation(const DnsTlsServer& server) const REQUIRES(mPrivateDnsLock);
 
     void updateServerState(const ServerIdentity& identity, Validation state, uint32_t netId)
             REQUIRES(mPrivateDnsLock);
-
-    // For testing.
-    base::Result<IPrivateDnsServer*> getPrivateDns(const ServerIdentity& identity, unsigned netId)
-            EXCLUDES(mPrivateDnsLock);
-
-    base::Result<IPrivateDnsServer*> getPrivateDnsLocked(const ServerIdentity& identity,
-                                                         unsigned netId) REQUIRES(mPrivateDnsLock);
 
     void initDohLocked() REQUIRES(mPrivateDnsLock);
     int setDoh(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
@@ -175,7 +172,8 @@ class PrivateDnsConfiguration {
     // In case a server is removed due to a configuration change, it remains in this map,
     // but is marked inactive.
     // Any pending validation threads will continue running because we have no way to cancel them.
-    std::map<unsigned, PrivateDnsTracker> mPrivateDnsTransports GUARDED_BY(mPrivateDnsLock);
+    std::map<unsigned, std::map<ServerIdentity, DnsTlsServer>> mDotTracker
+            GUARDED_BY(mPrivateDnsLock);
 
     void notifyValidationStateUpdate(const netdutils::IPSockAddr& sockaddr, Validation validation,
                                      uint32_t netId) const REQUIRES(mPrivateDnsLock);
