@@ -25,6 +25,7 @@
 #include <aidl/android/net/IDnsResolver.h>
 #include <android-base/logging.h>
 #include <android-base/strings.h>
+#include <statslog_resolv.h>
 
 #include "Dns64Configuration.h"
 #include "DnsResolver.h"
@@ -166,9 +167,17 @@ ResolverController::ResolverController()
 void ResolverController::destroyNetworkCache(unsigned netId) {
     LOG(VERBOSE) << __func__ << ": netId = " << netId;
 
+    // Report NetworkDnsServerSupportReported metrics before the cleanup.
+    auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
+    NetworkDnsServerSupportReported event = privateDnsConfiguration.getStatusForMetrics(netId);
+    const std::string str = event.servers().SerializeAsString();
+    stats::BytesField bytesField{str.c_str(), str.size()};
+    android::net::stats::stats_write(android::net::stats::NETWORK_DNS_SERVER_SUPPORT_REPORTED,
+                                     event.network_type(), event.private_dns_modes(), bytesField);
+
     resolv_delete_cache_for_net(netId);
     mDns64Configuration.stopPrefixDiscovery(netId);
-    PrivateDnsConfiguration::getInstance().clear(netId);
+    privateDnsConfiguration.clear(netId);
 
     // Don't get this instance in PrivateDnsConfiguration. It's probe to deadlock.
     DnsTlsDispatcher::getInstance().forceCleanup(netId);
@@ -207,7 +216,8 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     // applies to UID 0, dns_mark is assigned for default network rathan the VPN. (note that it's
     // possible that a VPN doesn't have any DNS servers but DoT servers in DNS strict mode)
     auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
-    int err = privateDnsConfiguration.set(resolverParams.netId, netcontext.app_mark, tlsServers,
+    int err = privateDnsConfiguration.set(resolverParams.netId, netcontext.app_mark,
+                                          resolverParams.servers, tlsServers,
                                           resolverParams.tlsName, resolverParams.caCertificate);
 
     if (err != 0) {
