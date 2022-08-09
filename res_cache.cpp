@@ -153,7 +153,8 @@ using std::span;
  * * Upping by another 5x for the centralized nature
  * *****************************************
  */
-const int CONFIG_MAX_ENTRIES = 64 * 2 * 5;
+const int MAX_ENTRIES_DEFAULT = 64 * 2 * 5;
+const int MAX_ENTRIES_UPPER_BOUND = 100 * 1000;
 constexpr int DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY = -1;
 
 static time_t _time_now(void) {
@@ -947,14 +948,14 @@ std::unordered_map<int, uint32_t> resolv_get_dns_event_subsampling_map(bool isMd
 //
 // TODO: move all cache manipulation code here and make data members private.
 struct Cache {
-    Cache() {
-        entries.resize(CONFIG_MAX_ENTRIES);
+    Cache() : max_cache_entries(get_max_cache_entries_from_flag()) {
+        entries.resize(max_cache_entries);
         mru_list.mru_prev = mru_list.mru_next = &mru_list;
     }
     ~Cache() { flush(); }
 
     void flush() {
-        for (int nn = 0; nn < CONFIG_MAX_ENTRIES; nn++) {
+        for (int nn = 0; nn < max_cache_entries; nn++) {
             Entry** pnode = (Entry**)&entries[nn];
 
             while (*pnode) {
@@ -985,6 +986,8 @@ struct Cache {
         cv.notify_all();
     }
 
+    int get_max_cache_entries() { return max_cache_entries; }
+
     int num_entries = 0;
 
     // TODO: convert to std::list
@@ -997,6 +1000,21 @@ struct Cache {
         unsigned int hash;
         struct pending_req_info* next;
     } pending_requests{};
+
+  private:
+    int get_max_cache_entries_from_flag() {
+        int entries = android::net::Experiments::getInstance()->getFlag("max_cache_entries",
+                                                                        MAX_ENTRIES_DEFAULT);
+        // Check both lower and upper bounds to prevent irrational values mistakenly pushed by
+        // server.
+        if (entries < MAX_ENTRIES_DEFAULT || entries > MAX_ENTRIES_UPPER_BOUND) {
+            LOG(ERROR) << "Misconfiguration on max_cache_entries " << entries;
+            entries = MAX_ENTRIES_DEFAULT;
+        }
+        return entries;
+    }
+
+    const int max_cache_entries;
 };
 
 struct NetConfig {
@@ -1139,7 +1157,7 @@ static void cache_dump_mru_locked(Cache* cache) {
  * table.
  */
 static Entry** _cache_lookup_p(Cache* cache, Entry* key) {
-    int index = key->hash % CONFIG_MAX_ENTRIES;
+    int index = key->hash % cache->get_max_cache_entries();
     Entry** pnode = (Entry**) &cache->entries[index];
 
     while (*pnode != NULL) {
@@ -1355,9 +1373,9 @@ int resolv_cache_add(unsigned netid, span<const uint8_t> query, span<const uint8
         return -EEXIST;
     }
 
-    if (cache->num_entries >= CONFIG_MAX_ENTRIES) {
+    if (cache->num_entries >= cache->get_max_cache_entries()) {
         _cache_remove_expired(cache);
-        if (cache->num_entries >= CONFIG_MAX_ENTRIES) {
+        if (cache->num_entries >= cache->get_max_cache_entries()) {
             _cache_remove_oldest(cache);
         }
         // TODO: It looks useless, remove below code after having test to prove it.
@@ -2073,4 +2091,14 @@ void resolv_netconfig_dump(DumpWriter& dw, unsigned netid) {
         dw.println("TC mode: %s", tc_mode_to_str(info->tc_mode));
         dw.println("TransportType: %s", transport_type_to_str(info->transportTypes));
     }
+}
+
+int resolv_get_max_cache_entries(unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    NetConfig* info = find_netconfig_locked(netid);
+    if (!info) {
+        LOG(WARNING) << __func__ << ": NetConfig for netid " << netid << " not found";
+        return -1;
+    }
+    return info->cache->get_max_cache_entries();
 }
