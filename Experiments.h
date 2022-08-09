@@ -46,23 +46,22 @@ class Experiments {
     void updateInternal() EXCLUDES(mMutex);
     mutable std::mutex mMutex;
     std::map<std::string_view, int> mFlagsMapInt GUARDED_BY(mMutex);
-    // Sort the list by alphabet ordering.
     static constexpr const char* const kExperimentFlagKeyList[] = {
+            "doh",
+            "doh_early_data",
+            "doh_idle_timeout_ms",
+            "doh_probe_timeout_ms",
+            "doh_query_timeout_ms",
+            "doh_session_resumption",
             "dot_async_handshake",
             "dot_connect_timeout_ms",
             "dot_maxtries",
-            "dot_revalidation_threshold",
-            "dot_xport_unusable_threshold",
             "dot_query_timeout_ms",
             "dot_quick_fallback",
+            "dot_revalidation_threshold",
             "dot_validation_latency_factor",
             "dot_validation_latency_offset_ms",
-            "doh",
-            "doh_early_data",
-            "doh_query_timeout_ms",
-            "doh_probe_timeout_ms",
-            "doh_idle_timeout_ms",
-            "doh_session_resumption",
+            "dot_xport_unusable_threshold",
             "keep_listening_udp",
             "max_queries_global",
             "mdns_resolution",
