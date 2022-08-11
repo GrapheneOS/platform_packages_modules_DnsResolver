@@ -42,7 +42,7 @@ pub struct BootTime {
 // Return an error with the same structure as tokio::time::timeout to facilitate migration off it,
 // and hopefully some day back to it.
 /// Error returned by timeout
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Elapsed(());
 
 impl fmt::Display for Elapsed {
