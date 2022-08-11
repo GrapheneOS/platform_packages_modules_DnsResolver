@@ -413,3 +413,64 @@ message NetworkDnsEventReported {
     // The sample rate of DNS stats (to statsd) is 1/sampling_rate_denom.
     optional int32 sampling_rate_denom = 9;
 }
+
+enum HandshakeResult {
+    HR_UNKNOWN = 0;
+    HR_SUCCESS = 1;
+    HR_TIMEOUT = 2;
+    HR_TLS_FAIL = 3;
+    HR_SERVER_UNREACHABLE = 4;
+}
+
+enum HandshakeCause {
+    HC_UNKNOWN = 0;
+    HC_SERVER_PROBE = 1;
+    HC_RECONNECT_AFTER_IDLE = 2;
+    HC_RETRY_AFTER_ERROR = 3;
+}
+
+/**
+ * The NetworkDnsHandshakeReported message describes a DoT or DoH handshake operation along with
+ * its result, cause, network latency, TLS version, etc.
+ *
+ */
+message NetworkDnsHandshakeReported {
+  optional Protocol protocol = 1;
+
+  optional HandshakeResult result = 2;
+
+  optional HandshakeCause cause = 3;
+
+  optional NetworkType network_type = 4;
+
+  optional PrivateDnsModes private_dns_mode = 5;
+
+  // The latency in microseconds of the entire handshake operation.
+  optional int32 latency_micros = 6;
+
+  // Sent packets in bytes.
+  optional int32 bytes_sent = 7;
+
+  // Received packets in bytes.
+  optional int32 bytes_received = 8;
+
+  // Number of round-trips.
+  optional int32 round_trips = 9;
+
+  // True if TLS session cache hit.
+  optional bool tls_session_cache_hit = 10;
+
+  // 2 = TLS 1.2, 3 = TLS 1.3
+  optional int32 tls_version = 11;
+
+  // True if the handshake requires verifying the private DNS provider hostname.
+  optional bool hostname_verification = 12;
+
+  // Only present when protocol = PROTO_DOH.
+  optional int32 quic_version = 13;
+
+  optional int32 server_index = 14;
+
+  // The sampling-rate of this event is 1/sampling_rate_denom.
+  optional int32 sampling_rate_denom = 15;
+}
