@@ -780,6 +780,7 @@ same_ns:
                 return -1;
             }
         }
+        errno = 0;
         if (random_bind(statp->tcp_nssock, nsap->sa_family) < 0) {
             *terrno = errno;
             dump_error("bind/vc", nsap);
