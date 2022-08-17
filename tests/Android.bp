@@ -308,8 +308,10 @@ cc_test {
     name: "doh_ffi_test",
     test_suites: [
         "general-tests",
+        "mts-dnsresolver",
     ],
     defaults: [
+        "connectivity-mainline-presubmit-cc-defaults",
         "netd_defaults",
         "resolv_test_defaults",
     ],
@@ -327,4 +329,5 @@ cc_test {
     shared_libs: [
         "libnetd_client",
     ],
+    compile_multilib: "first",
 }
