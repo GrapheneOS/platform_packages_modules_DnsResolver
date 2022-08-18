@@ -381,3 +381,31 @@ rust_ffi_static {
     ],
     min_sdk_version: "29",
 }
+
+rust_ffi_static {
+    // Combines libdoh_frontend_ffi and libdoh_ffi for fuzzing test.
+    // Includes multiple static rust libraries will cause duplicate symbol error.
+    name: "libdoh_fuzz_ffi",
+    crate_name: "doh_fuzz_ffi",
+    srcs: [
+        "doh/doh_test_superset_for_fuzzer.rs",
+    ],
+    edition: "2018",
+
+    rlibs: [
+        "libandroid_logger",
+        "libanyhow",
+        "libbase64_rust",
+        "libfutures",
+        "liblazy_static",
+        "liblibc",
+        "liblog_rust",
+        "libquiche_static",
+        "libring",
+        "libthiserror",
+        "libtokio",
+        "liburl",
+    ],
+
+    whole_static_libs: ["libunwind"],
+}

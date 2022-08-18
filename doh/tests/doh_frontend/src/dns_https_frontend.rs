@@ -16,9 +16,9 @@
 
 //! DoH server frontend.
 
-use crate::client::{ClientMap, ConnectionID, CONN_ID_LEN, DNS_HEADER_SIZE, MAX_UDP_PAYLOAD_SIZE};
-use crate::config::{Config, QUICHE_IDLE_TIMEOUT_MS};
-use crate::stats::Stats;
+use super::client::{ClientMap, ConnectionID, CONN_ID_LEN, DNS_HEADER_SIZE, MAX_UDP_PAYLOAD_SIZE};
+use super::config::{Config, QUICHE_IDLE_TIMEOUT_MS};
+use super::stats::Stats;
 use anyhow::{bail, ensure, Result};
 use lazy_static::lazy_static;
 use log::{debug, error, warn};
