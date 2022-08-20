@@ -885,7 +885,7 @@ bool DNSResponder::fillRdata(const std::string& rdatastr, DNSRecord& record) {
             LOG(ERROR) << "invalid name length";
             return false;
         }
-        record.rdata = move(rdata);
+        record.rdata = std::move(rdata);
     } else {
         LOG(ERROR) << "unhandled qtype " << dnstype2str(record.rtype);
         return false;
