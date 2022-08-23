@@ -1817,8 +1817,6 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
      * - this is not a .local mDNS lookup.
      */
     if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(res->flags)) {
-        int done = 0;
-
         /* Unfortunately we need to set stuff up before
          * the domain stuff is tried.  Will have a better
          * fix after thread pools are used.
@@ -1858,12 +1856,8 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
                     if (hp->rcode == SERVFAIL) {
                         /* try next search element, if any */
                         got_servfail++;
-                        break;
                     }
-                    [[fallthrough]];
-                default:
-                    /* anything else implies that we're done */
-                    done++;
+                    break;
             }
         }
     }
