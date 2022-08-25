@@ -500,5 +500,5 @@ message Server {
     optional int32 index = 2;
 
     // The validation status of the DNS server in the network
-    required bool validated = 3;
+    optional bool validated = 3;
 }
