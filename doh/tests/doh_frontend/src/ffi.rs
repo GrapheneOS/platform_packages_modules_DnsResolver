@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-use crate::dns_https_frontend::DohFrontend;
-use crate::stats::Stats;
+use super::dns_https_frontend::DohFrontend;
+use super::stats::Stats;
 
 use anyhow::{bail, Result};
 use libc::c_char;
