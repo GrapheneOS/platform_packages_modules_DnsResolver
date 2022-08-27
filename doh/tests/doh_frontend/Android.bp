@@ -10,7 +10,7 @@ package {
 rust_ffi_static {
     name: "libdoh_frontend_ffi",
     crate_name: "doh_frontend_ffi",
-    srcs: ["src/lib.rs"],
+    srcs: ["src/mod.rs"],
     edition: "2018",
 
     rlibs: [

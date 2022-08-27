@@ -22,7 +22,7 @@
 
 #include <android-base/thread_annotations.h>
 
-#include "tests/doh/include/lib.rs.h"
+#include "doh/tests/doh_frontend/include/lib.rs.h"
 
 namespace test {
 
