@@ -116,6 +116,32 @@ constexpr int TEST_NETID = 30;
 constexpr int TEST_UID = 99999;
 constexpr int TEST_UID2 = 99998;
 
+constexpr char kDnsPortString[] = "53";
+constexpr char kDohPortString[] = "443";
+constexpr char kDotPortString[] = "853";
+
+const std::string kFlagPrefix("persist.device_config.netd_native.");
+
+const std::string kDohEarlyDataFlag(kFlagPrefix + "doh_early_data");
+const std::string kDohFlag(kFlagPrefix + "doh");
+const std::string kDohIdleTimeoutFlag(kFlagPrefix + "doh_idle_timeout_ms");
+const std::string kDohProbeTimeoutFlag(kFlagPrefix + "doh_probe_timeout_ms");
+const std::string kDohQueryTimeoutFlag(kFlagPrefix + "doh_query_timeout_ms");
+const std::string kDohSessionResumptionFlag(kFlagPrefix + "doh_session_resumption");
+const std::string kDotAsyncHandshakeFlag(kFlagPrefix + "dot_async_handshake");
+const std::string kDotConnectTimeoutMsFlag(kFlagPrefix + "dot_connect_timeout_ms");
+const std::string kDotMaxretriesFlag(kFlagPrefix + "dot_maxtries");
+const std::string kDotQueryTimeoutMsFlag(kFlagPrefix + "dot_query_timeout_ms");
+const std::string kDotQuickFallbackFlag(kFlagPrefix + "dot_quick_fallback");
+const std::string kDotRevalidationThresholdFlag(kFlagPrefix + "dot_revalidation_threshold");
+const std::string kDotXportUnusableThresholdFlag(kFlagPrefix + "dot_xport_unusable_threshold");
+const std::string kDotValidationLatencyFactorFlag(kFlagPrefix + "dot_validation_latency_factor");
+const std::string kDotValidationLatencyOffsetMsFlag(kFlagPrefix +
+                                                    "dot_validation_latency_offset_ms");
+const std::string kRetransIntervalFlag(kFlagPrefix + "retransmission_time_interval");
+const std::string kRetryCountFlag(kFlagPrefix + "retry_count");
+const std::string kSortNameserversFlag(kFlagPrefix + "sort_nameservers");
+
 static constexpr char kLocalHost[] = "localhost";
 static constexpr char kLocalHostAddr[] = "127.0.0.1";
 static constexpr char kIp6LocalHost[] = "ip6-localhost";
