@@ -83,24 +83,6 @@ constexpr int MAXPACKET = (8 * 1024);
 constexpr int RES_TIMEOUT = 5000; /* min. milliseconds between retries */
 constexpr int RES_DFLRETRY = 2;   /* Default #/tries. */
 
-const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
-const std::string kDotConnectTimeoutMsFlag(
-        "persist.device_config.netd_native.dot_connect_timeout_ms");
-const std::string kDotAsyncHandshakeFlag("persist.device_config.netd_native.dot_async_handshake");
-const std::string kDotMaxretriesFlag("persist.device_config.netd_native.dot_maxtries");
-const std::string kDotRevalidationThresholdFlag(
-        "persist.device_config.netd_native.dot_revalidation_threshold");
-const std::string kDotXportUnusableThresholdFlag(
-        "persist.device_config.netd_native.dot_xport_unusable_threshold");
-const std::string kDotQueryTimeoutMsFlag("persist.device_config.netd_native.dot_query_timeout_ms");
-const std::string kDotValidationLatencyFactorFlag(
-        "persist.device_config.netd_native.dot_validation_latency_factor");
-const std::string kDotValidationLatencyOffsetMsFlag(
-        "persist.device_config.netd_native.dot_validation_latency_offset_ms");
-const std::string kDotQuickFallbackFlag("persist.device_config.netd_native.dot_quick_fallback");
-const std::string kRetransIntervalFlag(
-        "persist.device_config.netd_native.retransmission_time_interval");
-const std::string kRetryCountFlag("persist.device_config.netd_native.retry_count");
 // Semi-public Bionic hook used by the NDK (frameworks/base/native/android/net.c)
 // Tested here for convenience.
 extern "C" int android_getaddrinfofornet(const char* hostname, const char* servname,

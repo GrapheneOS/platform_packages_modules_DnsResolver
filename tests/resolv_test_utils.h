@@ -116,6 +116,36 @@ constexpr int TEST_NETID = 30;
 constexpr int TEST_UID = 99999;
 constexpr int TEST_UID2 = 99998;
 
+constexpr char kDnsPortString[] = "53";
+constexpr char kDohPortString[] = "443";
+constexpr char kDotPortString[] = "853";
+
+const std::string kDohFlag("persist.device_config.netd_native.doh");
+const std::string kDohQueryTimeoutFlag("persist.device_config.netd_native.doh_query_timeout_ms");
+const std::string kDohProbeTimeoutFlag("persist.device_config.netd_native.doh_probe_timeout_ms");
+const std::string kDohIdleTimeoutFlag("persist.device_config.netd_native.doh_idle_timeout_ms");
+const std::string kDohSessionResumptionFlag(
+        "persist.device_config.netd_native.doh_session_resumption");
+const std::string kDohEarlyDataFlag("persist.device_config.netd_native.doh_early_data");
+const std::string kDotAsyncHandshakeFlag("persist.device_config.netd_native.dot_async_handshake");
+const std::string kDotMaxretriesFlag("persist.device_config.netd_native.dot_maxtries");
+const std::string kDotConnectTimeoutMsFlag(
+        "persist.device_config.netd_native.dot_connect_timeout_ms");
+const std::string kDotRevalidationThresholdFlag(
+        "persist.device_config.netd_native.dot_revalidation_threshold");
+const std::string kDotXportUnusableThresholdFlag(
+        "persist.device_config.netd_native.dot_xport_unusable_threshold");
+const std::string kDotQueryTimeoutMsFlag("persist.device_config.netd_native.dot_query_timeout_ms");
+const std::string kDotValidationLatencyFactorFlag(
+        "persist.device_config.netd_native.dot_validation_latency_factor");
+const std::string kDotValidationLatencyOffsetMsFlag(
+        "persist.device_config.netd_native.dot_validation_latency_offset_ms");
+const std::string kDotQuickFallbackFlag("persist.device_config.netd_native.dot_quick_fallback");
+const std::string kRetransIntervalFlag(
+        "persist.device_config.netd_native.retransmission_time_interval");
+const std::string kRetryCountFlag("persist.device_config.netd_native.retry_count");
+const std::string kSortNameserversFlag("persist.device_config.netd_native.sort_nameservers");
+
 static constexpr char kLocalHost[] = "localhost";
 static constexpr char kLocalHostAddr[] = "127.0.0.1";
 static constexpr char kIp6LocalHost[] = "ip6-localhost";
