@@ -2,7 +2,6 @@
 //   cbindgen --config cbindgen.toml src/lib.rs -o include/lib.rs.h
 // Don't modify manually.
 
-
 #pragma once
 
 /* Generated with cbindgen:0.24.2 */
@@ -50,17 +49,15 @@ extern "C" {
 ///
 /// The parameters `addr`, `port`, `backend_addr`, and `backend_port` must all point to null
 /// terminated UTF-8 encoded strings.
-DohFrontend *frontend_new(const char *addr,
-                          const char *port,
-                          const char *backend_addr,
-                          const char *backend_port);
+DohFrontend* frontend_new(const char* addr, const char* port, const char* backend_addr,
+                          const char* backend_port);
 
 /// Starts the `DohFrontend` worker thread. Returns true if the worker thread is spawned
 /// successfully; otherwise, it returns false.
-bool frontend_start(DohFrontend *doh);
+bool frontend_start(DohFrontend* doh);
 
 /// Stops the `DohFrontend` worker thread.
-bool frontend_stop(DohFrontend *doh);
+bool frontend_stop(DohFrontend* doh);
 
 /// Deletes the `DohFrontend` created from `frontend_new`.
 /// If the caller has called `frontend_start` to start `DohFrontend`, it has to call
@@ -69,53 +66,53 @@ bool frontend_stop(DohFrontend *doh);
 /// # Safety
 ///
 /// The DohFrontend is not set to null pointer, caller needs to do it on its own.
-void frontend_delete(DohFrontend *doh);
+void frontend_delete(DohFrontend* doh);
 
 /// Sets server certificate to `DohFrontend`.
 ///
 /// # Safety
 ///
 /// The given certificate must be a null-terminated UTF-8 encoded string.
-bool frontend_set_certificate(DohFrontend *doh, const char *certificate);
+bool frontend_set_certificate(DohFrontend* doh, const char* certificate);
 
 /// Sets server private key to `DohFrontend`.
 ///
 /// # Safety
 ///
 /// The given private key must be a null-terminated UTF-8 encoded string.
-bool frontend_set_private_key(DohFrontend *doh, const char *private_key);
+bool frontend_set_private_key(DohFrontend* doh, const char* private_key);
 
 /// Configures the `DohFrontend` not to process DoH queries until a given number of DoH queries
 /// are received. This function works even in the middle of the worker thread.
-bool frontend_set_delay_queries(DohFrontend *doh, int32_t count);
+bool frontend_set_delay_queries(DohFrontend* doh, int32_t count);
 
 /// Configures the `DohFrontend` to use the given value for max_idle_timeout transport parameter.
-bool frontend_set_max_idle_timeout(DohFrontend *doh, uint64_t value);
+bool frontend_set_max_idle_timeout(DohFrontend* doh, uint64_t value);
 
 /// Configures the `DohFrontend` to use the given value for these transport parameters.
 /// - initial_max_data
 /// - initial_max_stream_data_bidi_local
 /// - initial_max_stream_data_bidi_remote
 /// - initial_max_stream_data_uni
-bool frontend_set_max_buffer_size(DohFrontend *doh, uint64_t value);
+bool frontend_set_max_buffer_size(DohFrontend* doh, uint64_t value);
 
 /// Configures the `DohFrontend` to use the given value for initial_max_streams_bidi transport
 /// parameter.
-bool frontend_set_max_streams_bidi(DohFrontend *doh, uint64_t value);
+bool frontend_set_max_streams_bidi(DohFrontend* doh, uint64_t value);
 
 /// Sets the `DohFrontend` to block or unblock sending any data.
-bool frontend_block_sending(DohFrontend *doh, bool block);
+bool frontend_block_sending(DohFrontend* doh, bool block);
 
 /// Gets the statistics of the `DohFrontend` and writes the result to |out|.
-bool frontend_stats(DohFrontend *doh, Stats *out);
+bool frontend_stats(DohFrontend* doh, Stats* out);
 
 /// Resets `queries_received` field of `Stats` owned by the `DohFrontend`.
-bool frontend_stats_clear_queries(const DohFrontend *doh);
+bool frontend_stats_clear_queries(const DohFrontend* doh);
 
 /// Enable Rust debug logging.
 void init_android_logger();
 
-} // extern "C"
+}  // extern "C"
 
-} // namespace rust
-} // namespace test
+}  // namespace rust
+}  // namespace test
