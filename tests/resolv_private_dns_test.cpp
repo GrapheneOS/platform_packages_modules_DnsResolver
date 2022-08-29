@@ -30,7 +30,6 @@
 #include <netdutils/NetNativeTestBase.h>
 #include <netdutils/Stopwatch.h>
 
-#include "PrivateDnsConfiguration.h"
 #include "doh_frontend.h"
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_responder_client_ndk.h"
@@ -55,6 +54,9 @@ using std::chrono::milliseconds;
 using std::this_thread::sleep_for;
 
 constexpr int MAXPACKET = (8 * 1024);
+
+// Constant values sync'd from PrivateDnsConfiguration.
+constexpr int kDohIdleDefaultTimeoutMs = 55000;
 
 namespace {
 
@@ -1023,8 +1025,7 @@ TEST_F(PrivateDnsDohTest, ConnectionIdleTimer) {
 
     // Check if the default value or the timeout the device is using is too short for the test.
     const int device_connection_idle_timeout =
-            std::min(std::stoi(GetProperty(kDohIdleTimeoutFlag, "9999")),
-                     android::net::PrivateDnsConfiguration::kDohIdleDefaultTimeoutMs);
+            std::min(std::stoi(GetProperty(kDohIdleTimeoutFlag, "9999")), kDohIdleDefaultTimeoutMs);
     if (device_connection_idle_timeout <= connection_idle_timeout + tolerance_ms) {
         GTEST_LOG_(INFO) << "The test can't guarantee that the flag takes effect because "
                          << "device_connection_idle_timeout is too short: "
