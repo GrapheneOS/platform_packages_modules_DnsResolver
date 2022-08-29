@@ -30,6 +30,7 @@
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/Slice.h>
+#include <stats.pb.h>
 
 #include "DnsTlsServer.h"
 #include "LockedQueue.h"
@@ -38,6 +39,8 @@
 
 namespace android {
 namespace net {
+
+PrivateDnsModes convert_enum_type(PrivateDnsMode mode);
 
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
@@ -99,12 +102,15 @@ class PrivateDnsConfiguration {
         return instance;
     }
 
-    int set(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
-            const std::string& name, const std::string& caCert) EXCLUDES(mPrivateDnsLock);
+    int set(int32_t netId, uint32_t mark, const std::vector<std::string>& unencryptedServers,
+            const std::vector<std::string>& encryptedServers, const std::string& name,
+            const std::string& caCert) EXCLUDES(mPrivateDnsLock);
 
     void initDoh() EXCLUDES(mPrivateDnsLock);
 
     PrivateDnsStatus getStatus(unsigned netId) const EXCLUDES(mPrivateDnsLock);
+    NetworkDnsServerSupportReported getStatusForMetrics(unsigned netId) const
+            EXCLUDES(mPrivateDnsLock);
 
     void clear(unsigned netId) EXCLUDES(mPrivateDnsLock);
 
@@ -264,6 +270,12 @@ class PrivateDnsConfiguration {
              "https://dns.androidtesting.org/dns-query",
              false},
     }};
+
+    // For the metrics. Store the current DNS server list in the same order as what is passed
+    // in setResolverConfiguration().
+    std::map<unsigned, std::vector<std::string>> mUnorderedDnsTracker GUARDED_BY(mPrivateDnsLock);
+    std::map<unsigned, std::vector<std::string>> mUnorderedDotTracker GUARDED_BY(mPrivateDnsLock);
+    std::map<unsigned, std::vector<std::string>> mUnorderedDohTracker GUARDED_BY(mPrivateDnsLock);
 
     struct RecordEntry {
         RecordEntry(uint32_t netId, const ServerIdentity& identity, Validation state)
