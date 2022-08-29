@@ -384,3 +384,9 @@ cc_fuzz {
     defaults: ["resolv_fuzzer_defaults"],
     srcs: ["fuzzer/resolv_gethostbyaddr_fuzzer.cpp"],
 }
+
+cc_fuzz {
+    name: "resolv_getaddrinfo_fuzzer",
+    defaults: ["resolv_fuzzer_defaults"],
+    srcs: ["fuzzer/resolv_getaddrinfo_fuzzer.cpp"],
+}
