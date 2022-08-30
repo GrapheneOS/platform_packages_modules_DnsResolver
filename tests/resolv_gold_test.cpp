@@ -105,8 +105,9 @@ class TestBase : public NetNativeTestBase {
         fwmark.explicitlySelected = true;
         fwmark.protectedFromVpn = true;
         fwmark.permission = PERMISSION_SYSTEM;
-        ASSERT_EQ(privateDnsConfiguration.set(TEST_NETID, fwmark.intValue, tlsServers, tlsHostname,
-                                              caCert),
+        ASSERT_EQ(privateDnsConfiguration.set(TEST_NETID, fwmark.intValue,
+                                              {} /* unencrypted resolvers */, tlsServers,
+                                              tlsHostname, caCert),
                   0);
         ASSERT_EQ(resolv_set_nameservers(TEST_NETID, servers, domains, kParams, std::nullopt), 0);
     }
