@@ -331,3 +331,62 @@ cc_test {
     ],
     compile_multilib: "first",
 }
+
+cc_defaults {
+    name: "resolv_fuzzer_defaults",
+    defaults: [
+        "netd_defaults",
+        "resolv_test_defaults",
+    ],
+    srcs: [
+        "doh_frontend.cpp",
+    ],
+    header_libs: [
+        "libnetd_resolv_headers",
+        "dnsproxyd_protocol_headers",
+    ],
+    shared_libs: [
+        "libbinder_ndk",
+    ],
+    static_libs: [
+        "dnsresolver_aidl_interface-lateststable-ndk",
+        "libcrypto_static",
+        "libdoh_fuzz_ffi",
+        "libgtest",
+        "libnetdutils",
+        "libnetd_resolv",
+        "libnetd_test_dnsresponder_ndk",
+        "libnetd_test_resolv_utils",
+        "libprotobuf-cpp-lite",
+        "libssl",
+        "libsysutils",
+        "netd_aidl_interface-lateststable-ndk",
+        "netd_event_listener_interface-lateststable-ndk",
+        "server_configurable_flags",
+        "stats_proto",
+    ],
+    fuzz_config: {
+       cc: [
+            "cken@google.com",
+            "kfcchen@google.com",
+       ],
+    },
+}
+
+cc_fuzz {
+    name: "resolv_gethostbyname_fuzzer",
+    defaults: ["resolv_fuzzer_defaults"],
+    srcs: ["fuzzer/resolv_gethostbyname_fuzzer.cpp"],
+}
+
+cc_fuzz {
+    name: "resolv_gethostbyaddr_fuzzer",
+    defaults: ["resolv_fuzzer_defaults"],
+    srcs: ["fuzzer/resolv_gethostbyaddr_fuzzer.cpp"],
+}
+
+cc_fuzz {
+    name: "resolv_getaddrinfo_fuzzer",
+    defaults: ["resolv_fuzzer_defaults"],
+    srcs: ["fuzzer/resolv_getaddrinfo_fuzzer.cpp"],
+}
