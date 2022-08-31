@@ -190,7 +190,7 @@ class PrivateDnsConfiguration {
     // TODO: fix the reentrancy problem.
     PrivateDnsValidationObserver* mObserver GUARDED_BY(mPrivateDnsLock);
 
-    DohDispatcher* mDohDispatcher;
+    DohDispatcher* mDohDispatcher = nullptr;
     std::condition_variable mCv;
 
     friend class PrivateDnsConfigurationTest;
