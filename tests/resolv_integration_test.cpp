@@ -6889,6 +6889,7 @@ class ResolverMultinetworkTest : public ResolverTest {
             }
             return {};
         }
+        const std::string& ifname() { return mIfname; }
 
       protected:
         // Subclasses should implement it to decide which network should be create.
@@ -7555,6 +7556,33 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
         expectDnsQueryCountsFn(*appDefaultNwDnsSv, host_name, expectedDnsReply.size(),
                                appDefaultNetId);
     }
+}
+
+// Do not send AAAA query when IPv6 address is link-local with a default route.
+TEST_F(ResolverMultinetworkTest, IPv6LinkLocalWithDefaultRoute) {
+    constexpr char host_name[] = "ohayou.example.com.";
+    ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::V4);
+    ASSERT_RESULT_OK(network.init());
+
+    // Add IPv6 default route
+    ASSERT_TRUE(mDnsClient.netdService()
+                        ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
+                        .isOk());
+
+    const Result<DnsServerPair> dnsPair = network.addIpv4Dns();
+    ASSERT_RESULT_OK(dnsPair);
+    StartDns(*dnsPair->dnsServer, {{host_name, ns_type::ns_t_a, "192.0.2.0"},
+                                   {host_name, ns_type::ns_t_aaaa, "2001:db8:cafe:d00d::31"}});
+
+    ASSERT_TRUE(network.setDnsConfiguration());
+    ASSERT_TRUE(network.startTunForwarder());
+
+    auto result = android_getaddrinfofornet_wrapper(host_name, network.netId());
+    ASSERT_RESULT_OK(result);
+    ScopedAddrinfo ai_result(std::move(result.value()));
+    EXPECT_EQ(ToString(ai_result), "192.0.2.0");
+    EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_a, host_name), 1U);
+    EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_aaaa, host_name), 0U);
 }
 
 TEST_F(ResolverTest, NegativeValueInExperimentFlag) {
