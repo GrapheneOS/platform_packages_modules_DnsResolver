@@ -1271,7 +1271,6 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
                           uid_t uid, bool allow_v6_linklocal) {
     if (src_addr == nullptr) return -1;
 
-    int sock;
     int ret;
     socklen_t len;
 
@@ -1287,8 +1286,8 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
             return 0;
     }
 
-    sock = socket(addr->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
-    if (sock == -1) {
+    android::base::unique_fd sock(socket(addr->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP));
+    if (sock.get() == -1) {
         if (errno == EAFNOSUPPORT) {
             return 0;
         } else {
@@ -1296,11 +1295,9 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
         }
     }
     if (mark != MARK_UNSET && setsockopt(sock, SOL_SOCKET, SO_MARK, &mark, sizeof(mark)) < 0) {
-        close(sock);
         return 0;
     }
     if (uid > 0 && uid != NET_CONTEXT_INVALID_UID && fchown(sock, uid, (gid_t) -1) < 0) {
-        close(sock);
         return 0;
     }
     do {
@@ -1308,24 +1305,20 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
     } while (ret == -1 && errno == EINTR);
 
     if (ret == -1) {
-        close(sock);
         return 0;
     }
 
     if (getsockname(sock, src_addr, &len) == -1) {
-        close(sock);
         return -1;
     }
 
     if (src_addr->sa_family == AF_INET6) {
         sockaddr_in6* sin6 = reinterpret_cast<sockaddr_in6*>(src_addr);
         if (!allow_v6_linklocal && IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
-            close(sock);
             return 0;
         }
     }
 
-    close(sock);
     return 1;
 }
 
