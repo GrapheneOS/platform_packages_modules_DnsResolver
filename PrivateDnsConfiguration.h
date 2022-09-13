@@ -147,6 +147,9 @@ class PrivateDnsConfiguration {
     base::Result<DnsTlsServer*> getDotServerLocked(const ServerIdentity& identity, unsigned netId)
             REQUIRES(mPrivateDnsLock);
 
+    // TODO: change the return type to Result<PrivateDnsStatus>.
+    PrivateDnsStatus getStatusLocked(unsigned netId) const REQUIRES(mPrivateDnsLock);
+
     // Launchs a thread to run the validation for the DoT server |server| on the network |netId|.
     // |isRevalidation| is true if this call is due to a revalidation request.
     void startDotValidation(const ServerIdentity& identity, unsigned netId, bool isRevalidation)
