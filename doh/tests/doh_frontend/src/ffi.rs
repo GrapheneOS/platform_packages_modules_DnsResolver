@@ -79,7 +79,7 @@ pub extern "C" fn frontend_stop(doh: &mut DohFrontend) -> bool {
 #[no_mangle]
 pub unsafe extern "C" fn frontend_delete(doh: *mut DohFrontend) {
     if !doh.is_null() {
-        Box::from_raw(doh);
+        drop(Box::from_raw(doh));
     }
 }
 
