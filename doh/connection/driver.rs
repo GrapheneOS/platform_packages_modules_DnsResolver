@@ -23,7 +23,6 @@ use std::collections::HashMap;
 use std::default::Default;
 use std::future;
 use std::io;
-use std::pin::Pin;
 use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::select;
@@ -80,7 +79,7 @@ const MAX_UDP_PACKET_SIZE: usize = 65536;
 struct Driver {
     request_rx: mpsc::Receiver<Request>,
     status_tx: watch::Sender<Status>,
-    quiche_conn: Pin<Box<quiche::Connection>>,
+    quiche_conn: quiche::Connection,
     socket: UdpSocket,
     // This buffer is large, boxing it will keep it
     // off the stack and prevent it being copied during
@@ -119,7 +118,7 @@ async fn optional_timeout(timeout: Option<boot_time::Duration>, net_id: u32) {
 pub async fn drive(
     request_rx: mpsc::Receiver<Request>,
     status_tx: watch::Sender<Status>,
-    quiche_conn: Pin<Box<quiche::Connection>>,
+    quiche_conn: quiche::Connection,
     socket: UdpSocket,
     net_id: u32,
 ) -> Result<()> {
@@ -130,7 +129,7 @@ impl Driver {
     fn new(
         request_rx: mpsc::Receiver<Request>,
         status_tx: watch::Sender<Status>,
-        quiche_conn: Pin<Box<quiche::Connection>>,
+        quiche_conn: quiche::Connection,
         socket: UdpSocket,
         net_id: u32,
     ) -> Self {
@@ -163,7 +162,8 @@ impl Driver {
                 self.quiche_conn.peer_error()
             );
             // We don't care if the receiver has hung up
-            let _ = self.status_tx.send(Status::Dead { session: self.quiche_conn.session() });
+            let session = self.quiche_conn.session().map(<[_]>::to_vec);
+            let _ = self.status_tx.send(Status::Dead { session });
             Err(Error::Closed)
         } else {
             Ok(())
@@ -180,7 +180,8 @@ impl Driver {
                 self.quiche_conn.peer_error()
             );
             // We don't care if the receiver has hung up
-            let _ = self.status_tx.send(Status::Dead { session: self.quiche_conn.session() });
+            let session = self.quiche_conn.session().map(<[_]>::to_vec);
+            let _ = self.status_tx.send(Status::Dead { session });
 
             self.request_rx.close();
             // Drain the pending DNS requests from the queue to make their corresponding future
@@ -265,10 +266,8 @@ impl H3Driver {
         let _ = self.driver.status_tx.send(Status::H3);
         loop {
             if let Err(e) = self.drive_once().await {
-                let _ = self
-                    .driver
-                    .status_tx
-                    .send(Status::Dead { session: self.driver.quiche_conn.session() });
+                let session = self.driver.quiche_conn.session().map(<[_]>::to_vec);
+                let _ = self.driver.status_tx.send(Status::Dead { session });
                 return Err(e);
             }
         }
@@ -445,16 +444,29 @@ impl H3Driver {
                 );
                 self.respond(stream_id)
             }
-            // This clause is for quiche 0.10.x, we're still on 0.9.x
-            //h3::Event::Reset(e) => {
-            //    self.streams.get_mut(&stream_id).map(|stream| stream.error = Some(e));
-            //    self.respond(stream_id);
-            //}
+            h3::Event::Reset(e) => {
+                debug!(
+                    "process_h3_event: h3::Event::Reset with error code {} on stream ID {}, network {}",
+                    e, stream_id, self.driver.net_id
+                );
+                if let Some(stream) = self.streams.get_mut(&stream_id) {
+                    stream.error = Some(e)
+                }
+                self.respond(stream_id);
+            }
             h3::Event::Datagram => {
                 warn!("Unexpected Datagram received");
                 // We don't care if something went wrong with the datagram, we didn't
                 // want it anyways.
                 let _ = self.discard_datagram(stream_id);
+            }
+            h3::Event::PriorityUpdate => {
+                debug!(
+                    "process_h3_event: h3::Event::PriorityUpdate on stream ID {}, network {}",
+                    stream_id, self.driver.net_id
+                );
+                // It tells us that PRIORITY_UPDATE frame is received, but we are not
+                // using it in our code currently. No-op should be fine.
             }
             h3::Event::GoAway => self.shutdown(false, b"SERVER GOAWAY").await?,
         }
