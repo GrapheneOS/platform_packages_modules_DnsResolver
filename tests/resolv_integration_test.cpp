@@ -6890,6 +6890,14 @@ class ResolverMultinetworkTest : public ResolverTest {
             return {};
         }
         const std::string& ifname() { return mIfname; }
+        // Assuming mNetId is unique during ResolverMultinetworkTest, make the
+        // address based on it to avoid conflicts.
+        std::string makeIpv4AddrString(uint8_t n) const {
+            return fmt::format("192.168.{}.{}", (mNetId - TEST_NETID_BASE), n);
+        }
+        std::string makeIpv6AddrString(uint8_t n) const {
+            return fmt::format("2001:db8:{}::{}", (mNetId - TEST_NETID_BASE), n);
+        }
 
       protected:
         // Subclasses should implement it to decide which network should be create.
@@ -6906,14 +6914,6 @@ class ResolverMultinetworkTest : public ResolverTest {
 
       private:
         Result<DnsServerPair> addDns(ConnectivityType connectivity);
-        // Assuming mNetId is unique during ResolverMultinetworkTest, make the
-        // address based on it to avoid conflicts.
-        std::string makeIpv4AddrString(uint8_t n) const {
-            return fmt::format("192.168.{}.{}", (mNetId - TEST_NETID_BASE), n);
-        }
-        std::string makeIpv6AddrString(uint8_t n) const {
-            return fmt::format("2001:db8:{}::{}", (mNetId - TEST_NETID_BASE), n);
-        }
     };
 
     class ScopedPhysicalNetwork : public ScopedNetwork {
@@ -7583,6 +7583,22 @@ TEST_F(ResolverMultinetworkTest, IPv6LinkLocalWithDefaultRoute) {
     EXPECT_EQ(ToString(ai_result), "192.0.2.0");
     EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_a, host_name), 1U);
     EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_aaaa, host_name), 0U);
+
+    EXPECT_TRUE(mDnsClient.resolvService()->flushNetworkCache(network.netId()).isOk());
+    dnsPair->dnsServer->clearQueries();
+
+    // Add an IPv6 global address. Resolver starts issuing AAAA queries as well as A queries.
+    const std::string v6Addr = network.makeIpv6AddrString(1);
+    EXPECT_TRUE(
+            mDnsClient.netdService()->interfaceAddAddress(network.ifname(), v6Addr, 128).isOk());
+    result = android_getaddrinfofornet_wrapper(host_name, network.netId());
+    ASSERT_RESULT_OK(result);
+    ScopedAddrinfo ai_results(std::move(result.value()));
+    std::vector<std::string> result_strs = ToStrings(ai_results);
+    EXPECT_THAT(result_strs,
+                testing::UnorderedElementsAreArray({"192.0.2.0", "2001:db8:cafe:d00d::31"}));
+    EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_a, host_name), 1U);
+    EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_aaaa, host_name), 1U);
 }
 
 // v6 mdns is expected to be sent when the IPv6 address is a link-local with a default route.
