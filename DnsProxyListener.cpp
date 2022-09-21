@@ -1243,6 +1243,9 @@ void DnsProxyListener::GetHostByNameHandler::doDns64Synthesis(int32_t* rv, hoste
 }
 
 void DnsProxyListener::GetHostByNameHandler::run() {
+    LOG(INFO) << "GetHostByNameHandler::run: {" << mNetContext.app_netid << " "
+              << mNetContext.app_mark << " " << mNetContext.dns_netid << " " << mNetContext.dns_mark
+              << " " << mNetContext.uid << " " << mNetContext.flags << "}";
     Stopwatch s;
     maybeFixupNetContext(&mNetContext, mClient->getPid());
     const uid_t uid = mClient->getUid();
@@ -1404,6 +1407,9 @@ void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(hostent* hbuf,
 }
 
 void DnsProxyListener::GetHostByAddrHandler::run() {
+    LOG(INFO) << "GetHostByAddrHandler::run: {" << mNetContext.app_netid << " "
+              << mNetContext.app_mark << " " << mNetContext.dns_netid << " " << mNetContext.dns_mark
+              << " " << mNetContext.uid << " " << mNetContext.flags << "}";
     Stopwatch s;
     maybeFixupNetContext(&mNetContext, mClient->getPid());
     const uid_t uid = mClient->getUid();
