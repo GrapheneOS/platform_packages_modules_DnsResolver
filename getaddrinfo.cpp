@@ -1340,7 +1340,7 @@ void resolv_rfc6724_sort(struct addrinfo* list_sentinel, unsigned mark, uid_t ui
         cur = cur->ai_next;
     }
 
-    elems = (struct addrinfo_sort_elem*) malloc(nelem * sizeof(struct addrinfo_sort_elem));
+    elems = (struct addrinfo_sort_elem*) calloc(nelem, sizeof(struct addrinfo_sort_elem));
     if (elems == NULL) {
         goto error;
     }
