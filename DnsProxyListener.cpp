@@ -263,17 +263,9 @@ bool parseQuery(span<const uint8_t> msg, uint16_t* query_id, int* rr_type, std::
 // Note: Even if it returns PDM_OFF, it doesn't mean there's no DoT stats in the message
 // because Private DNS mode can change at any time.
 PrivateDnsModes getPrivateDnsModeForMetrics(uint32_t netId) {
-    switch (PrivateDnsConfiguration::getInstance().getStatus(netId).mode) {
-        case PrivateDnsMode::OFF:
-            // It can also be due to netId not found.
-            return PrivateDnsModes::PDM_OFF;
-        case PrivateDnsMode::OPPORTUNISTIC:
-            return PrivateDnsModes::PDM_OPPORTUNISTIC;
-        case PrivateDnsMode::STRICT:
-            return PrivateDnsModes::PDM_STRICT;
-        default:
-            return PrivateDnsModes::PDM_UNKNOWN;
-    }
+    // If the network `netId` doesn't exist, getStatus() sets the mode to PrivateDnsMode::OFF and
+    // returns it. This is incorrect for the metrics. Consider returning PDM_UNKNOWN in such case.
+    return convertEnumType(PrivateDnsConfiguration::getInstance().getStatus(netId).mode);
 }
 
 void initDnsEvent(NetworkDnsEventReported* event, const android_net_context& netContext) {

@@ -40,7 +40,7 @@
 namespace android {
 namespace net {
 
-PrivateDnsModes convert_enum_type(PrivateDnsMode mode);
+PrivateDnsModes convertEnumType(PrivateDnsMode mode);
 
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
