@@ -141,7 +141,6 @@ using android::net::NsRcode;
 using android::net::NsType;
 using android::net::PrivateDnsConfiguration;
 using android::net::PrivateDnsMode;
-using android::net::PrivateDnsModes;
 using android::net::PrivateDnsStatus;
 using android::net::PROTO_DOH;
 using android::net::PROTO_MDNS;
@@ -1308,19 +1307,6 @@ static int sock_eq(struct sockaddr* a, struct sockaddr* b) {
                    IN6_ARE_ADDR_EQUAL(&a6->sin6_addr, &b6->sin6_addr);
         default:
             return 0;
-    }
-}
-
-PrivateDnsModes convertEnumType(PrivateDnsMode privateDnsmode) {
-    switch (privateDnsmode) {
-        case PrivateDnsMode::OFF:
-            return PrivateDnsModes::PDM_OFF;
-        case PrivateDnsMode::OPPORTUNISTIC:
-            return PrivateDnsModes::PDM_OPPORTUNISTIC;
-        case PrivateDnsMode::STRICT:
-            return PrivateDnsModes::PDM_STRICT;
-        default:
-            return PrivateDnsModes::PDM_UNKNOWN;
     }
 }
 
