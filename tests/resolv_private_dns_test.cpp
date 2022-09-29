@@ -1108,6 +1108,11 @@ TEST_F(PrivateDnsDohTest, TestEarlyDataFlag) {
         SCOPED_TRACE(fmt::format("flag: {}", flag));
         ScopedSystemProperties sp1(kDohSessionResumptionFlag, flag);
         ScopedSystemProperties sp2(kDohEarlyDataFlag, flag);
+
+        // As each loop takes around 2 seconds, it's possible the device_config flags are reset
+        // in the middle of the test. Add another ScopedSystemProperties for "doh" to make the
+        // test more robust.
+        ScopedSystemProperties sp3(kDohFlag, "1");
         resetNetwork();
 
         ASSERT_TRUE(doh.stopServer());
