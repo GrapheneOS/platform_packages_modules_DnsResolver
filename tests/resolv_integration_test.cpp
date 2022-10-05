@@ -885,6 +885,39 @@ TEST_F(ResolverTest, GetAddrInfoV4_deferred_resp) {
     t2.join();
 }
 
+TEST_F(ResolverTest, GetAddrInfoV4_MultiAnswers) {
+    test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
+    dns.addMappingBinaryPacket(kHelloExampleComQueryV4, kHelloExampleComResponsesV4);
+    StartDns(dns, {});
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
+    ScopedAddrinfo result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+
+    // Expect the DNS result order is the same as the RR order in the DNS response
+    // |kHelloExampleComResponsesV4| because none of rule in the native sorting
+    // function _rfc6724_compare() is matched.
+    //
+    // The reason is here for the sorting result from _rfc6724_compare.
+    // For rule 1: avoid unusable destinations, all addresses are unusable on a fake test network.
+    // For rule 2: prefer matching scope, all addresses don't match because of no source address.
+    //             See rule#1 as well.
+    // (rule 3 is not implemented)
+    // (rule 4 is not implemented)
+    // For rule 5: prefer matching label, all addresses get the same label 4 for AF_INET.
+    // For rule 6: prefer higher precedence, all addresses get the same precedence 35 for AF_INET.
+    // (rule 7 is not implemented)
+    // For rule 8: prefer smaller scope, all destination addresses has the same scope.
+    // For rule 9: use longest matching prefix, IPv6 only.
+    // For rule 10: leave the order unchanged, these IPv4 DNS addresses meet this rule.
+    //
+    // See packages/modules/DnsResolver/getaddrinfo.cpp
+    EXPECT_THAT(ToStrings(result),
+                testing::ElementsAre(kHelloExampleComAddrV4, kHelloExampleComAddrV4_2,
+                                     kHelloExampleComAddrV4_3));
+}
+
 TEST_F(ResolverTest, GetAddrInfo_cnames) {
     constexpr char host_name[] = "host.example.com.";
     test::DNSResponder dns;
@@ -3053,50 +3086,6 @@ TEST_F(ResolverTest, GetAddrInfo_Dns64Synthesize) {
 // TODO: merge to #GetAddrInfo_Dns64Synthesize once DNSResponder supports multi DnsRecords for a
 // hostname.
 TEST_F(ResolverTest, GetAddrInfo_Dns64SynthesizeMultiAnswers) {
-    const std::vector<uint8_t> kHelloExampleComResponsesV4 = {
-            // scapy.DNS(
-            //   id=0,
-            //   qr=1,
-            //   ra=1,
-            //   qd=scapy.DNSQR(qname="hello.example.com",qtype="A"),
-            //   an=scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='1.2.3.4') /
-            //      scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='8.8.8.8') /
-            //      scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='81.117.21.202'))
-            /* Header */
-            0x00, 0x00, /* Transaction ID: 0x0000 */
-            0x81, 0x80, /* Flags: qr rd ra */
-            0x00, 0x01, /* Questions: 1 */
-            0x00, 0x03, /* Answer RRs: 3 */
-            0x00, 0x00, /* Authority RRs: 0 */
-            0x00, 0x00, /* Additional RRs: 0 */
-            /* Queries */
-            0x05, 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x07, 0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65,
-            0x03, 0x63, 0x6F, 0x6D, 0x00, /* Name: hello.example.com */
-            0x00, 0x01,                   /* Type: A */
-            0x00, 0x01,                   /* Class: IN */
-            0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65,
-            0x03, 0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
-            0x00, 0x01,                   /* Type: A */
-            0x00, 0x01,                   /* Class: IN */
-            0x00, 0x00, 0x00, 0x00,       /* Time to live: 0 */
-            0x00, 0x04,                   /* Data length: 4 */
-            0x01, 0x02, 0x03, 0x04,       /* Address: 1.2.3.4 */
-            0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65,
-            0x03, 0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
-            0x00, 0x01,                   /* Type: A */
-            0x00, 0x01,                   /* Class: IN */
-            0x00, 0x00, 0x00, 0x00,       /* Time to live: 0 */
-            0x00, 0x04,                   /* Data length: 4 */
-            0x08, 0x08, 0x08, 0x08,       /* Address: 8.8.8.8 */
-            0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65,
-            0x03, 0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
-            0x00, 0x01,                   /* Type: A */
-            0x00, 0x01,                   /* Class: IN */
-            0x00, 0x00, 0x00, 0x00,       /* Time to live: 0 */
-            0x00, 0x04,                   /* Data length: 4 */
-            0x51, 0x75, 0x15, 0xca        /* Address: 81.117.21.202 */
-    };
-
     test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
     dns.addMappingBinaryPacket(kHelloExampleComQueryV4, kHelloExampleComResponsesV4);
     StartDns(dns, {});
