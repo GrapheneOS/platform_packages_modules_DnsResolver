@@ -148,6 +148,8 @@ static constexpr char kIp6LocalHost[] = "ip6-localhost";
 static constexpr char kIp6LocalHostAddr[] = "::1";
 static constexpr char kHelloExampleCom[] = "hello.example.com.";
 static constexpr char kHelloExampleComAddrV4[] = "1.2.3.4";
+static constexpr char kHelloExampleComAddrV4_2[] = "8.8.8.8";
+static constexpr char kHelloExampleComAddrV4_3[] = "81.117.21.202";
 static constexpr char kHelloExampleComAddrV6[] = "::1.2.3.4";
 static constexpr char kExampleComDomain[] = ".example.com";
 
@@ -192,6 +194,50 @@ static const std::vector<uint8_t> kHelloExampleComResponseV4 = {
         0x00, 0x00, 0x00, 0x00, /* Time to live: 0 */
         0x00, 0x04,             /* Data length: 4 */
         0x01, 0x02, 0x03, 0x04  /* Address: 1.2.3.4 */
+};
+
+const std::vector<uint8_t> kHelloExampleComResponsesV4 = {
+        // scapy.DNS(
+        //   id=0,
+        //   qr=1,
+        //   ra=1,
+        //   qd=scapy.DNSQR(qname="hello.example.com",qtype="A"),
+        //   an=scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='1.2.3.4') /
+        //      scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='8.8.8.8') /
+        //      scapy.DNSRR(rrname="hello.example.com",type="A",ttl=0,rdata='81.117.21.202'))
+        /* Header */
+        0x00, 0x00, /* Transaction ID: 0x0000 */
+        0x81, 0x80, /* Flags: qr rd ra */
+        0x00, 0x01, /* Questions: 1 */
+        0x00, 0x03, /* Answer RRs: 3 */
+        0x00, 0x00, /* Authority RRs: 0 */
+        0x00, 0x00, /* Additional RRs: 0 */
+        /* Queries */
+        0x05, 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x07, 0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65, 0x03,
+        0x63, 0x6F, 0x6D, 0x00, /* Name: hello.example.com */
+        0x00, 0x01,             /* Type: A */
+        0x00, 0x01,             /* Class: IN */
+        0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03,
+        0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+        0x00, 0x01,             /* Type: A */
+        0x00, 0x01,             /* Class: IN */
+        0x00, 0x00, 0x00, 0x00, /* Time to live: 0 */
+        0x00, 0x04,             /* Data length: 4 */
+        0x01, 0x02, 0x03, 0x04, /* Address: 1.2.3.4 */
+        0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03,
+        0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+        0x00, 0x01,             /* Type: A */
+        0x00, 0x01,             /* Class: IN */
+        0x00, 0x00, 0x00, 0x00, /* Time to live: 0 */
+        0x00, 0x04,             /* Data length: 4 */
+        0x08, 0x08, 0x08, 0x08, /* Address: 8.8.8.8 */
+        0x05, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03,
+        0x63, 0x6f, 0x6d, 0x00, /* Name: hello.example.com */
+        0x00, 0x01,             /* Type: A */
+        0x00, 0x01,             /* Class: IN */
+        0x00, 0x00, 0x00, 0x00, /* Time to live: 0 */
+        0x00, 0x04,             /* Data length: 4 */
+        0x51, 0x75, 0x15, 0xca  /* Address: 81.117.21.202 */
 };
 
 // Illegal hostnames
