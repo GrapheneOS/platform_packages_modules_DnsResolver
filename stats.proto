@@ -448,10 +448,10 @@ message NetworkDnsHandshakeReported {
   // The latency in microseconds of the entire handshake operation.
   optional int32 latency_micros = 6;
 
-  // Sent packets in bytes.
+  // Number of bytes sent in a handshake.
   optional int32 bytes_sent = 7;
 
-  // Received packets in bytes.
+  // Number of bytes received in a handshake.
   optional int32 bytes_received = 8;
 
   // Number of round-trips.
