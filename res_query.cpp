@@ -237,8 +237,6 @@ int res_nsearch(ResState* statp, const char* name, /* domain name */
      *	- there is at least one dot and there is no trailing dot.
      */
     if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(statp->flags)) {
-        int done = 0;
-
         /* Unfortunately we need to load network-specific info
          * (dns servers, search domains) before
          * the domain stuff is tried.  Will have a better
@@ -283,12 +281,8 @@ int res_nsearch(ResState* statp, const char* name, /* domain name */
                     if (hp->rcode == SERVFAIL) {
                         /* try next search element, if any */
                         got_servfail++;
-                        break;
                     }
-                    [[fallthrough]];
-                default:
-                    /* anything else implies that we're done */
-                    done++;
+                    break;
             }
         }
     }
