@@ -7580,6 +7580,9 @@ TEST_F(ResolverMultinetworkTest, IPv6LinkLocalWithDefaultRoute) {
     const std::string v6Addr = network.makeIpv6AddrString(1);
     EXPECT_TRUE(
             mDnsClient.netdService()->interfaceAddAddress(network.ifname(), v6Addr, 128).isOk());
+    // Ensuring that address is applied. This is required for mainline test (b/249225311).
+    usleep(1000 * 1000);
+
     result = android_getaddrinfofornet_wrapper(host_name, network.netId());
     ASSERT_RESULT_OK(result);
     ScopedAddrinfo ai_results(std::move(result.value()));
@@ -7608,6 +7611,8 @@ TEST_F(ResolverMultinetworkTest, MdnsIPv6LinkLocalWithDefaultRoute) {
     ASSERT_TRUE(mDnsClient.netdService()
                         ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
                         .isOk());
+    // Ensuring that routing is applied. This is required for mainline test (b/247693272).
+    usleep(1000 * 1000);
 
     const Result<DnsServerPair> dnsPair = network.addIpv4Dns();
     ASSERT_RESULT_OK(dnsPair);
