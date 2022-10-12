@@ -1,3 +1,8 @@
+#include <netdb.h>
+#include <sys/param.h>
+
+#include <string>
+
 #include "resolv_fuzzer_utils.h"
 
 namespace android::net {
@@ -22,7 +27,7 @@ void TestResolvGetaddrinfo(FuzzedDataProvider& fdp) {
 
 // Entry point of fuzzing test.
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-    [[maybe_unused]] static bool initialized = DoInit();
+    [[maybe_unused]] static const bool initialized = DoInit();
     // Sets delayQueries to let DnsTlsFrontend handle 2 queries at once.
     // If the Address Family is AF_UNSPEC, the frontend will receive both ipv4 and ipv6 queries.
     // Without setting delayQueries, the second query's connection between the dns_tls_frontend and
