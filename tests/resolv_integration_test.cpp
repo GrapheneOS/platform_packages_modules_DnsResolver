@@ -1643,6 +1643,67 @@ TEST_F(ResolverTest, GetAddrInfoFromCustTable_Modify) {
     EXPECT_EQ(2U, GetNumQueries(dns, hostnameV4V6));
 }
 
+TEST_F(ResolverTest, GetAddrInfoV4V6FromCustTable_MultiAnswers) {
+    test::DNSResponder dns;
+    StartDns(dns, {});
+
+    auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ResolverOptionsParcel resolverOptions;
+    resolverOptions.hosts = {
+            {kHelloExampleComAddrV4, kHelloExampleCom},
+            {kHelloExampleComAddrV6_GUA, kHelloExampleCom},
+            {kHelloExampleComAddrV6_IPV4COMPAT, kHelloExampleCom},
+            {kHelloExampleComAddrV6_TEREDO, kHelloExampleCom},
+    };
+    if (!mIsResolverOptionIPCSupported) {
+        resolverParams.resolverOptions = resolverOptions;
+    }
+    ASSERT_TRUE(mDnsClient.resolvService()->setResolverConfiguration(resolverParams).isOk());
+
+    if (mIsResolverOptionIPCSupported) {
+        ASSERT_TRUE(mDnsClient.resolvService()
+                            ->setResolverOptions(resolverParams.netId, resolverOptions)
+                            .isOk());
+    }
+
+    addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
+    ScopedAddrinfo result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
+    ASSERT_TRUE(result != nullptr);
+    // Expect the order is the same as the order of record insertion because the custom table uses
+    // std::multimap to store and the queried results are not sorted by RFC 6724.
+    // See getCustomHosts in packages/modules/DnsResolver/getaddrinfo.cpp
+    EXPECT_THAT(ToStrings(result),
+                testing::ElementsAreArray({kHelloExampleComAddrV4, kHelloExampleComAddrV6_GUA,
+                                           kHelloExampleComAddrV6_IPV4COMPAT,
+                                           kHelloExampleComAddrV6_TEREDO}));
+    EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));
+
+    hints = {.ai_family = AF_UNSPEC};
+    result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
+    ASSERT_TRUE(result != nullptr);
+    // The overall result is the concatenation of each result from explore_fqdn().
+    // resolv_getaddrinfo() calls explore_fqdn() many times by the different explore_options.
+    // It means that the results of each explore_options keep the order and concatenates
+    // all results into one link list. The address order of the output addrinfo is:
+    //   1.2.3.4 (socktype=2, protocol=17) ->
+    //   2404:6800::5175:15ca (socktype=2, protocol=17) ->
+    //   ::1.2.3.4 (socktype=2, protocol=17) ->
+    //   2001::47c1 (socktype=2, protocol=17) ->
+    //   1.2.3.4 (socktype=1, protocol=6) ->
+    //   2404:6800::5175:15ca (socktype=1, protocol=6) ->
+    //   ::1.2.3.4 (socktype=1, protocol=6) ->
+    //   2001::47c1 (socktype=1, protocol=6)
+    //
+    // See resolv_getaddrinfo, explore_fqdn and dns_getaddrinfo.
+    EXPECT_THAT(ToStrings(result),
+                testing::ElementsAreArray(
+                        {kHelloExampleComAddrV4, kHelloExampleComAddrV6_GUA,
+                         kHelloExampleComAddrV6_IPV4COMPAT, kHelloExampleComAddrV6_TEREDO,
+                         kHelloExampleComAddrV4, kHelloExampleComAddrV6_GUA,
+                         kHelloExampleComAddrV6_IPV4COMPAT, kHelloExampleComAddrV6_TEREDO}));
+    EXPECT_EQ(0U, GetNumQueries(dns, kHelloExampleCom));
+}
+
 TEST_F(ResolverTest, EmptySetup) {
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParamsParcel{.netId = TEST_NETID}));
     const auto resolvInfo = mDnsClient.getResolverInfo();
