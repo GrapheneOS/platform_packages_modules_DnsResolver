@@ -757,13 +757,10 @@ int herrnoToAiErrno(int he) {
 
 void setMdnsFlag(std::string_view hostname, unsigned netid, uint32_t* flags) {
     if (hostname.ends_with(".local") && is_mdns_supported_network(netid) &&
-        android::net::Experiments::getInstance()->getFlag("mdns_resolution", 1)) {
-        LOG(DEBUG) << __func__ << ": *flags |= RES_F_MDNS";
+        android::net::Experiments::getInstance()->getFlag("mdns_resolution", 1))
         *flags |= RES_F_MDNS;
-    }
 }
 
 bool isMdnsResolution(uint32_t flags) {
-    LOG(DEBUG) << __func__ << ": " << (bool)(flags & RES_F_MDNS);
     return flags & RES_F_MDNS;
 }
