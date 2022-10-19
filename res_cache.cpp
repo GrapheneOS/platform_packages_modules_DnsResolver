@@ -1567,21 +1567,16 @@ android::net::NetworkType resolv_get_network_types_for_net(unsigned netid) {
 bool is_mdns_supported_transport_types(const std::vector<int32_t>& transportTypes) {
     for (const auto& tp : transportTypes) {
         if (tp == IDnsResolver::TRANSPORT_CELLULAR || tp == IDnsResolver::TRANSPORT_VPN) {
-            LOG(DEBUG) << __func__ << ": return false, tp=" << tp;
             return false;
         }
     }
-    LOG(DEBUG) << __func__ << ": return true";
     return true;
 }
 
 bool is_mdns_supported_network(unsigned netid) {
     std::lock_guard guard(cache_mutex);
     NetConfig* netconfig = find_netconfig_locked(netid);
-    if (netconfig == nullptr) {
-        LOG(DEBUG) << __func__ << ": netconfig == nullptr";
-        return false;
-    }
+    if (netconfig == nullptr) return false;
     return is_mdns_supported_transport_types(netconfig->transportTypes);
 }
 
