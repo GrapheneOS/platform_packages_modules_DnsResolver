@@ -1269,32 +1269,25 @@ static int _rfc6724_compare(const void* ptr1, const void* ptr2) {
 
 static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr, unsigned mark,
                           uid_t uid, bool allow_v6_linklocal) {
-    if (src_addr == nullptr) {
-        LOG(DEBUG) << __func__ << ": src_addr==nullptr";
-        return -1;
-    }
+    if (src_addr == nullptr) return -1;
 
     int ret;
     socklen_t len;
 
     switch (addr->sa_family) {
         case AF_INET:
-            LOG(DEBUG) << __func__ << ": sa_family AF_INET";
             len = sizeof(struct sockaddr_in);
             break;
         case AF_INET6:
-            LOG(DEBUG) << __func__ << ": sa_family AF_INET6";
             len = sizeof(struct sockaddr_in6);
             break;
         default:
             /* No known usable source address for non-INET families. */
-            LOG(DEBUG) << __func__ << ": non-INET families " << addr->sa_family;
             return 0;
     }
 
     android::base::unique_fd sock(socket(addr->sa_family, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP));
     if (sock.get() == -1) {
-        LOG(DEBUG) << __func__ << ": sock() error, " << strerror(errno);
         if (errno == EAFNOSUPPORT) {
             return 0;
         } else {
@@ -1302,11 +1295,9 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
         }
     }
     if (mark != MARK_UNSET && setsockopt(sock, SOL_SOCKET, SO_MARK, &mark, sizeof(mark)) < 0) {
-        LOG(DEBUG) << __func__ << ": setsockopt() error, " << strerror(errno);
         return 0;
     }
     if (uid > 0 && uid != NET_CONTEXT_INVALID_UID && fchown(sock, uid, (gid_t) -1) < 0) {
-        LOG(DEBUG) << __func__ << ": fchown() error, " << strerror(errno);
         return 0;
     }
     do {
@@ -1314,25 +1305,20 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
     } while (ret == -1 && errno == EINTR);
 
     if (ret == -1) {
-        LOG(DEBUG) << __func__ << ": connect() return -1, " << strerror(errno);
         return 0;
     }
 
     if (getsockname(sock, src_addr, &len) == -1) {
-        LOG(DEBUG) << __func__ << ": getsockname() return -1, " << strerror(errno);
         return -1;
     }
 
     if (src_addr->sa_family == AF_INET6) {
         sockaddr_in6* sin6 = reinterpret_cast<sockaddr_in6*>(src_addr);
         if (!allow_v6_linklocal && IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
-            LOG(DEBUG) << __func__ << ": !allow_v6_linklocal && IN6_IS_ADDR_LINKLOCAL";
             return 0;
         }
-        LOG(DEBUG) << __func__ << ": AF_INET6. allow_v6_linklocal=" << allow_v6_linklocal
-                   << " IN6_IS_ADDR_LINKLOCAL=" << IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr);
     }
-    LOG(DEBUG) << __func__ << ": return 1";
+
     return 1;
 }
 
