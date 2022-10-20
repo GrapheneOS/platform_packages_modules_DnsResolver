@@ -154,6 +154,12 @@ struct NameserverStats {
 
 const bool isAtLeastR = (getApiLevel() >= 30);
 
+#define SKIP_IF_KERNEL_VERSION_LOWER_THAN(major, minor, sub)                                  \
+    do {                                                                                      \
+        if (!android::bpf::isAtLeastKernelVersion(major, minor, sub))                         \
+            GTEST_SKIP() << "Required kernel: " << (major) << "." << (minor) << "." << (sub); \
+    } while (0)
+
 }  // namespace
 
 class ResolverTest : public NetNativeTestBase {
@@ -7513,15 +7519,13 @@ TEST_F(ResolverMultinetworkTest, IPv6LinkLocalWithDefaultRoute) {
 
 // v6 mdns is expected to be sent when the IPv6 address is a link-local with a default route.
 TEST_F(ResolverMultinetworkTest, MdnsIPv6LinkLocalWithDefaultRoute) {
+    // Kernel 4.4 does not provide an IPv6 link-local address when an interface is added to a
+    // network. Skip it because v6 link-local address is a prerequisite for this test.
+    SKIP_IF_KERNEL_VERSION_LOWER_THAN(4, 9, 0);
+
     constexpr char v6addr[] = "::127.0.0.3";
     constexpr char v4addr[] = "127.0.0.3";
     constexpr char host_name[] = "hello.local.";
-
-    // TODO: remove debugging log when b/247693272 is clarified.
-    ASSERT_TRUE(mDnsClient.resolvService()
-                        ->setLogSeverity(aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_DEBUG)
-                        .isOk());
-
     ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::V4);
     ASSERT_RESULT_OK(network.init());
 
@@ -7556,12 +7560,6 @@ TEST_F(ResolverMultinetworkTest, MdnsIPv6LinkLocalWithDefaultRoute) {
     EXPECT_EQ(GetNumQueries(mdnsv6, host_name), 1U);
     EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_a, host_name), 0U);
     EXPECT_EQ(GetNumQueriesForType(*dnsPair->dnsServer, ns_type::ns_t_aaaa, host_name), 0U);
-
-    // Reset logging level to "default" without checking the previous logging level, since no
-    // public function to get current level, and it's for temporary debugging only.
-    ASSERT_TRUE(mDnsClient.resolvService()
-                        ->setLogSeverity(aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_INFO)
-                        .isOk());
 }
 
 TEST_F(ResolverTest, NegativeValueInExperimentFlag) {
