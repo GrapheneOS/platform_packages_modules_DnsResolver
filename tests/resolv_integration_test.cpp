@@ -4401,6 +4401,11 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
             {hostname2, ns_type::ns_t_a, "1.2.3.5"},
     };
 
+    // TODO: Remove it after b/254186357 is clarified.
+    ASSERT_TRUE(mDnsClient.resolvService()
+                        ->setLogSeverity(aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_VERBOSE)
+                        .isOk());
+
     static const struct TestConfig {
         bool asyncHandshake;
         int maxRetries;
@@ -4485,6 +4490,11 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
 
         EXPECT_LE(timeTakenMs, 200);
     }
+
+    // TODO: Remove it after b/254186357 is clarified.
+    ASSERT_TRUE(mDnsClient.resolvService()
+                        ->setLogSeverity(aidl::android::net::IDnsResolver::DNS_RESOLVER_LOG_INFO)
+                        .isOk());
 }
 
 TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
