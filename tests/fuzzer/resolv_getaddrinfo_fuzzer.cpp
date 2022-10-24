@@ -21,6 +21,7 @@ void TestResolvGetaddrinfo(FuzzedDataProvider& fdp) {
 
     resolv_getaddrinfo(hostname.c_str(), fdp.ConsumeBool() ? servname.c_str() : nullptr,
                        fdp.ConsumeBool() ? &hints : nullptr, &mNetContext, &result, &event);
+    netdutils::ScopedAddrinfo result_cleanup(result);
 }
 
 }  // namespace
