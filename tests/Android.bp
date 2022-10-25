@@ -370,6 +370,7 @@ cc_defaults {
             "cken@google.com",
             "kfcchen@google.com",
        ],
+        componentid: 31808,  // Android > Android OS & Apps > Systems > core networking
     },
 }
 
