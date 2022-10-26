@@ -897,7 +897,7 @@ TEST_F(ResolverTest, GetAddrInfoV4_MultiAnswers) {
     StartDns(dns, {});
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
 
-    const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
+    addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
     ScopedAddrinfo result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
     ASSERT_FALSE(result == nullptr);
 
@@ -922,6 +922,29 @@ TEST_F(ResolverTest, GetAddrInfoV4_MultiAnswers) {
     EXPECT_THAT(ToStrings(result),
                 testing::ElementsAre(kHelloExampleComAddrV4, kHelloExampleComAddrV4_2,
                                      kHelloExampleComAddrV4_3));
+
+    // .ai_socktype will be 0.
+    hints = {.ai_family = AF_UNSPEC};
+    result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+
+    // The results are sorted in every querying by explore_options and then concatenates all sorted
+    // results. resolv_getaddrinfo() calls explore_fqdn() many times by the different
+    // explore_options. It means that resolv_rfc6724_sort() only sorts the ordering in the results
+    // of each explore_options and concatenates all sorted results into one link list. The address
+    // order of the output addrinfo is:
+    //   1.2.3.4 (socktype=2, protocol=17) ->
+    //   8.8.8.8 (socktype=2, protocol=17) ->
+    //   81.117.21.202 (socktype=2, protocol=17) ->
+    //   1.2.3.4 (socktype=1, protocol=6) ->
+    //   8.8.8.8 (socktype=1, protocol=6) ->
+    //   81.117.21.202 (socktype=1, protocol=6)
+    //
+    // See resolv_getaddrinfo, explore_fqdn and dns_getaddrinfo.
+    EXPECT_THAT(ToStrings(result),
+                testing::ElementsAre(kHelloExampleComAddrV4, kHelloExampleComAddrV4_2,
+                                     kHelloExampleComAddrV4_3, kHelloExampleComAddrV4,
+                                     kHelloExampleComAddrV4_2, kHelloExampleComAddrV4_3));
 }
 
 TEST_F(ResolverTest, GetAddrInfo_cnames) {
