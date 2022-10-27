@@ -947,6 +947,60 @@ TEST_F(ResolverTest, GetAddrInfoV4_MultiAnswers) {
                                      kHelloExampleComAddrV4_2, kHelloExampleComAddrV4_3));
 }
 
+TEST_F(ResolverTest, GetAddrInfoV6_MultiAnswers) {
+    test::DNSResponder dns(test::DNSResponder::MappingType::BINARY_PACKET);
+    dns.addMappingBinaryPacket(kHelloExampleComQueryV6, kHelloExampleComResponsesV6);
+    StartDns(dns, {});
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
+
+    addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_DGRAM};
+    ScopedAddrinfo result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+
+    // Expect the DNS result order is GUA, teredo tunneling address and IPv4-compatible address
+    // because of the precedence comparison of RFC 6724.
+    //
+    // The reason is here for the sorting result from _rfc6724_compare.
+    // For rule 1: avoid unusable destinations, all addresses are unusable on a fake test network.
+    // For rule 2: prefer matching scope, all addresses don't match because of no source address.
+    //             See rule#1 as well.
+    // (rule 3 is not implemented)
+    // (rule 4 is not implemented)
+    // For rule 5: prefer matching label, the source address is not valid and can't match the dns
+    //             reply addresses. See rule#1 as well.
+    // For rule 6: prefer higher precedence, sorted by the order: gua(40), teredo(5) and
+    //             ipv4-compatible(1).
+    // Ignore from rule 7 to rule 10 because the results has been sorted by rule 6.
+    //
+    // See _get_precedence, _rfc6724_compare in packages/modules/DnsResolver/getaddrinfo.cpp
+    EXPECT_THAT(ToStrings(result),
+                testing::ElementsAre(kHelloExampleComAddrV6_GUA, kHelloExampleComAddrV6_TEREDO,
+                                     kHelloExampleComAddrV6_IPV4COMPAT));
+
+    hints = {.ai_family = AF_UNSPEC};
+    result = safe_getaddrinfo(kHelloExampleCom, nullptr, &hints);
+    ASSERT_FALSE(result == nullptr);
+
+    // The results are sorted in every querying by explore_options and then concatenates all sorted
+    // results. resolv_getaddrinfo() calls explore_fqdn() many times by the different
+    // explore_options. It means that resolv_rfc6724_sort() only sorts the ordering in the results
+    // of each explore_options and concatenates all sorted results into one link list. The address
+    // order of the output addrinfo is:
+    //   2404:6800::5175:15ca (socktype=2, protocol=17) ->
+    //   2001::47c1 (socktype=2, protocol=17) ->
+    //   ::1.2.3.4 (socktype=2, protocol=17) ->
+    //   2404:6800::5175:15ca (socktype=1, protocol=6) ->
+    //   2001::47c1 (socktype=1, protocol=6) ->
+    //   ::1.2.3.4 (socktype=1, protocol=6)
+    //
+    // See resolv_getaddrinfo, explore_fqdn and dns_getaddrinfo.
+    EXPECT_THAT(
+            ToStrings(result),
+            testing::ElementsAre(kHelloExampleComAddrV6_GUA, kHelloExampleComAddrV6_TEREDO,
+                                 kHelloExampleComAddrV6_IPV4COMPAT, kHelloExampleComAddrV6_GUA,
+                                 kHelloExampleComAddrV6_TEREDO, kHelloExampleComAddrV6_IPV4COMPAT));
+}
+
 TEST_F(ResolverTest, GetAddrInfo_cnames) {
     constexpr char host_name[] = "host.example.com.";
     test::DNSResponder dns;
