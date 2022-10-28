@@ -56,8 +56,10 @@ inline uint64_t getApiLevel() {
 }
 
 // It's the identical strategy as frameworks/base/core/java/android/os/Build.java did.
-inline bool isUserDebugBuild() {
-    return (android::base::GetProperty("ro.build.type", "user") == "userdebug");
+// There's also equivalent C++ code in system/core/init/property_service.cpp
+// (and it is CTS tested in BuildTest.java)
+inline bool isDebuggable() {
+    return android::base::GetBoolProperty("ro.debuggable", false);
 }
 
 inline bool isDoHEnabled() {
