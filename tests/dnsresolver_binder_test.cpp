@@ -621,9 +621,9 @@ TEST_F(DnsResolverBinderTest, setLogSeverity) {
     EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_ERROR).isOk());
     mExpectedLogData.push_back({"setLogSeverity(4)", "setLogSeverity.*4"});
 
-    // Set back to default based off resolv_init(), the default is INFO for userdebug builds
+    // Set back to default based off resolv_init(), the default is INFO for userdebug/eng builds
     // and is WARNING for the other builds.
-    if (isUserDebugBuild()) {
+    if (isDebuggable()) {
         EXPECT_TRUE(mDnsResolver->setLogSeverity(IDnsResolver::DNS_RESOLVER_LOG_INFO).isOk());
         mExpectedLogData.push_back({"setLogSeverity(2)", "setLogSeverity.*2"});
     } else {
