@@ -306,10 +306,12 @@ again:
 
     // Poll again because the same DoT probe might be sent again.
     if (isDotProbe && queryCounts == 1) {
-        int n = poll(&fds, 1, 50);
+        const int timeoutMs = 500;
+        int n = poll(&fds, 1, timeoutMs);
         if (n > 0 && fds.revents & POLLIN) {
             goto again;
         }
+        LOG(WARNING) << "Did not receive the second DoT probe within " << timeoutMs << "ms";
     }
 
     LOG(DEBUG) << __func__ << " return: " << queryCounts;
