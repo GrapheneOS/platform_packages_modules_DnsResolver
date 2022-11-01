@@ -140,6 +140,8 @@ const std::string kDotValidationLatencyOffsetMsFlag(kFlagPrefix +
                                                     "dot_validation_latency_offset_ms");
 const std::string kRetransIntervalFlag(kFlagPrefix + "retransmission_time_interval");
 const std::string kRetryCountFlag(kFlagPrefix + "retry_count");
+const std::string kSkip4aQueryOnV6LinklocalAddrFlag(kFlagPrefix +
+                                                    "skip_4a_query_on_v6_linklocal_addr");
 const std::string kSortNameserversFlag(kFlagPrefix + "sort_nameservers");
 
 static constexpr char kLocalHost[] = "localhost";
