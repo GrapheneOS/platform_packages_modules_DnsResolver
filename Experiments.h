@@ -70,6 +70,7 @@ class Experiments {
             "parallel_lookup_sleep_time",
             "retransmission_time_interval",
             "retry_count",
+            "skip_4a_query_on_v6_linklocal_addr",
             "sort_nameservers",
     };
     // This value is used in updateInternal as the default value if any flags can't be found.
