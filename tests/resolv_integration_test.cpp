@@ -4627,7 +4627,7 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout) {
         EXPECT_EQ(1U, GetNumQueries(dns, hostname2));
         EXPECT_EQ(records.at(1).addr, ToString(result));
 
-        EXPECT_LE(timeTakenMs, 200);
+        EXPECT_LE(timeTakenMs, 1000);
     }
 
     // TODO: Remove it after b/254186357 is clarified.
