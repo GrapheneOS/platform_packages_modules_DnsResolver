@@ -67,6 +67,7 @@
 
 #define ANY 0
 
+using android::net::Experiments;
 using android::net::NetworkDnsEventReported;
 
 const char in_addrany[] = {0, 0, 0, 0};
@@ -1312,7 +1313,8 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
         return -1;
     }
 
-    if (src_addr->sa_family == AF_INET6) {
+    if (Experiments::getInstance()->getFlag("skip_4a_query_on_v6_linklocal_addr", 1) &&
+        src_addr->sa_family == AF_INET6) {
         sockaddr_in6* sin6 = reinterpret_cast<sockaddr_in6*>(src_addr);
         if (!allow_v6_linklocal && IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
             return 0;
@@ -1666,8 +1668,8 @@ static int res_queryN_parallel(const char* name, res_target* target, ResState* r
         // Avoiding gateways drop packets if queries are sent too close together
         // Only needed if we have multiple queries in a row.
         if (t->next) {
-            int sleepFlag = android::net::Experiments::getInstance()->getFlag(
-                    "parallel_lookup_sleep_time", SLEEP_TIME_MS);
+            int sleepFlag = Experiments::getInstance()->getFlag("parallel_lookup_sleep_time",
+                                                                SLEEP_TIME_MS);
             if (sleepFlag > 1000) sleepFlag = 1000;
             sleepTimeMs = std::chrono::milliseconds(sleepFlag);
         }
@@ -1697,8 +1699,7 @@ static int res_queryN_parallel(const char* name, res_target* target, ResState* r
 }
 
 static int res_queryN_wrapper(const char* name, res_target* target, ResState* res, int* herrno) {
-    const bool parallel_lookup =
-            android::net::Experiments::getInstance()->getFlag("parallel_lookup_release", 1);
+    const bool parallel_lookup = Experiments::getInstance()->getFlag("parallel_lookup_release", 1);
     if (parallel_lookup) return res_queryN_parallel(name, target, res, herrno);
 
     return res_queryN(name, target, res, herrno);
