@@ -7689,6 +7689,9 @@ TEST_F(ResolverMultinetworkTest, IPv6LinkLocalWithDefaultRouteFlag) {
                             ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
                             .isOk());
 
+        // Ensuring that routing is applied. This is required for mainline test (b/257404586).
+        usleep(1000 * 1000);
+
         const Result<DnsServerPair> dnsPair = network.addIpv4Dns();
         ASSERT_RESULT_OK(dnsPair);
         StartDns(*dnsPair->dnsServer, {{host_name, ns_type::ns_t_a, "192.0.2.0"},
