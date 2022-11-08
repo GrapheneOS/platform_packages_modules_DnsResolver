@@ -1317,6 +1317,13 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
         src_addr->sa_family == AF_INET6) {
         sockaddr_in6* sin6 = reinterpret_cast<sockaddr_in6*>(src_addr);
         if (!allow_v6_linklocal && IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
+            // There is no point in sending an AAAA query because the device does not have a global
+            // IP address. The only thing that can be affected is the hostname "localhost". Devices
+            // with this setting will not be able to get the localhost v6 IP address ::1 via DNS
+            // lookups, which is accessible by host local. But it is expected that a DNS server that
+            // replies to "localhost" in AAAA should also reply in A. So it shouldn't cause issues.
+            // Also, the current behavior will not be changed because hostname “localhost” only gets
+            // 127.0.0.1 per etc/hosts configs.
             return 0;
         }
     }
