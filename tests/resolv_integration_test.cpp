@@ -750,11 +750,17 @@ TEST_F(ResolverTest, GetAddrInfo_localhost) {
     StartDns(dns, {});
     ASSERT_TRUE(mDnsClient.SetResolversForNetwork());
 
-    ScopedAddrinfo result = safe_getaddrinfo(kLocalHost, nullptr, nullptr);
+    addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
+    ScopedAddrinfo result = safe_getaddrinfo(kLocalHost, nullptr, &hints);
     EXPECT_TRUE(result != nullptr);
     // Expect no DNS queries; localhost is resolved via /etc/hosts
     EXPECT_TRUE(dns.queries().empty()) << dns.dumpQueries();
-    EXPECT_EQ(kLocalHostAddr, ToString(result));
+    if (android::modules::sdklevel::IsAtLeastU()) {
+        // ::1 is added since U.
+        EXPECT_THAT(ToStrings(result), testing::ElementsAre(kLocalHostAddr, kIp6LocalHostAddr));
+    } else {
+        EXPECT_EQ(kLocalHostAddr, ToString(result));
+    }
 
     result = safe_getaddrinfo(kIp6LocalHost, nullptr, nullptr);
     EXPECT_TRUE(result != nullptr);
