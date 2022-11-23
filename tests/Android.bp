@@ -340,6 +340,7 @@ cc_defaults {
     ],
     srcs: [
         "doh_frontend.cpp",
+        "fuzzer/resolv_fuzzer_utils.cpp",
     ],
     header_libs: [
         "libnetd_resolv_headers",
