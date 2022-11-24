@@ -7730,6 +7730,10 @@ TEST_F(ResolverMultinetworkTest, IPv6LinkLocalWithDefaultRoute) {
 // Test if the "do not send AAAA query when IPv6 address is link-local with a default route" feature
 // can be toggled by flag.
 TEST_F(ResolverMultinetworkTest, IPv6LinkLocalWithDefaultRouteFlag) {
+    // Kernel 4.4 does not provide an IPv6 link-local address when an interface is added to a
+    // network. Skip it because v6 link-local address is a prerequisite for this test.
+    SKIP_IF_KERNEL_VERSION_LOWER_THAN(4, 9, 0);
+
     constexpr char host_name[] = "ohayou.example.com.";
     const struct TestConfig {
         std::string flagValue;
