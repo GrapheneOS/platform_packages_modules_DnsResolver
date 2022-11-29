@@ -314,7 +314,7 @@ cc_test {
         "connectivity-mainline-presubmit-cc-defaults",
         "netd_defaults",
         "resolv_test_defaults",
-        "resolv_test_mts_coverage_defaults",
+        "resolv_test_mts_coverage_without_root_defaults",
     ],
     header_libs: [
         "libnetd_resolv_internal_headers",
