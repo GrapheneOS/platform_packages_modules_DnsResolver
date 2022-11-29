@@ -150,6 +150,22 @@ cc_defaults {
     },
 }
 
+cc_defaults {
+    // Similar to resolv_test_mts_coverage_defaults, but it's for the tests that don't need
+    // root access.
+    name: "resolv_test_mts_coverage_without_root_defaults",
+    test_config_template: ":resolv_test_config_without_root_template",
+    compile_multilib: "both",
+    multilib: {
+        lib32: {
+            suffix: "32",
+        },
+        lib64: {
+            suffix: "64",
+        },
+    },
+}
+
 cc_library {
     name: "libnetd_resolv",
     version_script: "libnetd_resolv.map.txt",
@@ -304,6 +320,13 @@ filegroup {
     name: "resolv_test_config_template",
     srcs: [
         "resolv_test_config_template.xml",
+    ],
+}
+
+filegroup {
+    name: "resolv_test_config_without_root_template",
+    srcs: [
+        "resolv_test_config_without_root_template.xml",
     ],
 }
 
