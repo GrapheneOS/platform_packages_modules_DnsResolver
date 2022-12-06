@@ -16,6 +16,13 @@
 <configuration description="Configuration for resolv gold tests">
    <option name="test-suite-tag" value="mts" />
    <option name="config-descriptor:metadata" key="mainline-param" value="CaptivePortalLoginGoogle.apk+NetworkStackGoogle.apk+com.google.android.resolv.apex+com.google.android.tethering.apex" />
+
+   <!-- To avoid module rollbacks due to "adbd exits 4 times in 4 minutes" caused by repeated
+        root/unroot, reboot the device to reset the crash counter in init service.
+        See b/260180513 for more details.
+   -->
+   <target_preparer class="com.android.tradefed.targetprep.RebootTargetPreparer" />
+
    <target_preparer class="com.android.tradefed.targetprep.RootTargetPreparer"/>
    <target_preparer class="com.android.compatibility.common.tradefed.targetprep.FilePusher">
        <option name="cleanup" value="true" />
