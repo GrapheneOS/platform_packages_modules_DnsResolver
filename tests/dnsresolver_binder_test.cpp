@@ -138,13 +138,13 @@ class DnsResolverBinderTest : public NetNativeTestBase {
                         if (!std::regex_match(line, match, lineRegex)) return false;
                         if (match.size() != 2) return false;
 
-                        // The binder_to_string format is changed from S that will add "(null)" to
-                        // the log on method's argument if binder object is null. But Q and R don't
-                        // have this format in log. So to make register null listener tests are
-                        // compatible from all version, just remove the "(null)" argument from
-                        // output logs if existed.
-                        const std::string output = android::base::StringReplace(
-                                match[1].str(), "(null)", "", /*all=*/true);
+                        // The binder_to_string format is changed over time to include more
+                        // information. To keep it working on Q/R/..., remove what has been
+                        // added for now.
+                        std::string output = match[1].str();
+                        using android::base::StringReplace;
+                        output = StringReplace(output, "(null)", "", /*all=*/true);
+                        output = StringReplace(output, "<unimplemented>", "", /*all=*/true);
                         return output == td.output;
                     });
             EXPECT_TRUE(found) << "Didn't find line '" << td.output << "' in dumpsys output.";
