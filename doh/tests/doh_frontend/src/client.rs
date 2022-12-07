@@ -21,7 +21,6 @@ use log::{debug, error, info, warn};
 use quiche::h3::NameValue;
 use std::collections::{hash_map, HashMap};
 use std::net::SocketAddr;
-use std::pin::Pin;
 use std::time::Duration;
 
 pub const DNS_HEADER_SIZE: usize = 12;
@@ -35,7 +34,7 @@ const URL_PATH_PREFIX: &str = "/dns-query?dns=";
 /// Manages a QUIC and HTTP/3 connection. No socket I/O operations.
 pub struct Client {
     /// QUIC connection.
-    conn: Pin<Box<quiche::Connection>>,
+    conn: quiche::Connection,
 
     /// HTTP/3 connection.
     h3_conn: Option<quiche::h3::Connection>,
@@ -59,7 +58,7 @@ pub struct Client {
 }
 
 impl Client {
-    fn new(conn: Pin<Box<quiche::Connection>>, addr: &SocketAddr, id: ConnectionID) -> Client {
+    fn new(conn: quiche::Connection, addr: &SocketAddr, id: ConnectionID) -> Client {
         Client {
             conn,
             h3_conn: None,
