@@ -4952,8 +4952,16 @@ TEST_F(ResolverTest, SkipUnusableTlsServer) {
             expectAnswersValid(fd, AF_INET6, kHelloExampleComAddrV6);
         }
 
-        EXPECT_EQ(dot1.acceptConnectionsCount(), config.expectedQueriesSentToDot1);
-        EXPECT_EQ(dot2.acceptConnectionsCount(), config.expectedQueriesSentToDot2);
+        if (GetProperty(kDotAsyncHandshakeFlag, "0") == "0") {
+            EXPECT_EQ(dot1.acceptConnectionsCount(), config.expectedQueriesSentToDot1);
+            EXPECT_EQ(dot2.acceptConnectionsCount(), config.expectedQueriesSentToDot2);
+        } else {
+            // If the flag dot_async_handshake is set to 1, the DnsResolver will try
+            // DoT connection establishment at most |retries| times.
+            const int retries = std::stoi(GetProperty(kDotMaxretriesFlag, "3"));
+            EXPECT_EQ(dot1.acceptConnectionsCount(), config.expectedQueriesSentToDot1 * retries);
+            EXPECT_EQ(dot2.acceptConnectionsCount(), config.expectedQueriesSentToDot2 * retries);
+        }
     }
 }
 
