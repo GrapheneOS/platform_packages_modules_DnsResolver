@@ -5795,17 +5795,17 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
                 // Must be UNRESPONSIVE.
                 // DnsTlsFrontend is the only signal for checking whether or not the resolver starts
                 // another validation when the server is unresponsive.
-                const int expectCountDiff =
-                        config.expectNothingHappenWhenServerUnresponsive ? 0 : 1;
-                if (expectCountDiff == 0) {
-                    // It's possible that the resolver hasn't yet started to
-                    // connect. Wait a while.
-                    std::this_thread::sleep_for(100ms);
-                } else {
+
+                // Wait for a while to avoid running the checker code too early.
+                std::this_thread::sleep_for(200ms);
+                if (!config.expectNothingHappenWhenServerUnresponsive) {
                     EXPECT_TRUE(WaitForPrivateDnsValidation(config.tlsServer, false));
                 }
                 const auto condition = [&]() {
-                    return tls.acceptConnectionsCount() == connectCountsBefore + expectCountDiff;
+                    const int connectCountsAfter = tls.acceptConnectionsCount();
+                    return config.expectNothingHappenWhenServerUnresponsive
+                                   ? (connectCountsAfter == connectCountsBefore)
+                                   : (connectCountsAfter > connectCountsBefore);
                 };
                 EXPECT_TRUE(PollForCondition(condition));
             }
