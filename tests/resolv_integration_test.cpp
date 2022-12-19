@@ -75,6 +75,14 @@
 #include "tests/tun_forwarder.h"
 #include "tests/unsolicited_listener/unsolicited_event_listener.h"
 
+// This mainline module test still needs to be able to run on pre-S devices,
+// and thus may run across pre-4.9 non-eBPF capable devices like the Pixel 2.
+#define SKIP_IF_BPF_NOT_SUPPORTED                           \
+    do {                                                    \
+        if (!android::bpf::isAtLeastKernelVersion(4, 9, 0)) \
+            GTEST_SKIP() << "Skip: bpf is not supported.";  \
+    } while (0)
+
 // Valid VPN netId range is 100 ~ 65535
 constexpr int TEST_VPN_NETID = 65502;
 constexpr int MAXPACKET = (8 * 1024);
