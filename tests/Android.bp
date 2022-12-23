@@ -219,6 +219,12 @@ cc_test {
             suffix: "64",
         },
     },
+    // 'resolv_integration_test' used DisableConfigSyncTargetPreparer provided
+    // by net-tests-utils-host-common; adding it to make the host jar available
+    // after the build process.
+    host_required: [
+        "net-tests-utils-host-common",
+    ]
 }
 
 cc_test {
