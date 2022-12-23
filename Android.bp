@@ -107,6 +107,7 @@ aidl_interface {
         "8",
         "9",
         "10",
+        "11",
     ],
     dumpapi: {
         no_license: true,
