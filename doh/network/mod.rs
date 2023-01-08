@@ -50,6 +50,8 @@ pub struct ServerInfo {
     pub idle_timeout_ms: u64,
     pub use_session_resumption: bool,
     pub enable_early_data: bool,
+    pub network_type: u32,
+    pub private_dns_mode: u32,
 }
 
 #[derive(Debug)]
