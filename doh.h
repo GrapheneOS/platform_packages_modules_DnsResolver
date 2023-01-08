@@ -92,7 +92,7 @@ void doh_dispatcher_delete(DohDispatcher* doh);
 /// `url`, `domain`, `ip_addr`, `cert_path` are null terminated strings.
 int32_t doh_net_new(DohDispatcher* doh, uint32_t net_id, const char* url, const char* domain,
                     const char* ip_addr, uint32_t sk_mark, const char* cert_path,
-                    const FeatureFlags* flags);
+                    const FeatureFlags* flags, uint32_t network_type, uint32_t private_dns_mode);
 
 /// Sends a DNS query via the network associated to the given |net_id| and waits for the response.
 /// The return code should be either one of the public constant RESULT_* to indicate the error or
