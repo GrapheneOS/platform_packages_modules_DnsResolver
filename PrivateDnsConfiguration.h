@@ -247,11 +247,16 @@ class PrivateDnsConfiguration {
 
     // TODO: Move below DoH relevant stuff into Rust implementation.
     std::map<unsigned, DohIdentity> mDohTracker GUARDED_BY(mPrivateDnsLock);
-    std::array<DohProviderEntry, 4> mAvailableDoHProviders = {{
+    std::array<DohProviderEntry, 5> mAvailableDoHProviders = {{
             {"Google",
              {"2001:4860:4860::8888", "2001:4860:4860::8844", "8.8.8.8", "8.8.4.4"},
              "dns.google",
              "https://dns.google/dns-query",
+             false},
+            {"Google DNS64",
+             {"2001:4860:4860::64", "2001:4860:4860::6464"},
+             "dns64.dns.google",
+             "https://dns64.dns.google/dns-query",
              false},
             {"Cloudflare",
              {"2606:4700::6810:f8f9", "2606:4700::6810:f9f9", "104.16.248.249", "104.16.249.249"},
