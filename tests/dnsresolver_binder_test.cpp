@@ -52,6 +52,7 @@ using aidl::android::net::ResolverHostsParcel;
 using aidl::android::net::ResolverOptionsParcel;
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::metrics::INetdEventListener;
+using aidl::android::net::resolv::aidl::DohParamsParcel;
 using android::base::ReadFdToString;
 using android::base::unique_fd;
 using android::net::ResolverStats;
@@ -215,6 +216,10 @@ class DnsResolverBinderTest : public NetNativeTestBase {
                            toString(parms->hosts), parms->tcMode, parms->enforceDnsUid);
     }
 
+    std::string toString(const std::optional<DohParamsParcel>& params) {
+        return params.has_value() ? params.value().toString() : "(null)";
+    }
+
     std::string toString(const ResolverParamsParcel& parms) {
         return fmt::format(
                 "ResolverParamsParcel{{netId: {}, sampleValiditySeconds: {}, successThreshold: {}, "
@@ -224,14 +229,15 @@ class DnsResolverBinderTest : public NetNativeTestBase {
                 "tlsName: {}, tlsServers: [{}], "
                 "tlsFingerprints: [{}], "
                 "caCertificate: {}, tlsConnectTimeoutMs: {}, "
-                "resolverOptions: {}, transportTypes: [{}], meteredNetwork: {}}}",
+                "resolverOptions: {}, transportTypes: [{}], meteredNetwork: {}, dohParams: {}}}",
                 parms.netId, parms.sampleValiditySeconds, parms.successThreshold, parms.minSamples,
                 parms.maxSamples, parms.baseTimeoutMsec, parms.retryCount,
                 fmt::join(parms.servers, ", "), fmt::join(parms.domains, ", "), parms.tlsName,
                 fmt::join(parms.tlsServers, ", "), fmt::join(parms.tlsFingerprints, ", "),
                 android::base::StringReplace(parms.caCertificate, "\n", "\\n", true),
                 parms.tlsConnectTimeoutMs, toString(parms.resolverOptions),
-                fmt::join(parms.transportTypes, ", "), parms.meteredNetwork);
+                fmt::join(parms.transportTypes, ", "), parms.meteredNetwork,
+                toString(parms.dohParams));
     }
 
     PossibleLogData toSetResolverConfigurationLogData(const ResolverParamsParcel& parms,
@@ -496,6 +502,24 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_TransportTypes_Default) {
     std::string str;
     ASSERT_TRUE(ReadFdToString(readFd, &str)) << strerror(errno);
     EXPECT_THAT(str, HasSubstr("UNKNOWN"));
+}
+
+TEST_F(DnsResolverBinderTest, SetResolverConfiguration_DohParams) {
+    const auto paramsWithoutDohParams = ResolverParams::Builder().build();
+    ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(paramsWithoutDohParams);
+    EXPECT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogDataWithPacel.push_back(toSetResolverConfigurationLogData(paramsWithoutDohParams));
+
+    const DohParamsParcel dohParams = {
+            .name = "doh.google",
+            .ips = {"1.2.3.4", "2001:db8::2"},
+            .dohpath = "/dns-query{?dns}",
+            .port = 443,
+    };
+    const auto paramsWithDohParams = ResolverParams::Builder().setDohParams(dohParams).build();
+    status = mDnsResolver->setResolverConfiguration(paramsWithDohParams);
+    EXPECT_TRUE(status.isOk()) << status.getMessage();
+    mExpectedLogDataWithPacel.push_back(toSetResolverConfigurationLogData(paramsWithDohParams));
 }
 
 class MeteredNetworkParameterizedTest : public DnsResolverBinderTest,
