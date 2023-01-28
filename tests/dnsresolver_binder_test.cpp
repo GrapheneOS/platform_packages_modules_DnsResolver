@@ -140,11 +140,12 @@ class DnsResolverBinderTest : public NetNativeTestBase {
 
                         // The binder_to_string format is changed over time to include more
                         // information. To keep it working on Q/R/..., remove what has been
-                        // added for now.
+                        // added for now. TODO(b/266248339)
                         std::string output = match[1].str();
                         using android::base::StringReplace;
                         output = StringReplace(output, "(null)", "", /*all=*/true);
                         output = StringReplace(output, "<unimplemented>", "", /*all=*/true);
+                        output = StringReplace(output, "<interface>", "", /*all=*/true);
                         return output == td.output;
                     });
             EXPECT_TRUE(found) << "Didn't find line '" << td.output << "' in dumpsys output.";
