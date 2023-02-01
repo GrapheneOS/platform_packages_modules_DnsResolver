@@ -66,3 +66,8 @@ inline bool isDoHEnabled() {
     static bool isAtLeastT = android::modules::sdklevel::IsAtLeastT();
     return android::net::Experiments::getInstance()->getFlag("doh", isAtLeastT ? 1 : 0);
 }
+
+inline bool isAtLeastU() {
+    const static bool isAtLeastU = android::modules::sdklevel::IsAtLeastU();
+    return isAtLeastU;
+}
