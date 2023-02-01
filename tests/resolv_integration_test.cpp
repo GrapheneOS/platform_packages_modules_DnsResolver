@@ -7871,3 +7871,19 @@ TEST_F(ResolverTest, NegativeValueInExperimentFlag) {
         EXPECT_EQ(config.expectedBaseTimeoutMsec, resolvInfo.value().params.base_timeout_msec);
     }
 }
+
+// Verify that DNS queries can be made for hostnames that exist in etc/hosts when the default
+// network is not set and the application does not specify a network. (See
+// NetworkController::isUidAllowed for implementation details.)
+TEST_F(ResolverTest, NetworkUnspecified_localhost) {
+    ScopedDefaultNetwork scopedDefaultNetwork(mDnsClient.netdService(), NETID_UNSET);
+    ScopedSetNetworkForProcess scopedSetNetworkForProcess(NETID_UNSET);
+
+    ScopedAddrinfo result = safe_getaddrinfo(kLocalHost, nullptr, nullptr);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(kLocalHostAddr, ToString(result));
+
+    result = safe_getaddrinfo(kIp6LocalHost, nullptr, nullptr);
+    EXPECT_TRUE(result != nullptr);
+    EXPECT_EQ(kIp6LocalHostAddr, ToString(result));
+}
