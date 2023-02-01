@@ -104,6 +104,23 @@ class ScopedSystemProperties {
     std::string mStoredValue;
 };
 
+class ScopedDefaultNetwork {
+    using INetd = aidl::android::net::INetd;
+
+  public:
+    ScopedDefaultNetwork(INetd* netSrv, uid_t testDefaultNetwork) : mNetSrv(netSrv) {
+        EXPECT_TRUE(mNetSrv->networkGetDefault(&mStoredDefaultNetwork).isOk());
+        EXPECT_TRUE(mNetSrv->networkSetDefault(testDefaultNetwork).isOk());
+    };
+    ~ScopedDefaultNetwork() {
+        EXPECT_TRUE(mNetSrv->networkSetDefault(mStoredDefaultNetwork).isOk());
+    }
+
+  private:
+    INetd* mNetSrv;
+    int mStoredDefaultNetwork;
+};
+
 struct DnsRecord {
     std::string host_name;  // host name
     ns_type type;           // record type
