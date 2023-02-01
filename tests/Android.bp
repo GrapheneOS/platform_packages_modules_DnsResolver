@@ -102,7 +102,6 @@ cc_test {
     ],
     shared_libs: [
         "libbinder_ndk",
-        "libstatssocket",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
@@ -246,7 +245,6 @@ cc_test {
     ],
     shared_libs: [
         "libbinder_ndk",
-        "libstatssocket",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
@@ -328,11 +326,9 @@ cc_test {
         "libgmock",
         "libnetdutils",
         "libssl",
-        "stats_proto",
     ],
     shared_libs: [
         "libnetd_client",
-        "libstatssocket",
     ],
 }
 
@@ -352,7 +348,6 @@ cc_defaults {
     ],
     shared_libs: [
         "libbinder_ndk",
-        "libstatssocket",
     ],
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
