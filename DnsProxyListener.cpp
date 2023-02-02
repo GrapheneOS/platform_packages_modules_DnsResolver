@@ -59,6 +59,7 @@
 #include "resolv_private.h"
 #include "stats.h"  // RCODE_TIMEOUT
 #include "stats.pb.h"
+#include "util.h"
 
 using aidl::android::net::metrics::INetdEventListener;
 using aidl::android::net::resolv::aidl::DnsHealthEventParcel;
@@ -678,6 +679,9 @@ DnsProxyListener::GetAddrInfoHandler::GetAddrInfoHandler(SocketClient* c, std::s
       mHints(std::move(hints)),
       mNetContext(netcontext) {}
 
+// Before U, the Netd callback is implemented by OEM to evaluate if a DNS query for the provided
+// hostname is allowed. On U+, the Netd callback also checks if the user is allowed to send DNS on
+// the specified network.
 static bool evaluate_domain_name(const android_net_context& netcontext, const char* host) {
     if (!gResNetdCallbacks.evaluate_domain_name) return true;
     return gResNetdCallbacks.evaluate_domain_name(netcontext, host);
@@ -1404,8 +1408,18 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     if (queryLimiter.start(uid)) {
-        rv = resolv_gethostbyaddr(&mAddress, mAddressLen, mAddressFamily, &hbuf, tmpbuf,
-                                  sizeof tmpbuf, &mNetContext, &hp, &event);
+        // From Android U, evaluate_domain_name() is not only for OEM customization, but also tells
+        // DNS resolver whether the UID can send DNS on the specified network. The function needs
+        // to be called even when there is no domain name to evaluate (GetHostByAddr). This is
+        // applied on U+ only so that the behavior won’t change on T- OEM devices.
+        // TODO: pass the actual name into evaluate_domain_name, e.g., 238.26.217.172.in-addr.arpa
+        //       when the lookup address is 172.217.26.238.
+        if (isAtLeastU() && !evaluate_domain_name(mNetContext, nullptr)) {
+            rv = EAI_SYSTEM;
+        } else {
+            rv = resolv_gethostbyaddr(&mAddress, mAddressLen, mAddressFamily, &hbuf, tmpbuf,
+                                      sizeof tmpbuf, &mNetContext, &hp, &event);
+        }
         queryLimiter.finish(uid);
     } else {
         rv = EAI_MEMORY;
