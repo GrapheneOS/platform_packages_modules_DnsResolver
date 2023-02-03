@@ -16,9 +16,6 @@
 //! Module providing an async abstraction around a quiche HTTP/3 connection
 
 use crate::boot_time::BootTime;
-use crate::connection::driver::Cause;
-use crate::connection::driver::HandshakeInfo;
-use crate::network::ServerInfo;
 use crate::network::SocketTagger;
 use log::{debug, error, warn};
 use quiche::h3;
@@ -30,7 +27,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task;
 
-pub mod driver;
+mod driver;
 
 pub use driver::Stream;
 use driver::{drive, Request};
@@ -132,40 +129,29 @@ impl Connection {
     const MAX_PENDING_REQUESTS: usize = 10;
     /// Create a new connection with a background task handling IO.
     pub async fn new(
-        info: &ServerInfo,
+        server_name: Option<&str>,
+        to: SocketAddr,
+        socket_mark: u32,
+        net_id: u32,
         tag_socket: &SocketTagger,
         config: &mut quiche::Config,
         session: Option<Vec<u8>>,
-        cause: Cause,
     ) -> Result<Self> {
-        let server_name = info.domain.as_deref();
-        let to = info.peer_addr;
-        let socket_mark = info.sk_mark;
-        let net_id = info.net_id;
         let (request_tx, request_rx) = mpsc::channel(Self::MAX_PENDING_REQUESTS);
         let (status_tx, status_rx) = watch::channel(Status::QUIC);
         let scid = new_scid();
         let mut quiche_conn =
             quiche::connect(server_name, &quiche::ConnectionId::from_ref(&scid), to, config)?;
+
         // We will fall back to a full handshake if the session is expired.
         if let Some(session) = session {
             debug!("Setting session");
             quiche_conn.set_session(&session)?;
         }
-        let handshake_info = HandshakeInfo {
-            cause,
-            sent_bytes: 0,
-            recv_bytes: 0,
-            elapsed: 0,
-            quic_version: 0,
-            network_type: info.network_type,
-            private_dns_mode: info.private_dns_mode,
-            session_hit_checker: quiche_conn.session().is_some(),
-        };
+
         let socket = build_socket(to, socket_mark, tag_socket).await?;
         let driver = async move {
-            let result =
-                drive(request_rx, status_tx, quiche_conn, socket, net_id, handshake_info).await;
+            let result = drive(request_rx, status_tx, quiche_conn, socket, net_id).await;
             if let Err(ref e) = result {
                 warn!("Connection driver returns some Err: {:?}", e);
             }
