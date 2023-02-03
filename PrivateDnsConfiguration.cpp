@@ -568,9 +568,6 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         return 0;
     }
 
-    const NetworkType networkType = resolv_get_network_types_for_net(netId);
-    const PrivateDnsStatus status = getStatusLocked(netId);
-
     const auto getTimeoutFromFlag = [&](const std::string_view key, int defaultValue) -> uint64_t {
         static constexpr int kMinTimeoutMs = 1000;
         uint64_t timeout = Experiments::getInstance()->getFlag(key, defaultValue);
@@ -631,10 +628,8 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
                    << ", use_session_resumption=" << flags.use_session_resumption
                    << ", enable_early_data=" << flags.enable_early_data;
 
-        const PrivateDnsModes privateDnsMode = convertEnumType(status.mode);
         return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
-                           dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags, networkType,
-                           privateDnsMode);
+                           dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags);
     }
 
     LOG(INFO) << __func__ << ": No suitable DoH server found";
