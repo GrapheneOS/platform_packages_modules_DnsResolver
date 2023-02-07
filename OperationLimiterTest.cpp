@@ -74,5 +74,37 @@ TEST_F(OperationLimiterTest, destroyWithActiveOperations) {
             "" /* "active operations */);
 }
 
+TEST_F(OperationLimiterTest, globalLimits) {
+    OperationLimiter<int> limiter(1);
+
+    EXPECT_TRUE(limiter.start(42, 2));
+
+    // Calling with a different key is okay.
+    EXPECT_TRUE(limiter.start(43, 2));
+
+    // Global limit reached... calling with a different key should have no effect.
+    EXPECT_FALSE(limiter.start(44, 2));
+
+    // Global limit extended... calling with a different key is available again.
+    EXPECT_TRUE(limiter.start(44, 4));
+
+    // Per-key limit reached.
+    EXPECT_FALSE(limiter.start(44, 4));
+
+    // Global limit is still available.
+    EXPECT_TRUE(limiter.start(45, 4));
+
+    // Global limit reached again.
+    EXPECT_FALSE(limiter.start(46, 4));
+
+    // Shrink global limit.
+    EXPECT_FALSE(limiter.start(46, 3));
+
+    // Finish all pending operations
+    for (const auto& key : {42, 43, 44, 45}) {
+        limiter.finish(key);
+    }
+}
+
 }  // namespace netdutils
 }  // namespace android
