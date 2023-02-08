@@ -19,6 +19,7 @@
 use crate::boot_time::{timeout, BootTime, Duration};
 use crate::dispatcher::{Command, Dispatcher, Response, ServerInfo};
 use crate::network::{SocketTagger, ValidationReporter};
+use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use futures::FutureExt;
 use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};
 use log::{error, warn};
@@ -270,7 +271,7 @@ pub unsafe extern "C" fn doh_query(
     if let Some(expired_time) = BootTime::now().checked_add(t) {
         let cmd = Command::Query {
             net_id,
-            base64_query: base64::encode_config(q, base64::URL_SAFE_NO_PAD),
+            base64_query: BASE64_URL_SAFE_NO_PAD.encode(q),
             expired_time,
             resp: resp_tx,
         };
