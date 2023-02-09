@@ -65,6 +65,7 @@ class DohFrontend {
 
     void clearQueries();
     bool block_sending(bool block);
+    bool setResetStreamId(uint64_t value);
     bool waitForAllClientsDisconnected() const;
 
     // To make the configuration effective, callers need to restart the DoH server after calling

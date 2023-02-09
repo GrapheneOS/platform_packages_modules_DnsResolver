@@ -1164,3 +1164,33 @@ TEST_F(PrivateDnsDohTest, RemoteConnectionClosed) {
     EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
     EXPECT_EQ(doh.connections(), 1);
 }
+
+// Tests that a DNS query can quickly fall back from DoH to other dns protocols if server responds
+// the DNS query with RESET_STREAM, and that it doesn't influence subsequent DoH queries.
+TEST_F(PrivateDnsDohTest, ReceiveResetStream) {
+    const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(dot.waitForQueries(1));
+    dot.clearQueries();
+    doh.clearQueries();
+    dns.clearQueries();
+
+    // The stream 0 has been used for DoH probe. The stream for the next DoH query will be 4.
+    EXPECT_TRUE(doh.setResetStreamId(4));
+
+    // Send a DNS request. The DoH query will be sent on stream 4 and fail.
+    Stopwatch s;
+    int fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_aaaa,
+                             ANDROID_RESOLV_NO_CACHE_LOOKUP);
+    expectAnswersValid(fd, AF_INET6, kQueryAnswerAAAA);
+    EXPECT_LT(s.timeTakenUs() / 1000, 500);
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 1 /* dot */, 1 /* doh */));
+
+    // Send another DNS request. The DoH query will be sent on stream 8 and succeed.
+    fd = resNetworkQuery(TEST_NETID, kQueryHostname, ns_c_in, ns_t_aaaa,
+                         ANDROID_RESOLV_NO_CACHE_LOOKUP);
+    expectAnswersValid(fd, AF_INET6, kQueryAnswerAAAA);
+    EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 1 /* dot */, 2 /* doh */));
+}
