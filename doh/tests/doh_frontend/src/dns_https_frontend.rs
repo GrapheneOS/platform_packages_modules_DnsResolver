@@ -187,6 +187,11 @@ impl DohFrontend {
         Ok(())
     }
 
+    pub fn set_reset_stream_id(&self, value: u64) -> Result<()> {
+        self.config.lock().unwrap().reset_stream_id = Some(value);
+        Ok(())
+    }
+
     pub fn request_stats(&mut self) -> Result<Stats> {
         ensure!(
             self.command_tx.is_some(),
@@ -360,7 +365,8 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 let query_id = [backend_buf[0], backend_buf[1]];
                 for (_, client) in clients.iter_mut() {
                     if client.is_waiting_for_query(&query_id) {
-                        if let Err(e) = client.handle_backend_message(&backend_buf[..len]) {
+                        let reset_stream_id = config.lock().unwrap().reset_stream_id;
+                        if let Err(e) = client.handle_backend_message(&backend_buf[..len], reset_stream_id) {
                             error!("Failed to handle message from backend: {}", e);
                         }
                         let connection_id = client.connection_id().clone();

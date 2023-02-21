@@ -38,6 +38,7 @@ pub struct Config {
     pub max_idle_timeout: u64,
     pub max_buffer_size: u64,
     pub max_streams_bidi: u64,
+    pub reset_stream_id: Option<u64>,
 }
 
 impl Config {
