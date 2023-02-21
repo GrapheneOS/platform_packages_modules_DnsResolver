@@ -103,6 +103,11 @@ bool frontend_set_max_streams_bidi(DohFrontend* doh, uint64_t value);
 /// Sets the `DohFrontend` to block or unblock sending any data.
 bool frontend_block_sending(DohFrontend* doh, bool block);
 
+/// If this function is called, the `DohFrontend` will send RESET_STREAM frame as a response
+/// instead of a DoH answer on the stream |stream_id|. This will make the client fail to receive
+/// this DoH answer.
+bool frontend_set_reset_stream_id(DohFrontend* doh, uint64_t stream_id);
+
 /// Gets the statistics of the `DohFrontend` and writes the result to |out|.
 bool frontend_stats(DohFrontend* doh, Stats* out);
 
