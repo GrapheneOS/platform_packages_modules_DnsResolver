@@ -17,6 +17,7 @@
 //! Client management, including the communication with quiche I/O.
 
 use anyhow::{anyhow, bail, ensure, Result};
+use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use log::{debug, error, info, warn};
 use quiche::h3::NameValue;
 use std::collections::{hash_map, HashMap};
@@ -99,7 +100,7 @@ impl Client {
                         e.name() == b":path" && e.value().starts_with(URL_PATH_PREFIX.as_bytes())
                     }) {
                         let b64url_query = &target.value()[URL_PATH_PREFIX.len()..];
-                        let decoded = base64::decode_config(b64url_query, base64::URL_SAFE_NO_PAD)?;
+                        let decoded = BASE64_URL_SAFE_NO_PAD.decode(b64url_query)?;
                         self.in_flight_queries.insert([decoded[0], decoded[1]], stream_id);
                         ret = decoded;
                     }
