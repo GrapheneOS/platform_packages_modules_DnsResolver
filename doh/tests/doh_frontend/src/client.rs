@@ -152,8 +152,9 @@ impl Client {
 
         if let Some(send_reset_stream) = send_reset_stream {
             if send_reset_stream == stream_id {
+                // Terminate the stream with an error code 99.
                 self.conn.stream_shutdown(stream_id, quiche::Shutdown::Write, 99)?;
-                info!("Preparing RESET_FRAME on stream {}", stream_id);
+                info!("Preparing RESET_STREAM on stream {}", stream_id);
                 return Ok(());
             }
         }
