@@ -158,6 +158,14 @@ bool DohFrontend::block_sending(bool block) {
     return true;
 }
 
+bool DohFrontend::setResetStreamId(uint64_t value) {
+    std::lock_guard guard(mMutex);
+    if (!mRustDoh) return false;
+
+    frontend_set_reset_stream_id(mRustDoh, value);
+    return true;
+}
+
 bool DohFrontend::waitForAllClientsDisconnected() const {
     android::base::Timer t;
     while (t.duration() < kEventTimeoutMs) {

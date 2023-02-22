@@ -445,7 +445,7 @@ impl H3Driver {
                 self.respond(stream_id)
             }
             h3::Event::Reset(e) => {
-                debug!(
+                warn!(
                     "process_h3_event: h3::Event::Reset with error code {} on stream ID {}, network {}",
                     e, stream_id, self.driver.net_id
                 );
