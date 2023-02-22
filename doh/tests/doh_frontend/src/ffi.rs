@@ -153,6 +153,14 @@ pub extern "C" fn frontend_block_sending(doh: &mut DohFrontend, block: bool) -> 
     doh.block_sending(block).or_else(logging_and_return_err).is_ok()
 }
 
+/// If this function is called, the `DohFrontend` will send RESET_STREAM frame as a response
+/// instead of a DoH answer on the stream |stream_id|. This will make the client fail to receive
+/// this DoH answer.
+#[no_mangle]
+pub extern "C" fn frontend_set_reset_stream_id(doh: &mut DohFrontend, stream_id: u64) -> bool {
+    doh.set_reset_stream_id(stream_id).or_else(logging_and_return_err).is_ok()
+}
+
 /// Gets the statistics of the `DohFrontend` and writes the result to |out|.
 #[no_mangle]
 pub extern "C" fn frontend_stats(doh: &mut DohFrontend, out: &mut Stats) -> bool {
