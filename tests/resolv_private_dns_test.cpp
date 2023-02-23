@@ -1177,7 +1177,9 @@ TEST_F(PrivateDnsDohTest, ReceiveResetStream) {
     doh.clearQueries();
     dns.clearQueries();
 
-    // The stream 0 has been used for DoH probe. The stream for the next DoH query will be 4.
+    // DnsResolver uses bidirectional streams for DoH queries (See
+    // RFC9000#name-stream-types-and-identifier), and stream 0 has been used for DoH probe, so
+    // the next stream for the next DoH query will be 4.
     EXPECT_TRUE(doh.setResetStreamId(4));
 
     // Send a DNS request. The DoH query will be sent on stream 4 and fail.
