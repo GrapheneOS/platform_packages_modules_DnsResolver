@@ -6097,6 +6097,12 @@ TEST_P(ResolverParameterizedTest, TruncatedResponse) {
     EXPECT_EQ(1U, GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom));
 }
 
+// Tests that the DnsResolver can keep listening to the DNS response from previous DNS servers.
+// Test scenarios (The timeout for each server is 1 second):
+//   1. (During the first iteration of DNS servers) While waiting for the DNS response from the
+//      second server, the DnsResolver receives the DNS response from the first server.
+//   2. (During the second iteration of DNS servers) While waiting for the DNS response from the
+//      second server, the DnsResolver receives the DNS response from the first server.
 TEST_F(ResolverTest, KeepListeningUDP) {
     constexpr char listen_addr1[] = "127.0.0.4";
     constexpr char listen_addr2[] = "127.0.0.5";
@@ -6104,43 +6110,51 @@ TEST_F(ResolverTest, KeepListeningUDP) {
     const std::vector<DnsRecord> records = {
             {host_name, ns_type::ns_t_aaaa, "::1.2.3.4"},
     };
-    const std::array<int, IDnsResolver::RESOLVER_PARAMS_COUNT> params = {
-            300, 25, 8, 8, 1000 /* BASE_TIMEOUT_MSEC */, 1 /* retry count */};
-    const int delayTimeMs = 1500;
+    auto builder =
+            ResolverParams::Builder().setDnsServers({listen_addr1, listen_addr2}).setDotServers({});
 
     test::DNSResponder neverRespondDns(listen_addr2, "53", static_cast<ns_rcode>(-1));
     neverRespondDns.setResponseProbability(0.0);
     StartDns(neverRespondDns, records);
-    ScopedSystemProperties scopedSystemProperties(
-            "persist.device_config.netd_native.keep_listening_udp", "1");
-    // Re-setup test network to make experiment flag take effect.
-    resetNetwork();
-
-    ASSERT_TRUE(
-            mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
-                                                      .setDnsServers({listen_addr1, listen_addr2})
-                                                      .setDotServers({})
-                                                      .setParams(params)
-                                                      .build()));
-    // There are 2 DNS servers for this test.
-    // |delayedDns| will be blocked for |delayTimeMs|, then start to respond to requests.
-    // |neverRespondDns| will never respond.
-    // In the first try, resolver will send query to |delayedDns| but get timeout error
-    // because |delayTimeMs| > DNS timeout.
-    // Then it's the second try, resolver will send query to |neverRespondDns| and
-    // listen on both servers. Resolver will receive the answer coming from |delayedDns|.
-
     test::DNSResponder delayedDns(listen_addr1);
-    delayedDns.setResponseDelayMs(delayTimeMs);
     StartDns(delayedDns, records);
 
-    // Specify hints to ensure resolver doing query only 1 round.
-    const addrinfo hints = {.ai_family = AF_INET6, .ai_socktype = SOCK_DGRAM};
-    ScopedAddrinfo result = safe_getaddrinfo(host_name, nullptr, &hints);
-    EXPECT_TRUE(result != nullptr);
+    const struct TestConfig {
+        int retryCount;
+        int delayTimeMs;
+    } testConfigs[]{
+            {1, 1500},
+            {2, 3500},
+    };
+    for (const std::string_view callType : {"getaddrinfo", "resnsend"}) {
+        for (const auto& cfg : testConfigs) {
+            SCOPED_TRACE(fmt::format("callType={}, retryCount={}, delayTimeMs={}", callType,
+                                     cfg.retryCount, cfg.delayTimeMs));
+            const std::array<int, IDnsResolver::RESOLVER_PARAMS_COUNT> params = {
+                    300, 25, 8, 8, 1000 /* BASE_TIMEOUT_MSEC */, cfg.retryCount /* retry count */};
 
-    std::string result_str = ToString(result);
-    EXPECT_TRUE(result_str == "::1.2.3.4") << ", result_str='" << result_str << "'";
+            ScopedSystemProperties sp(kKeepListeningUdpFlag, "1");
+            resetNetwork();
+            ASSERT_TRUE(mDnsClient.SetResolversFromParcel(builder.setParams(params).build()));
+
+            delayedDns.setDeferredResp(true);
+            std::thread thread([&]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(cfg.delayTimeMs));
+                delayedDns.setDeferredResp(false);
+            });
+
+            if (callType == "getaddrinfo") {
+                const addrinfo hints = {.ai_family = AF_INET6, .ai_socktype = SOCK_DGRAM};
+                ScopedAddrinfo result = safe_getaddrinfo(host_name, nullptr, &hints);
+                EXPECT_EQ("::1.2.3.4", ToString(result));
+            } else {
+                int fd = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_aaaa, 0);
+                expectAnswersValid(fd, AF_INET6, "::1.2.3.4");
+            }
+            // TODO(b/271405311): check that the DNS stats from getResolverInfo() is correct.
+            thread.join();
+        }
+    }
 }
 
 TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
@@ -6156,8 +6170,7 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
     test::DNSResponder neverRespondDns(kDefaultServer, "53", static_cast<ns_rcode>(-1));
     neverRespondDns.setResponseProbability(0.0);
     StartDns(neverRespondDns, records);
-    ScopedSystemProperties scopedSystemProperties(
-            "persist.device_config.netd_native.parallel_lookup_release", "1");
+    ScopedSystemProperties sp(kParallelLookupReleaseFlag, "1");
     // The default value of parallel_lookup_sleep_time should be very small
     // that we can ignore in this test case.
     // Re-setup test network to make experiment flag take effect.
@@ -6191,12 +6204,10 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
             300, 25, 8, 8, 1000 /* BASE_TIMEOUT_MSEC */, 1 /* retry count */};
     test::DNSResponder dns(kDefaultServer);
     StartDns(dns, records);
-    ScopedSystemProperties scopedSystemProperties1(
-            "persist.device_config.netd_native.parallel_lookup_release", "1");
+    ScopedSystemProperties sp1(kParallelLookupReleaseFlag, "1");
     constexpr int PARALLEL_LOOKUP_SLEEP_TIME_MS = 500;
-    ScopedSystemProperties scopedSystemProperties2(
-            "persist.device_config.netd_native.parallel_lookup_sleep_time",
-            std::to_string(PARALLEL_LOOKUP_SLEEP_TIME_MS));
+    ScopedSystemProperties sp2(kParallelLookupSleepTimeFlag,
+                               std::to_string(PARALLEL_LOOKUP_SLEEP_TIME_MS));
     // Re-setup test network to make experiment flag take effect.
     resetNetwork();
 
@@ -6413,8 +6424,7 @@ TEST_F(ResolverTest, MdnsGetHostByName) {
     for (int value : keep_listening_udp_enable) {
         if (value == true) {
             // Set keep_listening_udp enable
-            ScopedSystemProperties scopedSystemProperties(
-                    "persist.device_config.netd_native.keep_listening_udp", "1");
+            ScopedSystemProperties sp(kKeepListeningUdpFlag, "1");
             // Re-setup test network to make experiment flag take effect.
             resetNetwork();
         }
@@ -6663,8 +6673,7 @@ TEST_F(ResolverTest, MdnsGetAddrInfo) {
     for (int value : keep_listening_udp_enable) {
         if (value == true) {
             // Set keep_listening_udp enable
-            ScopedSystemProperties scopedSystemProperties(
-                    "persist.device_config.netd_native.keep_listening_udp", "1");
+            ScopedSystemProperties sp(kKeepListeningUdpFlag, "1");
             // Re-setup test network to make experiment flag take effect.
             resetNetwork();
         }
