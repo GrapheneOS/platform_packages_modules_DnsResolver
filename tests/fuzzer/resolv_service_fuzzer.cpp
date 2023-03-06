@@ -21,8 +21,16 @@
 
 #include "DnsResolverService.h"
 
+#include "resolv_fuzzer_utils.h"
+
 using android::fuzzService;
 using android::net::DnsResolverService;
+using android::net::InitDnsResolverCallbacks;
+
+extern "C" int LLVMFuzzerInitialize(int /**argc*/, char /****argv*/) {
+    InitDnsResolverCallbacks();
+    return 0;
+}
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     auto resolverService = ::ndk::SharedRefBase::make<DnsResolverService>();
