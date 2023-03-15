@@ -580,11 +580,8 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
             if (!usable_servers[ns]) continue;
 
             *rcode = RCODE_INTERNAL_ERROR;
-
-            // Get server addr
-            const IPSockAddr& serverSockAddr = statp->nsaddrs[ns];
             LOG(DEBUG) << __func__ << ": Querying server (# " << ns + 1
-                       << ") address = " << serverSockAddr.toString();
+                       << ") address = " << statp->nsaddrs[ns].toString();
 
             ::android::net::Protocol query_proto = useTcp ? PROTO_TCP : PROTO_UDP;
             time_t query_time = 0;
@@ -650,8 +647,9 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
                     // KeepListening UDP mechanism is incompatible with usable_servers of legacy
                     // stats, so keep the old logic for now.
                     // TODO: Replace usable_servers of legacy stats with new one.
-                    resolv_cache_add_resolver_stats_sample(
-                            statp->netid, revision_id, serverSockAddr, sample, params.max_samples);
+                    resolv_cache_add_resolver_stats_sample(statp->netid, revision_id,
+                                                           receivedServerAddr, sample,
+                                                           params.max_samples);
                     resolv_stats_add(statp->netid, receivedServerAddr, dnsQueryEvent);
                 }
             }

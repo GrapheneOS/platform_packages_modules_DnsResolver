@@ -6122,9 +6122,15 @@ TEST_F(ResolverTest, KeepListeningUDP) {
     const struct TestConfig {
         int retryCount;
         int delayTimeMs;
+        int expectedDns1Successes;
+        int expectedDns1Timeouts;
+        int expectedDns2Timeouts;
     } testConfigs[]{
-            {1, 1500},
-            {2, 3500},
+            {1, 1500, 1, 1, 0},
+            // Actually, there will be two timeouts and one success for DNS1. However, the
+            // DnsResolver doesn't record the stats during the second iteration of DNS servers, so
+            // the success and timeout of DNS1 is 0 and 1, respectively.
+            {2, 3500, 0, 1, 1},
     };
     for (const std::string_view callType : {"getaddrinfo", "resnsend"}) {
         for (const auto& cfg : testConfigs) {
@@ -6151,7 +6157,13 @@ TEST_F(ResolverTest, KeepListeningUDP) {
                 int fd = resNetworkQuery(TEST_NETID, host_name, ns_c_in, ns_t_aaaa, 0);
                 expectAnswersValid(fd, AF_INET6, "::1.2.3.4");
             }
-            // TODO(b/271405311): check that the DNS stats from getResolverInfo() is correct.
+            const std::vector<NameserverStats> expectedCleartextDnsStats = {
+                    NameserverStats(listen_addr1)
+                            .setSuccesses(cfg.expectedDns1Successes)
+                            .setTimeouts(cfg.expectedDns1Timeouts),
+                    NameserverStats(listen_addr2).setTimeouts(cfg.expectedDns2Timeouts),
+            };
+            EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
             thread.join();
         }
     }
