@@ -156,10 +156,10 @@ const std::vector<IPSockAddr> mdns_addrs = {IPSockAddr::toIPSockAddr("ff02::fb",
 
 static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd_out, int* terrno);
 static int send_dg(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
-                   int* terrno, size_t* ns, int* v_circuit, int* gotsomewhere, time_t* at,
-                   int* rcode, int* delay);
+                   int* terrno, size_t* ns, int* v_circuit, int* gotsomewhere, int* rcode,
+                   int* delay);
 static int send_vc(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
-                   int* terrno, size_t ns, time_t* at, int* rcode, int* delay);
+                   int* terrno, size_t ns, int* rcode, int* delay);
 static int send_mdns(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* terrno,
                      int* rcode);
 static void dump_error(const char*, const struct sockaddr*);
@@ -584,7 +584,7 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
                        << ") address = " << statp->nsaddrs[ns].toString();
 
             ::android::net::Protocol query_proto = useTcp ? PROTO_TCP : PROTO_UDP;
-            time_t query_time = 0;
+            const time_t query_time = time(nullptr);
             int delay = 0;
             bool fallbackTCP = false;
             const bool shouldRecordStats = (attempt == 0);
@@ -597,8 +597,7 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
             if (useTcp) {
                 // TCP; at most one attempt per server.
                 attempt = retryTimes;
-                resplen =
-                        send_vc(statp, &params, msg, ans, &terrno, ns, &query_time, rcode, &delay);
+                resplen = send_vc(statp, &params, msg, ans, &terrno, ns, rcode, &delay);
 
                 if (msg.size() <= PACKETSZ && resplen <= 0 &&
                     statp->tc_mode == aidl::android::net::IDnsResolver::TC_MODE_UDP_TCP) {
@@ -610,7 +609,7 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
             } else {
                 // UDP
                 resplen = send_dg(statp, &params, msg, ans, &terrno, &actualNs, &useTcp,
-                                  &gotsomewhere, &query_time, rcode, &delay);
+                                  &gotsomewhere, rcode, &delay);
                 fallbackTCP = useTcp ? true : false;
                 retry_count_for_event = attempt;
                 LOG(INFO) << __func__ << ": used send_dg " << resplen << " terrno: " << terrno;
@@ -708,8 +707,7 @@ static struct timespec get_timeout(ResState* statp, const res_params* params, co
 }
 
 static int send_vc(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
-                   int* terrno, size_t ns, time_t* at, int* rcode, int* delay) {
-    *at = time(NULL);
+                   int* terrno, size_t ns, int* rcode, int* delay) {
     *delay = 0;
     const HEADER* hp = (const HEADER*)(const void*)msg.data();
     HEADER* anhp = (HEADER*)(void*)ans.data();
@@ -1090,8 +1088,8 @@ static int setupUdpSocket(ResState* statp, const sockaddr* sockap, unique_fd* fd
 }
 
 static int send_dg(ResState* statp, res_params* params, span<const uint8_t> msg, span<uint8_t> ans,
-                   int* terrno, size_t* ns, int* v_circuit, int* gotsomewhere, time_t* at,
-                   int* rcode, int* delay) {
+                   int* terrno, size_t* ns, int* v_circuit, int* gotsomewhere, int* rcode,
+                   int* delay) {
     // It should never happen, but just in case.
     if (*ns >= statp->nsaddrs.size()) {
         LOG(ERROR) << __func__ << ": Out-of-bound indexing: " << ns;
@@ -1099,7 +1097,6 @@ static int send_dg(ResState* statp, res_params* params, span<const uint8_t> msg,
         return -1;
     }
 
-    *at = time(nullptr);
     *delay = 0;
     const sockaddr_storage ss = statp->nsaddrs[*ns];
     const sockaddr* nsap = reinterpret_cast<const sockaddr*>(&ss);
