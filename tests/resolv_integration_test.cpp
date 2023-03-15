@@ -154,12 +154,17 @@ struct NameserverStats {
         internal_errors = val;
         return *this;
     }
+    NameserverStats& setRttAvg(int val) {
+        rtt_avg = val;
+        return *this;
+    }
 
     const std::string server;
     int successes = 0;
     int errors = 0;
     int timeouts = 0;
     int internal_errors = 0;
+    int rtt_avg = -1;
 };
 
 const bool isAtLeastR = (getApiLevel() >= 30);
@@ -349,7 +354,7 @@ class ResolverTest : public NetNativeTestBase {
             }
             const int index = std::distance(res_servers.begin(), it);
 
-            // The check excludes rtt_avg, last_sample_time, and usable since they will be obsolete
+            // The check excludes last_sample_time and usable since they will be obsolete
             // after |res_stats| is retrieved from NetConfig.dnsStats rather than NetConfig.nsstats.
             switch (cmp) {
                 case StatsCmp::EQ:
@@ -357,12 +362,21 @@ class ResolverTest : public NetNativeTestBase {
                     EXPECT_EQ(res_stats[index].errors, stats.errors);
                     EXPECT_EQ(res_stats[index].timeouts, stats.timeouts);
                     EXPECT_EQ(res_stats[index].internal_errors, stats.internal_errors);
+                    // A negative rtt_avg means that there is no effective rtt in the
+                    // stats. The value should be deterministic.
+                    // See android_net_res_stats_aggregate() for mor details.
+                    if (res_stats[index].rtt_avg < 0 || stats.rtt_avg < 0) {
+                        EXPECT_EQ(res_stats[index].rtt_avg, stats.rtt_avg);
+                    } else {
+                        EXPECT_NEAR(res_stats[index].rtt_avg, stats.rtt_avg, 200);
+                    }
                     break;
                 case StatsCmp::LE:
                     EXPECT_LE(res_stats[index].successes, stats.successes);
                     EXPECT_LE(res_stats[index].errors, stats.errors);
                     EXPECT_LE(res_stats[index].timeouts, stats.timeouts);
                     EXPECT_LE(res_stats[index].internal_errors, stats.internal_errors);
+                    EXPECT_LE(res_stats[index].rtt_avg, stats.rtt_avg);
                     break;
                 default:
                     ADD_FAILURE() << "Unknown comparator " << static_cast<int>(cmp);
@@ -1407,7 +1421,7 @@ TEST_F(ResolverTest, SkipBadServersDueToInternalError) {
         const std::vector<NameserverStats> targetStats = {
                 NameserverStats(listen_addr1).setInternalErrors(5),
                 NameserverStats(listen_addr2).setInternalErrors(5),
-                NameserverStats(listen_addr3).setSuccesses(setupParams.maxSamples),
+                NameserverStats(listen_addr3).setSuccesses(setupParams.maxSamples).setRttAvg(1),
         };
         EXPECT_TRUE(expectStatsNotGreaterThan(targetStats));
 
@@ -1461,7 +1475,7 @@ TEST_F(ResolverTest, SkipBadServersDueToTimeout) {
 
         const std::vector<NameserverStats> targetStats = {
                 NameserverStats(listen_addr1).setTimeouts(5),
-                NameserverStats(listen_addr2).setSuccesses(setupParams.maxSamples),
+                NameserverStats(listen_addr2).setSuccesses(setupParams.maxSamples).setRttAvg(1),
         };
         EXPECT_TRUE(expectStatsNotGreaterThan(targetStats));
 
@@ -1930,7 +1944,7 @@ TEST_F(ResolverTest, ResolverStats) {
     const std::vector<NameserverStats> expectedCleartextDnsStats = {
             NameserverStats(listen_addr1).setTimeouts(1),
             NameserverStats(listen_addr2).setErrors(1),
-            NameserverStats(listen_addr3).setSuccesses(1),
+            NameserverStats(listen_addr3).setSuccesses(1).setRttAvg(1),
     };
     EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
 }
@@ -1988,7 +2002,7 @@ TEST_F(ResolverTest, AlwaysUseLatestSetupParamsInLookups) {
     const std::vector<NameserverStats> expectedCleartextDnsStats = {
             NameserverStats(listen_addr1),
             NameserverStats(listen_addr2),
-            NameserverStats(listen_addr3).setSuccesses(1),
+            NameserverStats(listen_addr3).setSuccesses(1).setRttAvg(1),
     };
     EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
 }
@@ -5535,7 +5549,7 @@ TEST_F(ResolverTest, RepeatedSetup_ResolverStatusRemains) {
     // Check the stats as expected.
     const std::vector<NameserverStats> expectedCleartextDnsStats = {
             NameserverStats(unusable_listen_addr).setInternalErrors(1),
-            NameserverStats(listen_addr).setSuccesses(1),
+            NameserverStats(listen_addr).setSuccesses(1).setRttAvg(1),
     };
     EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
     EXPECT_EQ(GetNumQueries(dns, hostname), 1U);
@@ -6160,8 +6174,13 @@ TEST_F(ResolverTest, KeepListeningUDP) {
             const std::vector<NameserverStats> expectedCleartextDnsStats = {
                     NameserverStats(listen_addr1)
                             .setSuccesses(cfg.expectedDns1Successes)
-                            .setTimeouts(cfg.expectedDns1Timeouts),
-                    NameserverStats(listen_addr2).setTimeouts(cfg.expectedDns2Timeouts),
+                            .setTimeouts(cfg.expectedDns1Timeouts)
+                            // TODO(271406438): Fix the latency bug in the stats and correct the
+                            // value to be 1500.
+                            .setRttAvg(cfg.retryCount == 1 ? 500 : -1),
+                    NameserverStats(listen_addr2)
+                            .setTimeouts(cfg.expectedDns2Timeouts)
+                            .setRttAvg(-1),
             };
             EXPECT_TRUE(expectStatsEqualTo(expectedCleartextDnsStats));
             thread.join();
@@ -6278,7 +6297,9 @@ TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
     // If api level >= 30 (R+), expect all query packets to be blocked, hence we should not see any
     // of their stats show up. Otherwise, all queries should succeed.
     const std::vector<NameserverStats> expectedDnsStats = {
-            NameserverStats(listen_addr1).setSuccesses(isAtLeastR ? 0 : setupParams.maxSamples),
+            NameserverStats(listen_addr1)
+                    .setSuccesses(isAtLeastR ? 0 : setupParams.maxSamples)
+                    .setRttAvg(isAtLeastR ? -1 : 1),
             NameserverStats(listen_addr2),
     };
     expectStatsEqualTo(expectedDnsStats);
