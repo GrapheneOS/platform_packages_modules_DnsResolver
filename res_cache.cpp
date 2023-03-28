@@ -1290,7 +1290,7 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, span<const uint8_t> query,
         // wait until (1) timeout OR
         //            (2) cv is notified AND no pending request matching the |key|
         // (cv notifier should delete pending request before sending notification.)
-        bool ret = cv.wait_for(lock, std::chrono::seconds(PENDING_REQUEST_TIMEOUT),
+        const bool ret = cv.wait_for(lock, std::chrono::seconds(PENDING_REQUEST_TIMEOUT),
                                 [netid, &cache, &key]() REQUIRES(cache_mutex) {
                                     // Must update cache as it could have been deleted
                                     cache = find_named_cache_locked(netid);
