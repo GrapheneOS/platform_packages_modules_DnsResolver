@@ -1284,32 +1284,31 @@ ResolvCacheStatus resolv_cache_lookup(unsigned netid, span<const uint8_t> query,
 
         if (!cache_has_pending_request_locked(cache, &key, true)) {
             return RESOLV_CACHE_NOTFOUND;
+        }
 
-        } else {
-            LOG(INFO) << __func__ << ": Waiting for previous request";
-            // wait until (1) timeout OR
-            //            (2) cv is notified AND no pending request matching the |key|
-            // (cv notifier should delete pending request before sending notification.)
-            bool ret = cv.wait_for(lock, std::chrono::seconds(PENDING_REQUEST_TIMEOUT),
-                                   [netid, &cache, &key]() REQUIRES(cache_mutex) {
-                                       // Must update cache as it could have been deleted
-                                       cache = find_named_cache_locked(netid);
-                                       return !cache_has_pending_request_locked(cache, &key, false);
-                                   });
-            if (!cache) {
-                return RESOLV_CACHE_NOTFOUND;
+        LOG(INFO) << __func__ << ": Waiting for previous request";
+        // wait until (1) timeout OR
+        //            (2) cv is notified AND no pending request matching the |key|
+        // (cv notifier should delete pending request before sending notification.)
+        bool ret = cv.wait_for(lock, std::chrono::seconds(PENDING_REQUEST_TIMEOUT),
+                                [netid, &cache, &key]() REQUIRES(cache_mutex) {
+                                    // Must update cache as it could have been deleted
+                                    cache = find_named_cache_locked(netid);
+                                    return !cache_has_pending_request_locked(cache, &key, false);
+                                });
+        if (!cache) {
+            return RESOLV_CACHE_NOTFOUND;
+        }
+        if (ret == false) {
+            NetConfig* info = find_netconfig_locked(netid);
+            if (info != NULL) {
+                info->wait_for_pending_req_timeout_count++;
             }
-            if (ret == false) {
-                NetConfig* info = find_netconfig_locked(netid);
-                if (info != NULL) {
-                    info->wait_for_pending_req_timeout_count++;
-                }
-            }
-            lookup = _cache_lookup_p(cache, &key);
-            e = *lookup;
-            if (e == NULL) {
-                return RESOLV_CACHE_NOTFOUND;
-            }
+        }
+        lookup = _cache_lookup_p(cache, &key);
+        e = *lookup;
+        if (e == NULL) {
+            return RESOLV_CACHE_NOTFOUND;
         }
     }
 
