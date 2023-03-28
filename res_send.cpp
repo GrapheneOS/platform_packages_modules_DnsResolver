@@ -1305,7 +1305,6 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
     PrivateDnsStatus privateDnsStatus = privateDnsConfiguration.getStatus(netId);
     statp->event->set_private_dns_modes(convertEnumType(privateDnsStatus.mode));
 
-    const bool enableDoH = isDoHEnabled();
     ssize_t result = -1;
     switch (privateDnsStatus.mode) {
         case PrivateDnsMode::OFF: {
@@ -1314,7 +1313,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
         }
         case PrivateDnsMode::OPPORTUNISTIC: {
             *fallback = true;
-            if (enableDoH && privateDnsStatus.hasValidatedDohServers()) {
+            if (privateDnsStatus.hasValidatedDohServers()) {
                 result = res_doh_send(statp, query, answer, rcode);
                 if (result != DOH_RESULT_CAN_NOT_SEND) return result;
             }
@@ -1323,7 +1322,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
         }
         case PrivateDnsMode::STRICT: {
             *fallback = false;
-            if (enableDoH && privateDnsStatus.hasValidatedDohServers()) {
+            if (privateDnsStatus.hasValidatedDohServers()) {
                 result = res_doh_send(statp, query, answer, rcode);
                 if (result != DOH_RESULT_CAN_NOT_SEND) return result;
             }
@@ -1349,7 +1348,7 @@ static int res_private_dns_send(ResState* statp, const Slice query, const Slice 
                     // ups.
                     privateDnsStatus = privateDnsConfiguration.getStatus(netId);
 
-                    if (enableDoH && privateDnsStatus.hasValidatedDohServers()) {
+                    if (privateDnsStatus.hasValidatedDohServers()) {
                         result = res_doh_send(statp, query, answer, rcode);
                         if (result != DOH_RESULT_CAN_NOT_SEND) return result;
                     }
