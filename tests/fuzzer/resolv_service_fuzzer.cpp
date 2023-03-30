@@ -25,10 +25,13 @@
 
 using android::fuzzService;
 using android::net::DnsResolverService;
+using android::net::gDnsResolv;
 using android::net::InitDnsResolverCallbacks;
 
 extern "C" int LLVMFuzzerInitialize(int /**argc*/, char /****argv*/) {
     InitDnsResolverCallbacks();
+    gDnsResolv = android::net::DnsResolver::getInstance();
+    gDnsResolv->start();
     return 0;
 }
 
