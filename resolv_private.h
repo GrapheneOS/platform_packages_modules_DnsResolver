@@ -107,8 +107,10 @@ struct ResState {
         copy.pid = pid;
         copy.search_domains = search_domains;
         copy.nsaddrs = nsaddrs;
+        copy.udpsocks_ts = udpsocks_ts;
         copy.ndots = ndots;
         copy.mark = mark;
+        copy.tcp_nssock_ts = tcp_nssock_ts;
         copy.flags = flags;
         copy.event = (dnsEvent == nullptr) ? event : dnsEvent;
         copy.netcontext_flags = netcontext_flags;
@@ -134,10 +136,12 @@ struct ResState {
     pid_t pid;                                  // pid of the app that sent the DNS lookup
     std::vector<std::string> search_domains{};  // domains to search
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
+    std::array<timespec, MAXNS> udpsocks_ts;    // The creation time of the UDP sockets
     android::base::unique_fd udpsocks[MAXNS];   // UDP sockets to nameservers
     unsigned ndots : 4 = 1;                     // threshold for initial abs. query
     unsigned mark;                              // Socket mark to be used by all DNS query sockets
     android::base::unique_fd tcp_nssock;        // TCP socket (but why not one per nameserver?)
+    timespec tcp_nssock_ts = {};                // The creation time of the TCP socket
     uint32_t flags = 0;                         // See RES_F_* defines below
     android::net::NetworkDnsEventReported* event;
     uint32_t netcontext_flags;
