@@ -6175,9 +6175,7 @@ TEST_F(ResolverTest, KeepListeningUDP) {
                     NameserverStats(listen_addr1)
                             .setSuccesses(cfg.expectedDns1Successes)
                             .setTimeouts(cfg.expectedDns1Timeouts)
-                            // TODO(271406438): Fix the latency bug in the stats and correct the
-                            // value to be 1500.
-                            .setRttAvg(cfg.retryCount == 1 ? 500 : -1),
+                            .setRttAvg(cfg.retryCount == 1 ? 1500 : -1),
                     NameserverStats(listen_addr2)
                             .setTimeouts(cfg.expectedDns2Timeouts)
                             .setRttAvg(-1),
