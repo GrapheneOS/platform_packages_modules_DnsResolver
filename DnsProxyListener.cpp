@@ -455,8 +455,11 @@ void logDnsQueryResult(const addrinfo* res) {
     LOG(DEBUG) << __func__ << ": DNS records:";
     for (ai = res, i = 0; ai; ai = ai->ai_next, i++) {
         if ((ai->ai_family != AF_INET) && (ai->ai_family != AF_INET6)) continue;
+        // Reassign it to a local variable to avoid -Wnullable-to-nonnull-conversion on calling
+        // getnameinfo.
+        const sockaddr* ai_addr = ai->ai_addr;
         char ip_addr[INET6_ADDRSTRLEN];
-        int ret = getnameinfo(ai->ai_addr, ai->ai_addrlen, ip_addr, sizeof(ip_addr), nullptr, 0,
+        int ret = getnameinfo(ai_addr, ai->ai_addrlen, ip_addr, sizeof(ip_addr), nullptr, 0,
                               NI_NUMERICHOST);
         if (!ret) {
             LOG(DEBUG) << __func__ << ": [" << i << "] " << ai->ai_flags << " " << ai->ai_family
@@ -573,7 +576,10 @@ bool synthesizeNat64PrefixWithARecord(const netdutils::IPPrefix& prefix, addrinf
         sa->ai_next = nullptr;
 
         if (cur4->ai_canonname != nullptr) {
-            sa->ai_canonname = strdup(cur4->ai_canonname);
+            // Reassign it to a local variable to avoid -Wnullable-to-nonnull-conversion on calling
+            // strdup.
+            const char* ai_canonname = cur4->ai_canonname;
+            sa->ai_canonname = strdup(ai_canonname);
             if (sa->ai_canonname == nullptr) {
                 LOG(ERROR) << "allocate memory failed for canonname";
                 freeaddrinfo(sa);
@@ -733,13 +739,15 @@ static bool sendhostent(SocketClient* c, hostent* hp) {
     bool success = true;
     int i;
     if (hp->h_name != nullptr) {
-        success &= sendLenAndData(c, strlen(hp->h_name) + 1, hp->h_name);
+        const char* h_name = hp->h_name;
+        success &= sendLenAndData(c, strlen(h_name) + 1, hp->h_name);
     } else {
         success &= sendLenAndData(c, 0, "") == 0;
     }
 
     for (i = 0; hp->h_aliases[i] != nullptr; i++) {
-        success &= sendLenAndData(c, strlen(hp->h_aliases[i]) + 1, hp->h_aliases[i]);
+        const char* h_aliases = hp->h_aliases[i];
+        success &= sendLenAndData(c, strlen(h_aliases) + 1, hp->h_aliases[i]);
     }
     success &= sendLenAndData(c, 0, "");  // null to indicate we're done
 
@@ -782,7 +790,12 @@ static bool sendaddrinfo(SocketClient* c, addrinfo* ai) {
     }
 
     // strlen(ai_canonname) and ai_canonname.
-    if (!sendLenAndData(c, ai->ai_canonname ? strlen(ai->ai_canonname) + 1 : 0, ai->ai_canonname)) {
+    int len = 0;
+    if (ai->ai_canonname != nullptr) {
+        const char* ai_canonname = ai->ai_canonname;
+        len = strlen(ai_canonname) + 1;
+    }
+    if (!sendLenAndData(c, len, ai->ai_canonname)) {
         return false;
     }
 
@@ -1401,14 +1414,17 @@ void DnsProxyListener::GetHostByAddrHandler::doDns64ReverseLookup(hostent* hbuf,
         resolv_gethostbyaddr(&v4addr, sizeof(v4addr), AF_INET, hbuf, buf, buflen, &mNetContext, hpp,
                              event);
         endQueryLimiter(uid);
-        if (*hpp) {
+        if (*hpp && (*hpp)->h_addr_list[0]) {
             // Replace IPv4 address with original queried IPv6 address in place. The space has
             // reserved by dns_gethtbyaddr() and netbsd_gethostent_r() in
             // system/netd/resolv/gethnamaddr.cpp.
             // Note that resolv_gethostbyaddr() returns only one entry in result.
-            memcpy((*hpp)->h_addr_list[0], &v6addr, sizeof(v6addr));
+            char* addr = (*hpp)->h_addr_list[0];
+            memcpy(addr, &v6addr, sizeof(v6addr));
             (*hpp)->h_addrtype = AF_INET6;
             (*hpp)->h_length = sizeof(struct in6_addr);
+        } else {
+            LOG(ERROR) << __func__ << ": hpp or (*hpp)->h_addr_list[0] is null";
         }
     } else {
         LOG(ERROR) << __func__ << ": from UID " << uid << ", max concurrent queries reached";

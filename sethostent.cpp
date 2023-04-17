@@ -113,17 +113,28 @@ int _hf_gethtbyname2(const char* name, int af, getnamaddr* info) {
             hent.h_addrtype = hp->h_addrtype;
             hent.h_length = hp->h_length;
 
-            HENT_SCOPY(hent.h_name, hp->h_name, ptr, len);
+            if (hp->h_name == nullptr) {
+                free(buf);
+                return EAI_FAIL;
+            }
+            const char* h_name = hp->h_name;
+            HENT_SCOPY(hent.h_name, h_name, ptr, len);
             for (anum = 0; hp->h_aliases[anum]; anum++) {
                 if (anum >= MAXALIASES) goto nospc;
-                HENT_SCOPY(aliases[anum], hp->h_aliases[anum], ptr, len);
+                const char* h_alias = hp->h_aliases[anum];
+                HENT_SCOPY(aliases[anum], h_alias, ptr, len);
             }
             ptr = align_ptr(ptr);
             if ((size_t)(ptr - buf) >= info->buflen) goto nospc;
         }
 
         if (num >= MAXADDRS) goto nospc;
-        HENT_COPY(addr_ptrs[num], hp->h_addr_list[0], hp->h_length, ptr, len);
+        if (hp->h_addr_list[0] == nullptr) {
+            free(buf);
+            return EAI_FAIL;
+        }
+        const char* addr = hp->h_addr_list[0];
+        HENT_COPY(addr_ptrs[num], addr, hp->h_length, ptr, len);
 
         num++;
     }
@@ -157,8 +168,15 @@ int _hf_gethtbyname2(const char* name, int af, getnamaddr* info) {
     }
     hp->h_addr_list[num] = NULL;
 
-    HENT_SCOPY(hp->h_name, hent.h_name, ptr, len);
-
+    if (hent.h_name == nullptr) {
+        free(buf);
+        return EAI_FAIL;
+    }
+    // Curly brackets are required to avoid the "bypasses variable initialization" compile error.
+    {
+        const char* h_name = hent.h_name;
+        HENT_SCOPY(hp->h_name, h_name, ptr, len);
+    }
     for (i = 0; i < anum; i++) {
         HENT_SCOPY(hp->h_aliases[i], aliases[i], ptr, len);
     }
@@ -188,8 +206,13 @@ int _hf_gethtbyaddr(const unsigned char* uaddr, int len, int af, getnamaddr* inf
     }
     struct hostent* hp;
     int he;
-    while ((hp = netbsd_gethostent_r(hf, info->hp, info->buf, info->buflen, &he)) != NULL)
-        if (!memcmp(hp->h_addr_list[0], uaddr, (size_t) hp->h_length)) break;
+    while ((hp = netbsd_gethostent_r(hf, info->hp, info->buf, info->buflen, &he)) != NULL) {
+        if (hp->h_addr_list[0] == nullptr) continue;
+        // Reassign it to a local variable to avoid -Wnullable-to-nonnull-conversion on calling
+        // memcmp.
+        const char* addr = hp->h_addr_list[0];
+        if (!memcmp(addr, uaddr, (size_t)hp->h_length)) break;
+    }
     endhostent_r(&hf);
 
     if (hp == NULL) {

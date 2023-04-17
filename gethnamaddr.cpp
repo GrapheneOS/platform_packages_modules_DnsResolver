@@ -109,9 +109,9 @@ static int dns_gethtbyname(ResState* res, const char* name, int af, getnamaddr* 
         if (eom - (ptr) < (count)) goto no_recovery; \
     } while (0)
 
-static struct hostent* getanswer(const querybuf* _Nonnull answer, int anslen,
-                                 const char* _Nonnull qname, int qtype, struct hostent* hent,
-                                 char* buf, size_t buflen, int* he) {
+static struct hostent* getanswer(const querybuf* _Nonnull answer, int anslen, const char* qname,
+                                 int qtype, struct hostent* hent, char* buf, size_t buflen,
+                                 int* he) {
     const HEADER* hp;
     const uint8_t* cp;
     int n;
