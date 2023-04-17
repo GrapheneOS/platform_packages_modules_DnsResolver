@@ -160,7 +160,7 @@ struct ResState {
  * Error code extending h_errno codes defined in bionic/libc/include/netdb.h.
  *
  * This error code, including legacy h_errno, is returned from res_nquery(), res_nsearch(),
- * res_nquerydomain(), res_queryN(), res_searchN() and res_querydomainN() for DNS metrics.
+ * res_nquerydomain(), res_queryN_parallel(), res_searchN() and res_querydomainN() for DNS metrics.
  *
  * TODO: Consider mapping legacy and extended h_errno into a unified resolver error code mapping.
  */
