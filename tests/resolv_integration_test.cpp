@@ -6199,11 +6199,6 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupTimeout) {
     test::DNSResponder neverRespondDns(kDefaultServer, "53", static_cast<ns_rcode>(-1));
     neverRespondDns.setResponseProbability(0.0);
     StartDns(neverRespondDns, records);
-    ScopedSystemProperties sp(kParallelLookupReleaseFlag, "1");
-    // The default value of parallel_lookup_sleep_time should be very small
-    // that we can ignore in this test case.
-    // Re-setup test network to make experiment flag take effect.
-    resetNetwork();
 
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(
             ResolverParams::Builder().setDotServers({}).setParams(params).build()));
@@ -6233,7 +6228,6 @@ TEST_F(ResolverTest, GetAddrInfoParallelLookupSleepTime) {
             300, 25, 8, 8, 1000 /* BASE_TIMEOUT_MSEC */, 1 /* retry count */};
     test::DNSResponder dns(kDefaultServer);
     StartDns(dns, records);
-    ScopedSystemProperties sp1(kParallelLookupReleaseFlag, "1");
     constexpr int PARALLEL_LOOKUP_SLEEP_TIME_MS = 500;
     ScopedSystemProperties sp2(kParallelLookupSleepTimeFlag,
                                std::to_string(PARALLEL_LOOKUP_SLEEP_TIME_MS));
