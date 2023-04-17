@@ -141,8 +141,8 @@ again:
         LOG(INFO) << __func__ << ": send error";
 
         // Note that rcodes SERVFAIL, NOTIMP, REFUSED may cause res_nquery() to return a general
-        // error code EAI_AGAIN, but mapping the error code from rcode as res_queryN() does for
-        // getaddrinfo(). Different rcodes trigger different behaviors:
+        // error code EAI_AGAIN, but mapping the error code from rcode as res_queryN_parallel()
+        // does for getaddrinfo(). Different rcodes trigger different behaviors:
         //
         // - SERVFAIL, NOTIMP, REFUSED
         //   These result in send_dg() returning 0, causing res_nsend() to try the next
