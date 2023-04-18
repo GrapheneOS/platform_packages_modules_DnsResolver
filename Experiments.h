@@ -66,7 +66,6 @@ class Experiments {
             "max_cache_entries",
             "max_queries_global",
             "mdns_resolution",
-            "parallel_lookup_release",
             "parallel_lookup_sleep_time",
             "retransmission_time_interval",
             "retry_count",

@@ -156,7 +156,6 @@ const std::string kDotValidationLatencyFactorFlag(kFlagPrefix + "dot_validation_
 const std::string kDotValidationLatencyOffsetMsFlag(kFlagPrefix +
                                                     "dot_validation_latency_offset_ms");
 const std::string kKeepListeningUdpFlag(kFlagPrefix + "keep_listening_udp");
-const std::string kParallelLookupReleaseFlag(kFlagPrefix + "parallel_lookup_release");
 const std::string kParallelLookupSleepTimeFlag(kFlagPrefix + "parallel_lookup_sleep_time");
 const std::string kRetransIntervalFlag(kFlagPrefix + "retransmission_time_interval");
 const std::string kRetryCountFlag(kFlagPrefix + "retry_count");
