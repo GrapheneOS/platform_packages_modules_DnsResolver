@@ -659,11 +659,20 @@ std::string makeThreadName(unsigned netId, uint32_t uid) {
 }  // namespace
 
 DnsProxyListener::DnsProxyListener() : FrameworkListener(SOCKET_NAME) {
-    registerCmd(new GetAddrInfoCmd());
-    registerCmd(new GetHostByAddrCmd());
-    registerCmd(new GetHostByNameCmd());
-    registerCmd(new ResNSendCommand());
-    registerCmd(new GetDnsNetIdCommand());
+    mGetAddrInfoCmd = std::make_unique<GetAddrInfoCmd>();
+    registerCmd(mGetAddrInfoCmd.get());
+
+    mGetHostByAddrCmd = std::make_unique<GetHostByAddrCmd>();
+    registerCmd(mGetHostByAddrCmd.get());
+
+    mGetHostByNameCmd = std::make_unique<GetHostByNameCmd>();
+    registerCmd(mGetHostByNameCmd.get());
+
+    mResNSendCommand = std::make_unique<ResNSendCommand>();
+    registerCmd(mResNSendCommand.get());
+
+    mGetDnsNetIdCommand = std::make_unique<GetDnsNetIdCommand>();
+    registerCmd(mGetDnsNetIdCommand.get());
 }
 
 void DnsProxyListener::Handler::spawn() {
