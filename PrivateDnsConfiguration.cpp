@@ -610,41 +610,33 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
 
     initDohLocked();
 
-    // TODO: 1. Improve how to choose the server
-    // TODO: 2. Support multiple servers
-    for (const auto& entry : mAvailableDoHProviders) {
-        const auto& doh = entry.getDohIdentity(sortedServers, name);
-        if (!doh.ok()) continue;
-
-        // Since the DnsResolver is expected to be configured by the system server, add the
-        // restriction to prevent ResolverTestProvider from being used other than testing.
-        if (entry.requireRootPermission && AIBinder_getCallingUid() != AID_ROOT) continue;
-
-        auto it = mDohTracker.find(netId);
-        // Skip if the same server already exists and its status == success.
-        if (it != mDohTracker.end() && it->second == doh.value() &&
-            it->second.status == Validation::success) {
-            return 0;
-        }
-        const auto& [dohIt, _] = mDohTracker.insert_or_assign(netId, doh.value());
-        const auto& dohId = dohIt->second;
-
-        RecordEntry record(netId, {IPSockAddr::toIPSockAddr(dohId.ipAddr, kDohPort), name},
-                           dohId.status);
-        mPrivateDnsLog.push(std::move(record));
-        LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
-        resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, kDohPort);
-
-        const FeatureFlags flags = makeDohFeatureFlags();
-        LOG(DEBUG) << __func__ << ": " << toString(flags);
-
-        return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
-                           dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags);
+    const auto& doh = makeDohIdentity(sortedServers, name);
+    if (!doh.ok()) {
+        LOG(INFO) << __func__ << ": No suitable DoH server found";
+        clearDoh(netId);
+        return 0;
     }
 
-    LOG(INFO) << __func__ << ": No suitable DoH server found";
-    clearDoh(netId);
-    return 0;
+    auto it = mDohTracker.find(netId);
+    // Skip if the same server already exists and its status == success.
+    if (it != mDohTracker.end() && it->second == doh.value() &&
+        it->second.status == Validation::success) {
+        return 0;
+    }
+    const auto& [dohIt, _] = mDohTracker.insert_or_assign(netId, doh.value());
+    const auto& dohId = dohIt->second;
+
+    RecordEntry record(netId, {IPSockAddr::toIPSockAddr(dohId.ipAddr, kDohPort), name},
+                       dohId.status);
+    mPrivateDnsLog.push(std::move(record));
+    LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
+    resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, kDohPort);
+
+    const FeatureFlags flags = makeDohFeatureFlags();
+    LOG(DEBUG) << __func__ << ": " << toString(flags);
+
+    return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
+                       dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags);
 }
 
 void PrivateDnsConfiguration::clearDoh(unsigned netId) {
@@ -652,6 +644,21 @@ void PrivateDnsConfiguration::clearDoh(unsigned netId) {
     if (mDohDispatcher != nullptr) doh_net_delete(mDohDispatcher, netId);
     mDohTracker.erase(netId);
     resolv_stats_set_addrs(netId, PROTO_DOH, {}, kDohPort);
+}
+
+base::Result<PrivateDnsConfiguration::DohIdentity> PrivateDnsConfiguration::makeDohIdentity(
+        const std::vector<std::string>& servers, const std::string& name) const {
+    for (const auto& entry : mAvailableDoHProviders) {
+        const auto& dohId = entry.getDohIdentity(servers, name);
+        if (!dohId.ok()) continue;
+
+        // Since the DnsResolver is expected to be configured by the system server, add the
+        // restriction to prevent ResolverTestProvider from being used other than testing.
+        if (entry.requireRootPermission && AIBinder_getCallingUid() != AID_ROOT) continue;
+
+        return dohId;
+    }
+    return Errorf("Cannot make a DohIdentity from current DNS configuration");
 }
 
 ssize_t PrivateDnsConfiguration::dohQuery(unsigned netId, const Slice query, const Slice answer,
