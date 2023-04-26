@@ -309,8 +309,8 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 }
             }
 
-            Ok((len, src)) = frontend_socket.recv_from(&mut frontend_buf) => {
-                debug!("Got {} bytes from {}", len, src);
+            Ok((len, peer)) = frontend_socket.recv_from(&mut frontend_buf) => {
+                debug!("Got {} bytes from {}", len, peer);
 
                 // Parse QUIC packet.
                 let pkt_buf = &mut frontend_buf[..len];
@@ -323,7 +323,8 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 };
                 debug!("Got QUIC packet: {:?}", hdr);
 
-                let client = match clients.get_or_create(&hdr, &src) {
+                let local = frontend_socket.local_addr()?;
+                let client = match clients.get_or_create(&hdr, &peer, &local) {
                     Ok(v) => v,
                     Err(e) => {
                         error!("Failed to get the client by the hdr {:?}: {}", hdr, e);
@@ -332,7 +333,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 };
                 debug!("Got client: {:?}", client);
 
-                match client.handle_frontend_message(pkt_buf) {
+                match client.handle_frontend_message(pkt_buf, &local) {
                     Ok(v) if !v.is_empty() => {
                         delay_queries_buffer.push(v);
                         queries_received += 1;
