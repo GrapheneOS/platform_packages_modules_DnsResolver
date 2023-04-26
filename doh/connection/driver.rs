@@ -217,7 +217,8 @@ impl Driver {
             }
             // If we got packets from our peer, pass them to quiche
             Ok((size, from)) = self.socket.recv_from(self.buffer.as_mut()) => {
-                self.quiche_conn.recv(&mut self.buffer[..size], quiche::RecvInfo { from })?;
+                let local = self.socket.local_addr()?;
+                self.quiche_conn.recv(&mut self.buffer[..size], quiche::RecvInfo { from, to: local })?;
                 debug!("Received {} bytes on network {}", size, self.net_id);
             }
         };
@@ -299,7 +300,9 @@ impl H3Driver {
             }
             // If we got packets from our peer, pass them to quiche
             Ok((size, from)) = self.driver.socket.recv_from(self.driver.buffer.as_mut()) => {
-                self.driver.quiche_conn.recv(&mut self.driver.buffer[..size], quiche::RecvInfo { from }).map(|_| ())?;
+                let local = self.driver.socket.local_addr()?;
+                self.driver.quiche_conn.recv(&mut self.driver.buffer[..size], quiche::RecvInfo { from, to: local }).map(|_| ())?;
+
                 debug!("Received {} bytes on network {}", size, self.driver.net_id);
             }
         };
