@@ -64,7 +64,7 @@ static const char NAT64_PAD[NS_IN6ADDRSZ - NS_INADDRSZ] = {};
     } while (0)
 
 #define HENT_SCOPY(dst, src, ptr, len) do {  \
-        size_t _len = strlen(src) + 1;       \
+        const size_t _len = strlen(src) + 1; \
         HENT_COPY(dst, src, _len, ptr, len); \
     } while (0)
 
