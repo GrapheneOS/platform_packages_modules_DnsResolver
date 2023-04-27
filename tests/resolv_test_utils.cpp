@@ -38,7 +38,8 @@ std::string ToString(const addrinfo* ai) {
 
     const sockaddr* ai_addr = ai->ai_addr;
     char host[NI_MAXHOST];
-    int rv = getnameinfo(ai_addr, ai->ai_addrlen, host, sizeof(host), nullptr, 0, NI_NUMERICHOST);
+    const int rv =
+            getnameinfo(ai_addr, ai->ai_addrlen, host, sizeof(host), nullptr, 0, NI_NUMERICHOST);
     if (rv != 0) return gai_strerror(rv);
     return host;
 }
@@ -86,8 +87,8 @@ std::vector<std::string> ToStrings(const addrinfo* ai) {
     for (const auto* aip = ai; aip != nullptr; aip = aip->ai_next) {
         const sockaddr* ai_addr = aip->ai_addr;
         char host[NI_MAXHOST];
-        int rv = getnameinfo(ai_addr, aip->ai_addrlen, host, sizeof(host), nullptr, 0,
-                             NI_NUMERICHOST);
+        const int rv = getnameinfo(ai_addr, aip->ai_addrlen, host, sizeof(host), nullptr, 0,
+                                   NI_NUMERICHOST);
         if (rv != 0) {
             hosts.clear();
             hosts.push_back(gai_strerror(rv));
