@@ -202,8 +202,12 @@ impl Client {
 
     // Processes the packet received from the frontend socket. If |data| is a DoH query,
     // the function returns the wire format DNS query; otherwise, it returns empty vector.
-    pub fn handle_frontend_message(&mut self, data: &mut [u8]) -> Result<Vec<u8>> {
-        let recv_info = quiche::RecvInfo { from: self.addr };
+    pub fn handle_frontend_message(
+        &mut self,
+        data: &mut [u8],
+        local: &SocketAddr,
+    ) -> Result<Vec<u8>> {
+        let recv_info = quiche::RecvInfo { from: self.addr, to: *local };
         self.conn.recv(data, recv_info)?;
 
         if (self.conn.is_in_early_data() || self.conn.is_established()) && self.h3_conn.is_none() {
@@ -282,7 +286,8 @@ impl ClientMap {
     pub fn get_or_create(
         &mut self,
         hdr: &quiche::Header,
-        addr: &SocketAddr,
+        peer: &SocketAddr,
+        local: &SocketAddr,
     ) -> Result<&mut Client> {
         let conn_id = get_conn_id(hdr)?;
         let client = match self.clients.entry(conn_id.clone()) {
@@ -296,10 +301,11 @@ impl ClientMap {
                 let conn = quiche::accept(
                     &quiche::ConnectionId::from_ref(&conn_id),
                     None, /* odcid */
-                    *addr,
+                    *local,
+                    *peer,
                     &mut self.config,
                 )?;
-                let client = Client::new(conn, addr, conn_id.clone());
+                let client = Client::new(conn, peer, conn_id.clone());
                 info!("New client: {:?}", client);
                 vacant.insert(client)
             }
