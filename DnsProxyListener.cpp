@@ -459,8 +459,8 @@ void logDnsQueryResult(const addrinfo* res) {
         // getnameinfo.
         const sockaddr* ai_addr = ai->ai_addr;
         char ip_addr[INET6_ADDRSTRLEN];
-        int ret = getnameinfo(ai_addr, ai->ai_addrlen, ip_addr, sizeof(ip_addr), nullptr, 0,
-                              NI_NUMERICHOST);
+        const int ret = getnameinfo(ai_addr, ai->ai_addrlen, ip_addr, sizeof(ip_addr), nullptr, 0,
+                                    NI_NUMERICHOST);
         if (!ret) {
             LOG(DEBUG) << __func__ << ": [" << i << "] " << ai->ai_flags << " " << ai->ai_family
                        << " " << ai->ai_socktype << " " << ai->ai_protocol << " " << ip_addr;
