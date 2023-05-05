@@ -68,36 +68,32 @@ int waitForWriting(int fd, int timeoutMs = -1) {
 }  // namespace
 
 Status DnsTlsSocket::tcpConnect() {
-    LOG(DEBUG) << mMark << " connecting TCP socket";
-    int type = SOCK_NONBLOCK | SOCK_CLOEXEC;
-    switch (mServer.protocol) {
-        case IPPROTO_TCP:
-            type |= SOCK_STREAM;
-            break;
-        default:
-            return Status(EPROTONOSUPPORT);
-    }
+    if (mServer.protocol != IPPROTO_TCP) return Status(EPROTONOSUPPORT);
 
-    mSslFd.reset(socket(mServer.ss.ss_family, type, mServer.protocol));
+    LOG(DEBUG) << mMark << " connecting TCP socket";
+
+    mSslFd.reset(socket(mServer.ss.ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
     if (mSslFd.get() == -1) {
-        PLOG(ERROR) << "Failed to create socket";
-        return Status(errno);
+        const int err = errno;
+        PLOG(ERROR) << "Failed to create socket, errno=" << err;
+        return Status(err);
     }
 
     resolv_tag_socket(mSslFd.get(), AID_DNS, NET_CONTEXT_INVALID_PID);
 
     const socklen_t len = sizeof(mMark);
-    if (setsockopt(mSslFd.get(), SOL_SOCKET, SO_MARK, &mMark, len) == -1) {
+    if (setsockopt(mSslFd.get(), SOL_SOCKET, SO_MARK, &mMark, len)) {
         const int err = errno;
-        PLOG(ERROR) << "Failed to set socket mark";
+        PLOG(ERROR) << "Failed to set socket mark, errno=" << err;
         mSslFd.reset();
         return Status(err);
     }
 
     // Set TCP MSS to a suitably low value to be more reliable.
-    const int v = 1220;
-    if (setsockopt(mSslFd.get(), SOL_TCP, TCP_MAXSEG, &v, sizeof(v)) == -1) {
-        LOG(WARNING) << "Failed to set TCP_MAXSEG: " << errno;
+    const int v = (mServer.ss.ss_family == AF_INET) ? 1212 : 1220;
+    if (setsockopt(mSslFd.get(), SOL_TCP, TCP_MAXSEG, &v, sizeof(v))) {
+        const int err = errno;
+        LOG(WARNING) << "Failed to set TCP_MAXSEG, errno=" << err;
     }
 
     const Status tfo = enableSockopt(mSslFd.get(), SOL_TCP, TCP_FASTOPEN_CONNECT);
@@ -112,7 +108,7 @@ Status DnsTlsSocket::tcpConnect() {
                 sizeof(mServer.ss)) != 0 &&
             errno != EINPROGRESS) {
         const int err = errno;
-        PLOG(WARNING) << "Socket failed to connect";
+        PLOG(WARNING) << "Socket failed to connect, errno=" << err;
         mSslFd.reset();
         return Status(err);
     }
