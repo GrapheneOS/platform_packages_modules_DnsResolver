@@ -101,7 +101,12 @@ int _hf_gethtbyname2(const char* name, int af, getnamaddr* info) {
             break;
         }
 
-        if (strcasecmp(hp->h_name, name) != 0) {
+        if (hp->h_name == nullptr) {
+            free(buf);
+            return EAI_FAIL;
+        }
+        const char* h_name = hp->h_name;
+        if (strcasecmp(h_name, name) != 0) {
             char** cp;
             for (cp = hp->h_aliases; *cp != NULL; cp++)
                 if (strcasecmp(*cp, name) == 0) break;
@@ -113,11 +118,6 @@ int _hf_gethtbyname2(const char* name, int af, getnamaddr* info) {
             hent.h_addrtype = hp->h_addrtype;
             hent.h_length = hp->h_length;
 
-            if (hp->h_name == nullptr) {
-                free(buf);
-                return EAI_FAIL;
-            }
-            const char* h_name = hp->h_name;
             HENT_SCOPY(hent.h_name, h_name, ptr, len);
             for (anum = 0; hp->h_aliases[anum]; anum++) {
                 if (anum >= MAXALIASES) goto nospc;
