@@ -279,6 +279,11 @@ class PrivateDnsConfiguration {
              false},
     }};
 
+    // Makes a DohIdentity by looking up the `mAvailableDoHProviders` by `servers` and `name`.
+    base::Result<DohIdentity> makeDohIdentity(const std::vector<std::string>& servers,
+                                              const std::string& name) const
+            REQUIRES(mPrivateDnsLock);
+
     // For the metrics. Store the current DNS server list in the same order as what is passed
     // in setResolverConfiguration().
     std::map<unsigned, std::vector<std::string>> mUnorderedDnsTracker GUARDED_BY(mPrivateDnsLock);
