@@ -59,6 +59,44 @@ bool ensureNoInvalidIp(const std::vector<std::string>& servers) {
     return true;
 }
 
+FeatureFlags makeDohFeatureFlags() {
+    const Experiments* const instance = Experiments::getInstance();
+    const auto getTimeout = [&](const std::string_view key, int defaultValue) -> uint64_t {
+        static constexpr int kMinTimeoutMs = 1000;
+        uint64_t timeout = instance->getFlag(key, defaultValue);
+        if (timeout < kMinTimeoutMs) {
+            timeout = kMinTimeoutMs;
+        }
+        return timeout;
+    };
+
+    return FeatureFlags{
+            .probe_timeout_ms = getTimeout("doh_probe_timeout_ms",
+                                           PrivateDnsConfiguration::kDohProbeDefaultTimeoutMs),
+            .idle_timeout_ms = getTimeout("doh_idle_timeout_ms",
+                                          PrivateDnsConfiguration::kDohIdleDefaultTimeoutMs),
+            .use_session_resumption = instance->getFlag("doh_session_resumption", 0) == 1,
+            .enable_early_data = instance->getFlag("doh_early_data", 0) == 1,
+    };
+}
+
+std::string toString(const FeatureFlags& flags) {
+    return fmt::format(
+            "probe_timeout_ms={}, idle_timeout_ms={}, use_session_resumption={}, "
+            "enable_early_data={}",
+            flags.probe_timeout_ms, flags.idle_timeout_ms, flags.use_session_resumption,
+            flags.enable_early_data);
+}
+
+// Returns the sorted (sort IPv6 before IPv4) servers.
+std::vector<std::string> sortServers(const std::vector<std::string>& servers) {
+    std::vector<std::string> out = servers;
+    std::sort(out.begin(), out.end(), [](std::string a, std::string b) {
+        return IPAddress::forString(a) > IPAddress::forString(b);
+    });
+    return out;
+}
+
 }  // namespace
 
 PrivateDnsModes convertEnumType(PrivateDnsMode mode) {
@@ -184,9 +222,8 @@ PrivateDnsStatus PrivateDnsConfiguration::getStatusLocked(unsigned netId) const 
 
     auto it = mDohTracker.find(netId);
     if (it != mDohTracker.end()) {
-        status.dohServersMap.emplace(
-                netdutils::IPSockAddr::toIPSockAddr(it->second.ipAddr, kDohPort),
-                it->second.status);
+        status.dohServersMap.emplace(IPSockAddr::toIPSockAddr(it->second.ipAddr, kDohPort),
+                                     it->second.status);
     }
 
     return status;
@@ -516,7 +553,7 @@ base::Result<netdutils::IPSockAddr> PrivateDnsConfiguration::getDohServer(unsign
     std::lock_guard guard(mPrivateDnsLock);
     auto it = mDohTracker.find(netId);
     if (it != mDohTracker.end()) {
-        return netdutils::IPSockAddr::toIPSockAddr(it->second.ipAddr, kDohPort);
+        return IPSockAddr::toIPSockAddr(it->second.ipAddr, kDohPort);
     }
 
     return Errorf("Failed to get DoH Server: netId {} not found", netId);
@@ -568,73 +605,38 @@ int PrivateDnsConfiguration::setDoh(int32_t netId, uint32_t mark,
         return 0;
     }
 
-    const auto getTimeoutFromFlag = [&](const std::string_view key, int defaultValue) -> uint64_t {
-        static constexpr int kMinTimeoutMs = 1000;
-        uint64_t timeout = Experiments::getInstance()->getFlag(key, defaultValue);
-        if (timeout < kMinTimeoutMs) {
-            timeout = kMinTimeoutMs;
-        }
-        return timeout;
-    };
-
-    // Sort the input servers to ensure that we could get the server vector at the same order.
-    std::vector<std::string> sortedServers = servers;
-    // Prefer ipv6.
-    std::sort(sortedServers.begin(), sortedServers.end(), [](std::string a, std::string b) {
-        IPAddress ipa = IPAddress::forString(a);
-        IPAddress ipb = IPAddress::forString(b);
-        return ipa > ipb;
-    });
+    // Sort the input servers to prefer IPv6.
+    const std::vector<std::string> sortedServers = sortServers(servers);
 
     initDohLocked();
 
-    // TODO: 1. Improve how to choose the server
-    // TODO: 2. Support multiple servers
-    for (const auto& entry : mAvailableDoHProviders) {
-        const auto& doh = entry.getDohIdentity(sortedServers, name);
-        if (!doh.ok()) continue;
-
-        // Since the DnsResolver is expected to be configured by the system server, add the
-        // restriction to prevent ResolverTestProvider from being used other than testing.
-        if (entry.requireRootPermission && AIBinder_getCallingUid() != AID_ROOT) continue;
-
-        auto it = mDohTracker.find(netId);
-        // Skip if the same server already exists and its status == success.
-        if (it != mDohTracker.end() && it->second == doh.value() &&
-            it->second.status == Validation::success) {
-            return 0;
-        }
-        const auto& [dohIt, _] = mDohTracker.insert_or_assign(netId, doh.value());
-        const auto& dohId = dohIt->second;
-
-        RecordEntry record(netId,
-                           {netdutils::IPSockAddr::toIPSockAddr(dohId.ipAddr, kDohPort), name},
-                           dohId.status);
-        mPrivateDnsLog.push(std::move(record));
-        LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
-        resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, kDohPort);
-
-        const FeatureFlags flags = {
-                .probe_timeout_ms =
-                        getTimeoutFromFlag("doh_probe_timeout_ms", kDohProbeDefaultTimeoutMs),
-                .idle_timeout_ms =
-                        getTimeoutFromFlag("doh_idle_timeout_ms", kDohIdleDefaultTimeoutMs),
-                .use_session_resumption =
-                        Experiments::getInstance()->getFlag("doh_session_resumption", 0) == 1,
-                .enable_early_data = Experiments::getInstance()->getFlag("doh_early_data", 0) == 1,
-        };
-        LOG(DEBUG) << __func__ << ": probe_timeout_ms=" << flags.probe_timeout_ms
-                   << ", idle_timeout_ms=" << flags.idle_timeout_ms
-                   << ", use_session_resumption=" << flags.use_session_resumption
-                   << ", enable_early_data=" << flags.enable_early_data;
-
-        return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
-                           dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags);
+    const auto& doh = makeDohIdentity(sortedServers, name);
+    if (!doh.ok()) {
+        LOG(INFO) << __func__ << ": No suitable DoH server found";
+        clearDoh(netId);
+        return 0;
     }
 
-    LOG(INFO) << __func__ << ": No suitable DoH server found";
-    clearDoh(netId);
-    return 0;
+    auto it = mDohTracker.find(netId);
+    // Skip if the same server already exists and its status == success.
+    if (it != mDohTracker.end() && it->second == doh.value() &&
+        it->second.status == Validation::success) {
+        return 0;
+    }
+    const auto& [dohIt, _] = mDohTracker.insert_or_assign(netId, doh.value());
+    const auto& dohId = dohIt->second;
+
+    RecordEntry record(netId, {IPSockAddr::toIPSockAddr(dohId.ipAddr, kDohPort), name},
+                       dohId.status);
+    mPrivateDnsLog.push(std::move(record));
+    LOG(INFO) << __func__ << ": Upgrading server to DoH: " << name;
+    resolv_stats_set_addrs(netId, PROTO_DOH, {dohId.ipAddr}, kDohPort);
+
+    const FeatureFlags flags = makeDohFeatureFlags();
+    LOG(DEBUG) << __func__ << ": " << toString(flags);
+
+    return doh_net_new(mDohDispatcher, netId, dohId.httpsTemplate.c_str(), dohId.host.c_str(),
+                       dohId.ipAddr.c_str(), mark, caCert.c_str(), &flags);
 }
 
 void PrivateDnsConfiguration::clearDoh(unsigned netId) {
@@ -642,6 +644,21 @@ void PrivateDnsConfiguration::clearDoh(unsigned netId) {
     if (mDohDispatcher != nullptr) doh_net_delete(mDohDispatcher, netId);
     mDohTracker.erase(netId);
     resolv_stats_set_addrs(netId, PROTO_DOH, {}, kDohPort);
+}
+
+base::Result<PrivateDnsConfiguration::DohIdentity> PrivateDnsConfiguration::makeDohIdentity(
+        const std::vector<std::string>& servers, const std::string& name) const {
+    for (const auto& entry : mAvailableDoHProviders) {
+        const auto& dohId = entry.getDohIdentity(servers, name);
+        if (!dohId.ok()) continue;
+
+        // Since the DnsResolver is expected to be configured by the system server, add the
+        // restriction to prevent ResolverTestProvider from being used other than testing.
+        if (entry.requireRootPermission && AIBinder_getCallingUid() != AID_ROOT) continue;
+
+        return dohId;
+    }
+    return Errorf("Cannot make a DohIdentity from current DNS configuration");
 }
 
 ssize_t PrivateDnsConfiguration::dohQuery(unsigned netId, const Slice query, const Slice answer,
@@ -668,7 +685,7 @@ void PrivateDnsConfiguration::onDohStatusUpdate(uint32_t netId, bool success, co
     Validation status = success ? Validation::success : Validation::fail;
     it->second.status = status;
     // Send the events to registered listeners.
-    ServerIdentity identity = {netdutils::IPSockAddr::toIPSockAddr(ipAddr, kDohPort), host};
+    const ServerIdentity identity = {IPSockAddr::toIPSockAddr(ipAddr, kDohPort), host};
     if (needReportEvent(netId, identity, success)) {
         sendPrivateDnsValidationEvent(identity, netId, success);
     }
