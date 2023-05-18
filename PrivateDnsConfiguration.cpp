@@ -141,11 +141,8 @@ int PrivateDnsConfiguration::set(int32_t netId, uint32_t mark,
     if (int n = setDot(netId, mark, encryptedServers, name, caCert); n != 0) {
         return n;
     }
-    if (isDoHEnabled()) {
-        return setDoh(netId, mark, encryptedServers, name, caCert);
-    }
 
-    return 0;
+    return setDoh(netId, mark, encryptedServers, name, caCert);
 }
 
 int PrivateDnsConfiguration::setDot(int32_t netId, uint32_t mark,
@@ -696,8 +693,8 @@ void PrivateDnsConfiguration::onDohStatusUpdate(uint32_t netId, bool success, co
 
 bool PrivateDnsConfiguration::needReportEvent(uint32_t netId, ServerIdentity identity,
                                               bool success) const {
-    // If the result is success or DoH is not enable, no concern to report the events.
-    if (success || !isDoHEnabled()) return true;
+    // If the result is success, no concern to report the events.
+    if (success) return true;
     // If the result is failure, check another transport's status to determine if we should report
     // the event.
     switch (identity.sockaddr.port()) {

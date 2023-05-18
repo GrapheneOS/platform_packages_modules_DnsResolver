@@ -83,7 +83,7 @@ DnsResolver::DnsResolver() {
     auto& dnsTlsDispatcher = DnsTlsDispatcher::getInstance();
     auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
     privateDnsConfiguration.setObserver(&dnsTlsDispatcher);
-    if (isDoHEnabled()) privateDnsConfiguration.initDoh();
+    privateDnsConfiguration.initDoh();
 }
 
 bool DnsResolver::start() {
