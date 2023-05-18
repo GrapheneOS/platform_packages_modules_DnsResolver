@@ -47,7 +47,6 @@ class Experiments {
     mutable std::mutex mMutex;
     std::map<std::string_view, int> mFlagsMapInt GUARDED_BY(mMutex);
     static constexpr const char* const kExperimentFlagKeyList[] = {
-            "doh",
             "doh_early_data",
             "doh_idle_timeout_ms",
             "doh_probe_timeout_ms",
