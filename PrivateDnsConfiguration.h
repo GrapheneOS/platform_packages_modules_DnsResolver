@@ -232,13 +232,24 @@ class PrivateDnsConfiguration {
         std::string host;
         std::string httpsTemplate;
         bool requireRootPermission;
-        base::Result<DohIdentity> getDohIdentity(const std::vector<std::string>& ips,
+
+        base::Result<DohIdentity> getDohIdentity(const std::vector<std::string>& sortedValidIps,
                                                  const std::string& host) const {
-            if (!host.empty() && this->host != host) return Errorf("host {} not matched", host);
-            for (const auto& ip : ips) {
-                if (this->ips.find(ip) == this->ips.end()) continue;
+            // If the private DNS hostname is known, `sortedValidIps` are the IP addresses
+            // resolved from the hostname, and hostname verification will be performed during
+            // TLS handshake to ensure the validity of the server, so it's not necessary to
+            // check the IP address.
+            if (!host.empty()) {
+                if (this->host != host) return Errorf("host {} not matched", host);
+                if (!sortedValidIps.empty()) {
+                    const auto& ip = sortedValidIps[0];
+                    LOG(INFO) << fmt::format("getDohIdentity: {} {}", ip, host);
+                    return DohIdentity{httpsTemplate, ip, host, Validation::in_process};
+                }
+            }
+            for (const auto& ip : sortedValidIps) {
+                if (ips.find(ip) == ips.end()) continue;
                 LOG(INFO) << fmt::format("getDohIdentity: {} {}", ip, host);
-                // Only pick the first one for now.
                 return DohIdentity{httpsTemplate, ip, host, Validation::in_process};
             }
             return Errorf("server not matched");
