@@ -22,6 +22,9 @@ use crate::connection::Connection;
 use crate::dispatcher::{QueryError, Response};
 use crate::encoding;
 use anyhow::{anyhow, bail, Result};
+use encoding::{CONN_CHECKS_SETTING_DEFAULT, CONN_CHECKS_SETTING_DISABLED,
+               CONN_CHECKS_SETTING_GRAPHENEOS, CONN_CHECKS_SETTING_STANDARD};
+use rustutils::system_properties;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 use tokio::task;
@@ -141,7 +144,27 @@ impl Driver {
 
     async fn force_probe(&mut self, probe_timeout: Duration) -> Result<()> {
         debug!("Sending probe to server {} on Network {}", self.info.peer_addr, self.info.net_id);
-        let probe = encoding::probe_query()?;
+
+        let conn_check_setting: i32 = system_properties::read("persist.sys.connectivity_checks")
+            .unwrap_or_else(|_| Some("".to_string()))
+            .as_deref()
+            .unwrap_or("")
+            .parse::<i32>()
+            .map_or_else(|_| CONN_CHECKS_SETTING_DEFAULT, |v| match v {
+                CONN_CHECKS_SETTING_GRAPHENEOS
+                | CONN_CHECKS_SETTING_DISABLED
+                | CONN_CHECKS_SETTING_STANDARD => v,
+                _ => CONN_CHECKS_SETTING_DEFAULT,
+            });
+
+        if conn_check_setting == CONN_CHECKS_SETTING_DISABLED {
+            debug!("force_probe: connectivity checks are disabled");
+            self.status_tx.send(Status::Live)?;
+            (self.validation)(&self.info, true).await;
+            return Ok(())
+        }
+
+        let probe = encoding::probe_query(conn_check_setting)?;
         let dns_request = encoding::dns_request(&probe, &self.info.url)?;
         let expiry = BootTime::now().checked_add(probe_timeout);
         let request = async {
