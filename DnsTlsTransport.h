@@ -73,6 +73,7 @@ class DnsTlsTransport : public IDnsTlsSocketObserver {
     const DnsTlsServer mServer;
     IDnsTlsSocketFactory* _Nonnull const mFactory;
 
+    void connect();
     void doConnect() REQUIRES(mLock);
 
     // doReconnect is used by onClosed.  It runs on the reconnect thread.
