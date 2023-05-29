@@ -57,6 +57,7 @@ rust_defaults {
         "liblibc",
         "libring",
         "libresolvrs_utils",
+        "librustutils",
         "libstatic_assertions",
         "libstatslog_dns_resolver_rust",
         "liburl",
