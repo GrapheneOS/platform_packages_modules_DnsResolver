@@ -22,6 +22,7 @@
 
 #include <android-base/format.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android-base/result.h>
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
@@ -43,6 +44,22 @@ namespace net {
 
 namespace {
 
+// keep in sync with android.ext.settings.ConnChecksSetting
+const int CONN_CHECKS_SETTING_GRAPHENEOS = 0;
+const int CONN_CHECKS_SETTING_STANDARD = 1;
+const int CONN_CHECKS_SETTING_DISABLED = 2;
+const int CONN_CHECKS_SETTING_DEFAULT = CONN_CHECKS_SETTING_GRAPHENEOS;
+
+void appendQnameLabel(const char* label, std::vector<uint8_t>& dst) {
+    const size_t len = strlen(label);
+    // 6-bit positive number
+    assert(len > 0 && len <= 0b11'1111);
+    dst.push_back((uint8_t) len);
+    for (size_t i = 0; i < len; ++i) {
+        dst.push_back((uint8_t) label[i]);
+    }
+}
+
 // Make a DNS query for the hostname "<random>-dnsotls-ds.metric.gstatic.com".
 std::vector<uint8_t> makeDnsQuery() {
     static const char kDnsSafeChars[] =
@@ -55,7 +72,7 @@ std::vector<uint8_t> makeDnsQuery() {
     uint8_t rnd[8];
     arc4random_buf(rnd, std::size(rnd));
 
-    return std::vector<uint8_t>{
+    auto query = std::vector<uint8_t>{
             rnd[6], rnd[7],  // [0-1]   query ID
             1,      0,       // [2-3]   flags; query[2] = 1 for recursion desired (RD).
             0,      1,       // [4-5]   QDCOUNT (number of queries)
@@ -63,13 +80,41 @@ std::vector<uint8_t> makeDnsQuery() {
             0,      0,       // [8-9]   NSCOUNT (number of name server records)
             0,      0,       // [10-11] ARCOUNT (number of additional records)
             17,     c(rnd[0]), c(rnd[1]), c(rnd[2]), c(rnd[3]), c(rnd[4]), c(rnd[5]), '-', 'd', 'n',
-            's',    'o',       't',       'l',       's',       '-',       'd',       's', 6,   'm',
-            'e',    't',       'r',       'i',       'c',       7,         'g',       's', 't', 'a',
-            't',    'i',       'c',       3,         'c',       'o',       'm',
+            's',    'o',       't',       'l',       's',       '-',       'd',       's',
+    };
+
+    int conn_check_setting = android::base::GetIntProperty("persist.sys.connectivity_checks",
+            CONN_CHECKS_SETTING_DEFAULT, // default
+            CONN_CHECKS_SETTING_GRAPHENEOS, // min
+            CONN_CHECKS_SETTING_DISABLED // max
+    );
+
+    if (conn_check_setting == CONN_CHECKS_SETTING_DISABLED) {
+        // skipping the check would break detection of broken DoT
+        LOG(DEBUG) << "makeDnsQuery: CONN_CHECKS_SETTING_DISABLED, falling back to default hostname";
+        conn_check_setting = CONN_CHECKS_SETTING_DEFAULT;
+    }
+
+    if (conn_check_setting == CONN_CHECKS_SETTING_STANDARD) {
+        LOG(DEBUG) << "Using metric.gstatic.com for test DNS query";
+        appendQnameLabel("metric", query);
+        appendQnameLabel("gstatic", query);
+        appendQnameLabel("com", query);
+    } else {
+        LOG(DEBUG) << "Using dnscheck.grapheneos.org for test DNS query";
+        appendQnameLabel("dnscheck", query);
+        appendQnameLabel("grapheneos", query);
+        appendQnameLabel("org", query);
+    }
+    auto end = std::vector<uint8_t>{
             0,                  // null terminator of FQDN (root TLD)
             0,      ns_t_aaaa,  // QTYPE
             0,      ns_c_in     // QCLASS
     };
+
+    query.insert(query.end(), end.begin(), end.end());
+
+    return query;
 }
 
 base::Result<void> checkDnsResponse(const std::span<const uint8_t> answer) {
