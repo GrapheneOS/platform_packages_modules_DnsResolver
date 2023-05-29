@@ -427,6 +427,7 @@ doh_rust_deps = [
     "liblibc",
     "liblog_rust",
     "libring",
+    "librustutils",
     "libstatslog_dns_resolver_rust",
     "libthiserror",
     "libtokio",
