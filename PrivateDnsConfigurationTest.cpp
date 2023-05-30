@@ -57,8 +57,8 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
         // must wait until every validation thread finishes.
         ON_CALL(mObserver, onValidationStateUpdate)
                 .WillByDefault([&](const std::string& server, Validation validation, uint32_t) {
+                    std::lock_guard guard(mObserver.lock);
                     if (validation == Validation::in_process) {
-                        std::lock_guard guard(mObserver.lock);
                         auto it = mObserver.serverStateMap.find(server);
                         if (it == mObserver.serverStateMap.end() ||
                             it->second != Validation::in_process) {
@@ -73,7 +73,6 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
                                validation == Validation::fail) {
                         mObserver.runningThreads--;
                     }
-                    std::lock_guard guard(mObserver.lock);
                     mObserver.serverStateMap[server] = validation;
                 });
 
