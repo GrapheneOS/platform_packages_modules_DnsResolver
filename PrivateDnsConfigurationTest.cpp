@@ -81,7 +81,11 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
         EXPECT_EQ(0, resolv_create_cache_for_net(kNetId));
     }
 
-    void TearDown() { resolv_delete_cache_for_net(kNetId); }
+    void TearDown() {
+        // Reset the state for the next test.
+        resolv_delete_cache_for_net(kNetId);
+        mPdc.set(kNetId, kMark, {}, {}, {}, {});
+    }
 
   protected:
     class MockObserver : public PrivateDnsValidationObserver {
@@ -135,7 +139,7 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
     static constexpr char kServer2[] = "127.0.2.3";
 
     MockObserver mObserver;
-    PrivateDnsConfiguration mPdc;
+    inline static PrivateDnsConfiguration mPdc;
 
     // TODO: Because incorrect CAs result in validation failed in strict mode, have
     // PrivateDnsConfiguration run mocked code rather than DnsTlsTransport::validate().
