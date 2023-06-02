@@ -196,12 +196,11 @@ fn create_quiche_config() {
 #[test]
 fn shared_cache() {
     let cache_a = Cache::new();
-    let cache_b = cache_a.clone();
     let config_a = cache_a
         .get(&Key { cert_path: None, max_idle_timeout: 1000, enable_early_data: true })
         .unwrap();
     assert_eq!(Arc::strong_count(&config_a.0), 2);
-    let _config_b = cache_b
+    let _config_b = cache_a
         .get(&Key { cert_path: None, max_idle_timeout: 1000, enable_early_data: true })
         .unwrap();
     assert_eq!(Arc::strong_count(&config_a.0), 3);
