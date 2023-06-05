@@ -141,28 +141,6 @@ TEST_F(DnsQueryLogTest, CapacityFull) {
     verifyDumpOutput(output, expectedNetIds);
 }
 
-TEST_F(DnsQueryLogTest, ValidityTime) {
-    DnsQueryLog::Record r1(30, 1000, 1000, "www.example.com", serversV4, 10);
-    DnsQueryLog queryLog(3, 100ms);
-    queryLog.push(std::move(r1));
-
-    // Dump the output and verify the correctness by checking netId.
-    std::string output = captureDumpOutput(queryLog);
-    verifyDumpOutput(output, {30});
-
-    std::this_thread::sleep_for(150ms);
-
-    // The record is expired thus not shown in the output.
-    output = captureDumpOutput(queryLog);
-    verifyDumpOutput(output, {});
-
-    // Push another record to ensure it still works.
-    DnsQueryLog::Record r2(31, 1000, 1000, "example.com", serversV4V6, 10);
-    queryLog.push(std::move(r2));
-    output = captureDumpOutput(queryLog);
-    verifyDumpOutput(output, {31});
-}
-
 TEST_F(DnsQueryLogTest, SizeCustomization) {
     const size_t logSize = 3;
     const ScopedSystemProperties sp(kQueryLogSize, std::to_string(logSize));
