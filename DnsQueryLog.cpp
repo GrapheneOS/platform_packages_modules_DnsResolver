@@ -51,6 +51,12 @@ void DnsQueryLog::push(Record&& record) {
     mQueue.push(std::move(record));
 }
 
+uint64_t DnsQueryLog::getLogSizeFromSysProp() {
+    const uint64_t logSize = android::base::GetUintProperty<uint64_t>(
+            "persist.net.dns_query_log_size", kDefaultLogSize);
+    return logSize <= kMaxLogSize ? logSize : kDefaultLogSize;
+}
+
 void DnsQueryLog::dump(netdutils::DumpWriter& dw) const {
     dw.println("DNS query log (last %lld minutes):", (mValidityTimeMs / 60000).count());
     netdutils::ScopedIndent indentStats(dw);
