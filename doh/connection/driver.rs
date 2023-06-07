@@ -282,6 +282,7 @@ impl H3Driver {
         // try to resend that first
         if let Some(request) = self.buffered_request.take() {
             self.handle_request(request)?;
+            self.driver.flush_tx().await?;
         }
         select! {
             // Only attempt to enqueue new requests if we have no buffered request and aren't
