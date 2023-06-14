@@ -154,6 +154,7 @@ using std::span;
  * *****************************************
  */
 const int MAX_ENTRIES_DEFAULT = 64 * 2 * 5;
+const int MAX_ENTRIES_LOWER_BOUND = 0;
 const int MAX_ENTRIES_UPPER_BOUND = 100 * 1000;
 constexpr int DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY = -1;
 
@@ -1007,7 +1008,7 @@ struct Cache {
                                                                         MAX_ENTRIES_DEFAULT);
         // Check both lower and upper bounds to prevent irrational values mistakenly pushed by
         // server.
-        if (entries < MAX_ENTRIES_DEFAULT || entries > MAX_ENTRIES_UPPER_BOUND) {
+        if (entries < MAX_ENTRIES_LOWER_BOUND || entries > MAX_ENTRIES_UPPER_BOUND) {
             LOG(ERROR) << "Misconfiguration on max_cache_entries " << entries;
             entries = MAX_ENTRIES_DEFAULT;
         }
