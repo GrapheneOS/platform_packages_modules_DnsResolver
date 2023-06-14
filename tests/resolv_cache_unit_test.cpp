@@ -50,6 +50,7 @@ constexpr int DNS_PORT = 53;
 // Constant values sync'd from res_cache.cpp
 constexpr int DNS_HEADER_SIZE = 12;
 constexpr int MAX_ENTRIES_DEFAULT = 64 * 2 * 5;
+constexpr int MAX_ENTRIES_LOWER_BOUND = 0;
 constexpr int MAX_ENTRIES_UPPER_BOUND = 100 * 1000;
 
 namespace {
@@ -627,8 +628,11 @@ class ResolvCacheParameterizedTest : public ResolvCacheTest,
                                      public testing::WithParamInterface<int> {};
 
 INSTANTIATE_TEST_SUITE_P(MaxCacheEntries, ResolvCacheParameterizedTest,
-                         testing::Values(0, MAX_ENTRIES_UPPER_BOUND + 1),
+                         testing::Values(MAX_ENTRIES_LOWER_BOUND - 1, MAX_ENTRIES_UPPER_BOUND + 1),
                          [](const testing::TestParamInfo<int>& info) {
+                             if (info.param < 0) {  // '-' is an invalid character in test name
+                                 return "negative_" + std::to_string(abs(info.param));
+                             }
                              return std::to_string(info.param);
                          });
 
