@@ -269,6 +269,7 @@ cc_test {
         "libstatslog_resolv",
         "libstatspush_compat",
         "libsysutils",
+        "libutils",
         "resolv_stats_test_utils",
         "server_configurable_flags",
         "stats_proto",
@@ -372,6 +373,18 @@ cc_defaults {
         "server_configurable_flags",
         "stats_proto",
     ],
+    target: {
+        android: {
+            shared_libs: [
+                "libutils",
+            ],
+        },
+        host: {
+            static_libs: [
+                "libutils",
+            ],
+        },
+    },
     fuzz_config: {
        cc: [
             "cken@google.com",
@@ -416,14 +429,12 @@ cc_fuzz {
             shared_libs: [
                 "libbinder_ndk",
                 "libbinder",
-                "libutils",
             ],
         },
         host: {
             static_libs: [
                 "libbinder_ndk",
                 "libbinder",
-                "libutils",
             ],
         },
         darwin: {
