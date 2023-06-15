@@ -24,6 +24,7 @@
 #include <netdutils/DumpWriter.h>
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/ThreadUtil.h>
+#include <utils/StrongPointer.h>
 #include <thread>
 #include <utility>
 
@@ -36,6 +37,7 @@
 
 namespace android {
 
+using android::sp;
 using netdutils::DumpWriter;
 using netdutils::IPAddress;
 using netdutils::IPPrefix;
@@ -61,8 +63,9 @@ void Dns64Configuration::startPrefixDiscovery(unsigned netId) {
     // Emplace a copy of |cfg| in the map.
     mDns64Configs.emplace(std::make_pair(netId, cfg));
 
+    const sp<Dns64Configuration> thiz = this;
     // Note that capturing |cfg| in this lambda creates a copy.
-    std::thread discovery_thread([this, cfg, netId] {
+    std::thread discovery_thread([thiz, cfg, netId] {
         setThreadName(fmt::format("Nat64Pfx_{}", netId));
 
         // Make a mutable copy rather than mark the whole lambda mutable.
@@ -75,28 +78,28 @@ void Dns64Configuration::startPrefixDiscovery(unsigned netId) {
                                .build();
 
         while (true) {
-            if (!this->shouldContinueDiscovery(evalCfg)) break;
+            if (!thiz->shouldContinueDiscovery(evalCfg)) break;
 
             android_net_context netcontext{};
-            mGetNetworkContextCallback(evalCfg.netId, 0, &netcontext);
+            thiz->mGetNetworkContextCallback(evalCfg.netId, 0, &netcontext);
 
             // Prefix discovery must bypass private DNS because in strict mode
             // the server generally won't know the NAT64 prefix.
             netcontext.flags |= NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS;
             if (doRfc7050PrefixDiscovery(netcontext, &evalCfg)) {
-                this->recordDns64Config(evalCfg);
+                thiz->recordDns64Config(evalCfg);
                 break;
             }
 
-            if (!this->shouldContinueDiscovery(evalCfg)) break;
+            if (!thiz->shouldContinueDiscovery(evalCfg)) break;
 
             if (!backoff.hasNextTimeout()) break;
             {
-                std::unique_lock<std::mutex> cvGuard(mMutex);
+                std::unique_lock<std::mutex> cvGuard(thiz->mMutex);
                 // TODO: Consider some chrono math, combined with wait_until()
                 // perhaps, to prevent early re-resolves from the removal of
                 // other netids with IPv6-only nameservers.
-                mCv.wait_for(cvGuard, backoff.getNextTimeout());
+                thiz->mCv.wait_for(cvGuard, backoff.getNextTimeout());
             }
         }
     });
