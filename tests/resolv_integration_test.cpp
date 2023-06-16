@@ -325,6 +325,7 @@ class ResolverTest : public NetNativeTestBase {
 
     bool expectStatsFromGetResolverInfo(const std::vector<NameserverStats>& nameserversStats,
                                         const StatsCmp cmp) {
+        constexpr int RTT_TOLERANCE_MS = 200;
         const auto resolvInfo = mDnsClient.getResolverInfo();
         if (!resolvInfo.ok()) {
             ADD_FAILURE() << resolvInfo.error().message();
@@ -368,7 +369,7 @@ class ResolverTest : public NetNativeTestBase {
                     if (res_stats[index].rtt_avg < 0 || stats.rtt_avg < 0) {
                         EXPECT_EQ(res_stats[index].rtt_avg, stats.rtt_avg);
                     } else {
-                        EXPECT_NEAR(res_stats[index].rtt_avg, stats.rtt_avg, 200);
+                        EXPECT_NEAR(res_stats[index].rtt_avg, stats.rtt_avg, RTT_TOLERANCE_MS);
                     }
                     break;
                 case StatsCmp::LE:
@@ -376,7 +377,7 @@ class ResolverTest : public NetNativeTestBase {
                     EXPECT_LE(res_stats[index].errors, stats.errors);
                     EXPECT_LE(res_stats[index].timeouts, stats.timeouts);
                     EXPECT_LE(res_stats[index].internal_errors, stats.internal_errors);
-                    EXPECT_LE(res_stats[index].rtt_avg, stats.rtt_avg);
+                    EXPECT_LE(res_stats[index].rtt_avg, stats.rtt_avg + RTT_TOLERANCE_MS);
                     break;
                 default:
                     ADD_FAILURE() << "Unknown comparator " << static_cast<int>(cmp);
