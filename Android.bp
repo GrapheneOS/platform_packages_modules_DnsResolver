@@ -44,8 +44,8 @@ cc_library_headers {
 
 cc_library_headers {
     name: "dnsproxyd_protocol_headers",
-    sdk_version: "30",
-    min_sdk_version: "30",
+    sdk_version: "29",
+    min_sdk_version: "29",
     export_include_dirs: ["include/dnsproxyd_protocol"],
     apex_available: [
         "//apex_available:platform",
@@ -63,7 +63,7 @@ cc_library_static {
     apex_available: [
         "com.android.resolv",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 aidl_interface {
@@ -93,7 +93,7 @@ aidl_interface {
             apex_available: [
                 "com.android.resolv",
             ],
-            min_sdk_version: "30",
+            min_sdk_version: "29",
         },
     },
     versions: [
@@ -129,7 +129,7 @@ cc_defaults {
         "liblog",
     ],
     // This field is required to make test compatible with Q devices.
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 cc_defaults {
@@ -275,7 +275,7 @@ cc_library {
         cfi: true,
     },
     apex_available: ["com.android.resolv"],
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 cc_library_static {
@@ -289,7 +289,7 @@ cc_library_static {
         "stats.proto",
     ],
     apex_available: ["com.android.resolv"],
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 genrule {
@@ -326,7 +326,7 @@ cc_library_static {
         "libgtest_prod_headers", // Used by libstatspush_compat
     ],
     apex_available: ["com.android.resolv"],
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 filegroup {
@@ -385,7 +385,7 @@ rust_ffi_static {
         "//apex_available:platform", // Needed by doh_ffi_test
         "com.android.resolv",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 rust_test {
@@ -396,7 +396,7 @@ rust_test {
     test_suites: ["general-tests"],
     auto_gen_config: true,
     rustlibs: doh_rust_deps + ["libquiche_static"],
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 // It's required by unit tests.
@@ -415,7 +415,7 @@ rust_ffi_static {
         "//apex_available:platform", // Needed by doh_ffi_test
         "com.android.resolv",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "29",
 }
 
 rust_ffi_static {
