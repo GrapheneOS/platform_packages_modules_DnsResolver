@@ -876,7 +876,7 @@ TEST_F(ResolverTest, GetAddrInfoV4_deferred_resp) {
     });
 
     // ensuring t1 and t2 handler functions are processed in order
-    usleep(100 * 1000);
+    EXPECT_TRUE(PollForCondition([&]() { return GetNumQueries(dns1, host_name_deferred); }));
     std::thread t2([&, this]() {
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
                                                               .setDnsServers(servers_for_t2)
