@@ -18,6 +18,7 @@
 
 use crate::boot_time::{timeout, BootTime, Duration};
 use crate::config::Config;
+use crate::connection::driver::Cause;
 use crate::connection::Connection;
 use crate::dispatcher::{QueryError, Response};
 use crate::encoding;
@@ -76,18 +77,10 @@ async fn build_connection(
     tag_socket: &SocketTagger,
     config: &mut Config,
     session: Option<Vec<u8>>,
+    cause: Cause,
 ) -> Result<Connection> {
     use std::ops::DerefMut;
-    Ok(Connection::new(
-        info.domain.as_deref(),
-        info.peer_addr,
-        info.sk_mark,
-        info.net_id,
-        tag_socket,
-        config.take().await.deref_mut(),
-        session,
-    )
-    .await?)
+    Ok(Connection::new(info, tag_socket, config.take().await.deref_mut(), session, cause).await?)
 }
 
 impl Driver {
@@ -101,7 +94,8 @@ impl Driver {
     ) -> Result<(Self, mpsc::Sender<Command>, watch::Receiver<Status>)> {
         let (command_tx, command_rx) = mpsc::channel(Self::MAX_BUFFERED_COMMANDS);
         let (status_tx, status_rx) = watch::channel(Status::Unprobed);
-        let connection = build_connection(&info, &tag_socket, &mut config, None).await?;
+        let connection =
+            build_connection(&info, &tag_socket, &mut config, None, Cause::Probe).await?;
         Ok((
             Self { info, config, connection, status_tx, command_rx, validation, tag_socket },
             command_tx,
@@ -132,8 +126,14 @@ impl Driver {
             debug!("Network is currently failed, reconnecting");
             // If our network is currently failed, it may be due to issues with the connection.
             // Re-establish before re-probing
-            self.connection =
-                build_connection(&self.info, &self.tag_socket, &mut self.config, None).await?;
+            self.connection = build_connection(
+                &self.info,
+                &self.tag_socket,
+                &mut self.config,
+                None,
+                Cause::Retry,
+            )
+            .await?;
             self.status_tx.send(Status::Unprobed)?;
         }
         if self.status_tx.borrow().is_live() {
@@ -189,8 +189,14 @@ impl Driver {
             let session =
                 if self.info.use_session_resumption { self.connection.session() } else { None };
             // Try reconnecting
-            self.connection =
-                build_connection(&self.info, &self.tag_socket, &mut self.config, session).await?;
+            self.connection = build_connection(
+                &self.info,
+                &self.tag_socket,
+                &mut self.config,
+                session,
+                Cause::Reconnect,
+            )
+            .await?;
         }
         let request = encoding::dns_request(&query.query, &self.info.url)?;
         let stream_fut = self.connection.query(request, Some(query.expiry)).await?;

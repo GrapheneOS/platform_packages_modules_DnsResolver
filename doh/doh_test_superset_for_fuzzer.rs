@@ -23,6 +23,7 @@ mod connection;
 mod dispatcher;
 mod encoding;
 mod ffi;
+mod metrics;
 mod network;
 /// The Rust FFI bindings to C APIs for implementation of doh frontend.
 mod tests;
