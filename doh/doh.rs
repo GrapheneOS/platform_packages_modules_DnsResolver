@@ -22,4 +22,5 @@ mod connection;
 mod dispatcher;
 mod encoding;
 mod ffi;
+mod metrics;
 mod network;
