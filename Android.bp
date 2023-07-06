@@ -249,14 +249,10 @@ cc_library {
         "libcrypto",
         "liblog", //Used by libstatslog_resolv
         "libssl",
+        "libstatssocket",
     ],
     header_libs: [
         "libnetdbinder_utils_headers",
-    ],
-    runtime_libs: [
-        // Causes the linkerconfig to create a namespace link from resolv to the
-        // libstatssocket library within the statsd apex
-        "libstatssocket",
     ],
     export_include_dirs: ["include"],
 
@@ -362,6 +358,7 @@ doh_rust_deps = [
     "liblibc",
     "liblog_rust",
     "libring",
+    "libstatslog_rust",
     "libthiserror",
     "libtokio",
     "liburl",
@@ -408,6 +405,11 @@ rust_ffi_static {
 
     rlibs: doh_rust_deps + ["libquiche_static"],
     prefer_rlib: true,
+
+    shared_libs: [
+        "libstatssocket",
+    ],
+
     // TODO(b/194022174), for unit tests to run on the Android 10 platform,
     // libunwind must be statically linked.
     whole_static_libs: ["libunwind"],
@@ -438,6 +440,7 @@ rust_ffi_static {
         "liblog_rust",
         "libquiche_static",
         "libring",
+        "libstatslog_rust",
         "libthiserror",
         "libtokio",
         "liburl",
