@@ -17,18 +17,64 @@
 
 use crate::boot_time;
 use crate::boot_time::BootTime;
+use crate::metrics::log_handshake_event_stats;
 use log::{debug, info, warn};
 use quiche::h3;
 use std::collections::HashMap;
 use std::default::Default;
 use std::future;
 use std::io;
+use std::time::Instant;
 use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::Status;
+
+#[derive(Copy, Clone, Debug)]
+pub enum Cause {
+    Probe,
+    Reconnect,
+    Retry,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub enum HandshakeResult {
+    Unknown,
+    Success,
+    Timeout,
+    TlsFail,
+    ServerUnreachable,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct HandshakeInfo {
+    pub cause: Cause,
+    pub sent_bytes: u64,
+    pub recv_bytes: u64,
+    pub elapsed: u128,
+    pub quic_version: u32,
+    pub network_type: u32,
+    pub private_dns_mode: u32,
+    pub session_hit_checker: bool,
+}
+
+impl std::fmt::Display for HandshakeInfo {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "cause={:?}, sent_bytes={}, recv_bytes={}, quic_version={}, session_hit_checker={}",
+            self.cause,
+            self.sent_bytes,
+            self.recv_bytes,
+            self.quic_version,
+            self.session_hit_checker
+        )
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -92,6 +138,8 @@ struct Driver {
     // if we poll on a dead receiver in a select! it will immediately return None. As a result, we
     // need this to gate whether or not to include .recv() in our select!
     closing: bool,
+    handshake_info: HandshakeInfo,
+    connection_start: Instant,
 }
 
 struct H3Driver {
@@ -121,8 +169,9 @@ pub async fn drive(
     quiche_conn: quiche::Connection,
     socket: UdpSocket,
     net_id: u32,
+    handshake_info: HandshakeInfo,
 ) -> Result<()> {
-    Driver::new(request_rx, status_tx, quiche_conn, socket, net_id).drive().await
+    Driver::new(request_rx, status_tx, quiche_conn, socket, net_id, handshake_info).drive().await
 }
 
 impl Driver {
@@ -132,6 +181,7 @@ impl Driver {
         quiche_conn: quiche::Connection,
         socket: UdpSocket,
         net_id: u32,
+        handshake_info: HandshakeInfo,
     ) -> Self {
         Self {
             request_rx,
@@ -141,10 +191,13 @@ impl Driver {
             buffer: Box::new([0; MAX_UDP_PACKET_SIZE]),
             net_id,
             closing: false,
+            handshake_info,
+            connection_start: Instant::now(),
         }
     }
 
     async fn drive(mut self) -> Result<()> {
+        self.connection_start = Instant::now();
         // Prime connection
         self.flush_tx().await?;
         loop {
@@ -202,6 +255,13 @@ impl Driver {
                 self.quiche_conn.trace_id(),
                 self.net_id
             );
+            self.handshake_info.elapsed = self.connection_start.elapsed().as_micros();
+            // In Stats, sent_bytes implements the way that omits the length of padding data
+            // append to the datagram.
+            self.handshake_info.sent_bytes = self.quiche_conn.stats().sent_bytes;
+            self.handshake_info.recv_bytes = self.quiche_conn.stats().recv_bytes;
+            self.handshake_info.quic_version = quiche::PROTOCOL_VERSION;
+            log_handshake_event_stats(HandshakeResult::Success, self.handshake_info);
             let h3_config = h3::Config::new()?;
             let h3_conn = h3::Connection::with_transport(&mut self.quiche_conn, &h3_config)?;
             self = H3Driver::new(self, h3_conn).drive().await?;
@@ -213,7 +273,20 @@ impl Driver {
             // If a quiche timer would fire, call their callback
             _ = timer => {
                 info!("Driver: Timer expired on network {}", self.net_id);
-                self.quiche_conn.on_timeout()
+                self.quiche_conn.on_timeout();
+
+                if !self.quiche_conn.is_established() && self.quiche_conn.is_closed() {
+                    info!(
+                        "Connection {} timeouted on network {}",
+                        self.quiche_conn.trace_id(),
+                        self.net_id
+                    );
+                    self.handshake_info.elapsed = self.connection_start.elapsed().as_micros();
+                    log_handshake_event_stats(
+                        HandshakeResult::Timeout,
+                        self.handshake_info,
+                    );
+                }
             }
             // If we got packets from our peer, pass them to quiche
             Ok((size, from)) = self.socket.recv_from(self.buffer.as_mut()) => {
@@ -222,6 +295,7 @@ impl Driver {
                 debug!("Received {} bytes on network {}", size, self.net_id);
             }
         };
+
         // Any of the actions in the select could require us to send packets to the peer
         self.flush_tx().await?;
 
