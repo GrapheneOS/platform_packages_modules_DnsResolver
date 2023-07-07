@@ -18,6 +18,7 @@
 
 #include <algorithm>
 
+#include <android-base/format.h>
 #include <netdutils/InternetAddresses.h>
 
 namespace {
@@ -128,6 +129,10 @@ bool DnsTlsServer::wasExplicitlyConfigured() const {
 
 std::string DnsTlsServer::toIpString() const {
     return netdutils::IPSockAddr::toIPSockAddr(ss).ip().toString();
+}
+
+std::string DnsTlsServer::toString() const {
+    return fmt::format("{{{}/{}}}", toIpString(), name);
 }
 
 }  // namespace net
