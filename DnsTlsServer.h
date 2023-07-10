@@ -63,6 +63,7 @@ struct DnsTlsServer {
 
     bool wasExplicitlyConfigured() const;
     std::string toIpString() const;
+    std::string toString() const;
 
     std::string provider() const { return name; }
     netdutils::IPSockAddr addr() const { return netdutils::IPSockAddr::toIPSockAddr(ss); }
