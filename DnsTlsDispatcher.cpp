@@ -71,7 +71,7 @@ std::list<DnsTlsServer> DnsTlsDispatcher::getOrderedAndUsableServerList(
                 if (!xport->usable()) {
                     // Don't use this xport. It will be removed after timeout
                     // (IDLE_TIMEOUT minutes).
-                    LOG(DEBUG) << "Skip using DoT server " << tlsServer.toIpString() << " on "
+                    LOG(DEBUG) << "Skip using DoT server " << tlsServer.toString() << " on "
                                << netId;
                     continue;
                 }
@@ -231,7 +231,7 @@ DnsTlsTransport::Response DnsTlsDispatcher::query(const DnsTlsServer& server, un
             // a new xport will be created.
             const auto result = PrivateDnsConfiguration::getInstance().requestDotValidation(
                     netId, PrivateDnsConfiguration::ServerIdentity{server}, mark);
-            LOG(WARNING) << "Requested validation for " << server.toIpString() << " with mark 0x"
+            LOG(WARNING) << "Requested validation for " << server.toString() << " with mark 0x"
                          << std::hex << mark << ", "
                          << (result.ok() ? "succeeded" : "failed: " + result.error().message());
         }
@@ -327,7 +327,7 @@ DnsTlsDispatcher::Transport* DnsTlsDispatcher::addTransport(const DnsTlsServer& 
     ret = new Transport(server, mark, netId, mFactory.get(), triggerThr, unusableThr, queryTimeout);
     LOG(INFO) << "Transport is initialized with { " << triggerThr << ", " << unusableThr << ", "
               << queryTimeout << "ms }"
-              << " for server { " << server.toIpString() << "/" << server.name << " }";
+              << " for server " << server.toString();
 
     mStore[key].reset(ret);
 
