@@ -70,7 +70,7 @@ int waitForWriting(int fd, int timeoutMs = -1) {
 Status DnsTlsSocket::tcpConnect() {
     if (mServer.protocol != IPPROTO_TCP) return Status(EPROTONOSUPPORT);
 
-    LOG(DEBUG) << mMark << " connecting TCP socket";
+    LOG(INFO) << fmt::format("Connecting to {} with mark 0x{:x}", mServer.toString(), mMark);
 
     mSslFd.reset(socket(mServer.ss.ss_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0));
     if (mSslFd.get() == -1) {
@@ -270,7 +270,7 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnect(int fd) {
     for (;;) {
         LOG(DEBUG) << " Calling SSL_connect with mark 0x" << std::hex << mMark;
         int ret = SSL_connect(ssl.get());
-        LOG(DEBUG) << " SSL_connect returned " << ret << " with mark 0x" << std::hex << mMark;
+        LOG(INFO) << " SSL_connect returned " << ret << " with mark 0x" << std::hex << mMark;
         if (ret == 1) break;  // SSL handshake complete;
 
         const int ssl_err = SSL_get_error(ssl.get(), ret);
@@ -315,7 +315,7 @@ bssl::UniquePtr<SSL> DnsTlsSocket::sslConnectV2(int fd) {
     for (;;) {
         LOG(DEBUG) << " Calling SSL_connect with mark 0x" << std::hex << mMark;
         int ret = SSL_connect(ssl.get());
-        LOG(DEBUG) << " SSL_connect returned " << ret << " with mark 0x" << std::hex << mMark;
+        LOG(INFO) << " SSL_connect returned " << ret << " with mark 0x" << std::hex << mMark;
         if (ret == 1) break;  // SSL handshake complete;
 
         enum { SSLFD = 0, EVENTFD = 1 };
@@ -445,7 +445,7 @@ void DnsTlsSocket::loop() {
             break;
         }
         if (s < 0) {
-            PLOG(DEBUG) << "Poll failed";
+            PLOG(WARNING) << "Poll failed";
             break;
         }
         if (fds[SSLFD].revents & (POLLIN | POLLERR | POLLHUP)) {
@@ -457,7 +457,7 @@ void DnsTlsSocket::loop() {
             // refactoring it to not get blocked in any case.
             do {
                 if (!readResponse()) {
-                    LOG(DEBUG) << "SSL remote close or read error.";
+                    LOG(INFO) << "SSL remote close or read error.";
                     readFailed = true;
                 }
             } while (SSL_pending(mSsl.get()) > 0 && !readFailed);
@@ -496,7 +496,7 @@ void DnsTlsSocket::loop() {
             q.pop_front();
         }
     }
-    LOG(DEBUG) << "Disconnecting";
+    LOG(INFO) << fmt::format("Disconnecting {}, mark 0x{:x}", mServer.toString(), mMark);
     sslDisconnect();
     LOG(DEBUG) << "Calling onClosed";
     mObserver->onClosed();
