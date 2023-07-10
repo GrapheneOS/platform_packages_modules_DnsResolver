@@ -365,11 +365,11 @@ void PrivateDnsConfiguration::startDotValidation(const ServerIdentity& identity,
         while (true) {
             // ::validate() is a blocking call that performs network operations.
             // It can take milliseconds to minutes, up to the SYN retry limit.
-            LOG(WARNING) << "Validating DnsTlsServer " << server.toIpString() << " with mark 0x"
+            LOG(WARNING) << "Validating DnsTlsServer " << server.toString() << " with mark 0x"
                          << std::hex << server.validationMark();
             const bool success = DnsTlsTransport::validate(server, server.validationMark());
             LOG(WARNING) << "validateDnsTlsServer returned " << success << " for "
-                         << server.toIpString();
+                         << server.toString();
 
             const bool needs_reeval =
                     this->recordDotValidation(identity, netId, success, isRevalidation);
