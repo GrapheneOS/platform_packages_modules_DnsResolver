@@ -50,7 +50,7 @@ constexpr int DNS_PORT = 53;
 // Constant values sync'd from res_cache.cpp
 constexpr int DNS_HEADER_SIZE = 12;
 constexpr int MAX_ENTRIES_DEFAULT = 64 * 2 * 5;
-constexpr int MAX_ENTRIES_LOWER_BOUND = 0;
+constexpr int MAX_ENTRIES_LOWER_BOUND = 1;
 constexpr int MAX_ENTRIES_UPPER_BOUND = 100 * 1000;
 
 namespace {
