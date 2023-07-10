@@ -154,7 +154,7 @@ using std::span;
  * *****************************************
  */
 const int MAX_ENTRIES_DEFAULT = 64 * 2 * 5;
-const int MAX_ENTRIES_LOWER_BOUND = 0;
+const int MAX_ENTRIES_LOWER_BOUND = 1;
 const int MAX_ENTRIES_UPPER_BOUND = 100 * 1000;
 constexpr int DNSEVENT_SUBSAMPLING_MAP_DEFAULT_KEY = -1;
 
