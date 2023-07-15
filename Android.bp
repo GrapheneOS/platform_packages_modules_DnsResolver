@@ -292,7 +292,7 @@ genrule {
     name: "statslog_resolv.h",
     tools: ["stats-log-api-gen"],
     cmd: "$(location stats-log-api-gen) --header $(genDir)/statslog_resolv.h --module resolv" +
-        " --namespace android,net,stats --minApiLevel 29",
+        " --namespace android,net,stats --minApiLevel 30",
     out: [
         "statslog_resolv.h",
     ],
@@ -302,7 +302,7 @@ genrule {
     name: "statslog_resolv.cpp",
     tools: ["stats-log-api-gen"],
     cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_resolv.cpp --module resolv" +
-        " --namespace android,net,stats --importHeader statslog_resolv.h --minApiLevel 29",
+        " --namespace android,net,stats --importHeader statslog_resolv.h --minApiLevel 30",
     out: [
         "statslog_resolv.cpp",
     ],
