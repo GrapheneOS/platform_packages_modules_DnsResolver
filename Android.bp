@@ -229,7 +229,6 @@ cc_library {
         "libmodules-utils-build",
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
-        "libstatspush_compat",
         "libsysutils",
         "netd_event_listener_interface-lateststable-ndk",
         "server_configurable_flags",
@@ -316,10 +315,9 @@ cc_library_static {
     export_generated_headers: ["statslog_resolv.h"],
     static_libs: [
         "libcutils",
-        "libstatspush_compat",
     ],
-    header_libs: [
-        "libgtest_prod_headers", // Used by libstatspush_compat
+    shared_libs: [
+        "libstatssocket",
     ],
     apex_available: ["com.android.resolv"],
     min_sdk_version: "30",
