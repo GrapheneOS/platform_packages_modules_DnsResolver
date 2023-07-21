@@ -57,8 +57,7 @@ impl BootTime {
     /// Gets a `BootTime` representing the current moment in time.
     pub fn now() -> BootTime {
         let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-        // # Safety
-        // clock_gettime's only action will be to possibly write to the pointer provided,
+        // SAFETY: clock_gettime's only action will be to possibly write to the pointer provided,
         // and no borrows exist from that object other than the &mut used to construct the pointer
         // itself.
         if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut t as *mut libc::timespec) } != 0
@@ -93,9 +92,8 @@ struct TimerFd(RawFd);
 
 impl Drop for TimerFd {
     fn drop(&mut self) {
-        // # Safety
-        // The fd is owned by the TimerFd struct, and no memory access occurs as a result of this
-        // call.
+        // SAFETY: The fd is owned by the TimerFd struct, and no memory access occurs as a result of
+        // this call.
         unsafe {
             libc::close(self.0);
         }
@@ -110,9 +108,8 @@ impl AsRawFd for TimerFd {
 
 impl TimerFd {
     fn create() -> io::Result<Self> {
-        // # Unsafe
-        // This libc call will either give us back a file descriptor or fail, it does not act on
-        // memory or resources.
+        // SAFETY: This libc call will either give us back a file descriptor or fail, it does not
+        // act on memory or resources.
         let raw = unsafe {
             libc::timerfd_create(libc::CLOCK_BOOTTIME, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC)
         };
@@ -131,8 +128,7 @@ impl TimerFd {
                 tv_nsec: duration.subsec_nanos().try_into().unwrap(),
             },
         };
-        // # Unsafe
-        // We own `timer` and there are no borrows to it other than the pointer we pass to
+        // SAFETY: We own `timer` and there are no borrows to it other than the pointer we pass to
         // timerfd_settime. timerfd_settime is explicitly documented to handle a null output
         // parameter for its fourth argument by not filling out the output. The fd passed in at
         // self.0 is owned by the `TimerFd` struct, so we aren't breaking anyone else's invariants.
