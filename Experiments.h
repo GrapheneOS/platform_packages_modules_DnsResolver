@@ -17,6 +17,7 @@
 #pragma once
 
 #include <climits>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
