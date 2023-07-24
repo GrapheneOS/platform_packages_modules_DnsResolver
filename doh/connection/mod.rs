@@ -61,7 +61,7 @@ fn new_scid() -> [u8; quiche::MAX_CONN_ID_LEN] {
 fn mark_socket(socket: &std::net::UdpSocket, socket_mark: u32) -> io::Result<()> {
     use std::os::unix::io::AsRawFd;
     let fd = socket.as_raw_fd();
-    // libc::setsockopt is a wrapper function calling into bionic setsockopt.
+    // SAFETY: libc::setsockopt is a wrapper function calling into bionic setsockopt.
     // The only pointer being passed in is &socket_mark, which is valid by virtue of being a
     // reference, and the foreign function doesn't take ownership or a reference to that memory
     // after completion.
