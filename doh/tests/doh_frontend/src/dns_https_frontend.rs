@@ -477,6 +477,9 @@ fn into_tokio_udp_socket(socket: std::net::UdpSocket) -> Result<UdpSocket> {
 
 fn build_pipe() -> Result<(File, File)> {
     let mut fds = [0, 0];
+    // SAFETY: The pointer we pass to `pipe` must be valid because it comes from a reference. The
+    // file descriptors it returns must be valid and open, so they are safe to pass to
+    // `File::from_raw_fd`.
     unsafe {
         if libc::pipe(fds.as_mut_ptr()) == 0 {
             return Ok((File::from_raw_fd(fds[0]), File::from_raw_fd(fds[1])));
