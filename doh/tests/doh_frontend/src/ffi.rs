@@ -38,10 +38,14 @@ pub unsafe extern "C" fn frontend_new(
     backend_addr: *const c_char,
     backend_port: *const c_char,
 ) -> *mut DohFrontend {
-    let addr = CStr::from_ptr(addr).to_str().unwrap();
-    let port = CStr::from_ptr(port).to_str().unwrap();
-    let backend_addr = CStr::from_ptr(backend_addr).to_str().unwrap();
-    let backend_port = CStr::from_ptr(backend_port).to_str().unwrap();
+    // SAFETY: Our caller promises that addr is a valid C string.
+    let addr = unsafe { CStr::from_ptr(addr) }.to_str().unwrap();
+    // SAFETY: Our caller promises that port is a valid C string.
+    let port = unsafe { CStr::from_ptr(port) }.to_str().unwrap();
+    // SAFETY: Our caller promises that backend_addr is a valid C string.
+    let backend_addr = unsafe { CStr::from_ptr(backend_addr) }.to_str().unwrap();
+    // SAFETY: Our caller promises that backend_port is a valid C string.
+    let backend_port = unsafe { CStr::from_ptr(backend_port) }.to_str().unwrap();
 
     let socket_addr = to_socket_addr(addr, port).or_else(logging_and_return_err);
     let backend_socket_addr =
@@ -73,13 +77,19 @@ pub extern "C" fn frontend_stop(doh: &mut DohFrontend) -> bool {
 /// If the caller has called `frontend_start` to start `DohFrontend`, it has to call
 /// call `frontend_stop` to stop the worker thread before deleting the object.
 ///
+/// The DohFrontend is not set to null pointer, caller needs to do it on its own.
+///
 /// # Safety
 ///
-/// The DohFrontend is not set to null pointer, caller needs to do it on its own.
+/// `doh` must be a pointer either null or previously returned by `frontend_new`, and not yet passed
+/// to `frontend_delete`.
 #[no_mangle]
 pub unsafe extern "C" fn frontend_delete(doh: *mut DohFrontend) {
     if !doh.is_null() {
-        drop(Box::from_raw(doh));
+        // SAFETY: Our caller promised that `doh` was either null or previously returned by
+        // `frontend_new`. We just checked that it's not null, so it must have been returned by
+        // `frontend_new`, which obtained it from `Box::into_raw`.
+        drop(unsafe { Box::from_raw(doh) });
     }
 }
 
@@ -96,7 +106,8 @@ pub unsafe extern "C" fn frontend_set_certificate(
     if certificate.is_null() {
         return false;
     }
-    let certificate = CStr::from_ptr(certificate).to_str().unwrap();
+    // SAFETY: Our caller promises that certificate is a valid C string.
+    let certificate = unsafe { CStr::from_ptr(certificate) }.to_str().unwrap();
     doh.set_certificate(certificate).or_else(logging_and_return_err).is_ok()
 }
 
@@ -113,7 +124,8 @@ pub unsafe extern "C" fn frontend_set_private_key(
     if private_key.is_null() {
         return false;
     }
-    let private_key = CStr::from_ptr(private_key).to_str().unwrap();
+    // SAFETY: Our caller promises that private_key is a valid C string.
+    let private_key = unsafe { CStr::from_ptr(private_key) }.to_str().unwrap();
     doh.set_private_key(private_key).or_else(logging_and_return_err).is_ok()
 }
 
