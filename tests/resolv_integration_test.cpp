@@ -48,6 +48,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <functional>
 #include <iterator>
 #include <numeric>
 #include <string_view>
