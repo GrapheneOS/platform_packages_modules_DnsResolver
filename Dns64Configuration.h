@@ -20,6 +20,7 @@
 #include <netinet/in.h>
 #include <condition_variable>
 #include <cstdlib>
+#include <functional>
 #include <mutex>
 #include <unordered_map>
 
