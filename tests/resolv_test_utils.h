@@ -20,6 +20,7 @@
 #include <arpa/nameser.h>
 #include <netdb.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
