@@ -5636,12 +5636,11 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
     parcel.tlsServers = {addr1, addr2, unusable_addr};
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
-    // Check the validation results.
+    // Check the validation status before proceed. The validation for `unresponsiveTls`
+    // should be running, and the other two should be finished.
     EXPECT_TRUE(WaitForPrivateDnsValidation(workableTls.listen_address(), true));
     EXPECT_TRUE(WaitForPrivateDnsValidation(unusable_addr, false));
-
-    // The validation is still in progress.
-    EXPECT_EQ(unresponsiveTls.acceptConnectionsCount(), 1);
+    EXPECT_TRUE(PollForCondition([&]() { return unresponsiveTls.acceptConnectionsCount() == 1; }));
     unresponsiveTls.clearConnectionsCount();
 
     static const struct TestConfig {
@@ -5717,7 +5716,8 @@ TEST_F(ResolverTest, RepeatedSetup_NoRedundantPrivateDnsValidation) {
         }
 
         if (validationAttemptToUnresponsiveTls) {
-            EXPECT_GT(unresponsiveTls.acceptConnectionsCount(), 0);
+            EXPECT_TRUE(PollForCondition(
+                    [&]() { return unresponsiveTls.acceptConnectionsCount() > 0; }));
         } else {
             EXPECT_EQ(unresponsiveTls.acceptConnectionsCount(), 0);
         }
