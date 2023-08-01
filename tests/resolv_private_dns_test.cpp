@@ -1175,3 +1175,32 @@ TEST_F(PrivateDnsDohTest, ReceiveResetStream) {
     expectAnswersValid(fd, AF_INET6, kQueryAnswerAAAA);
     EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 1 /* dot */, 2 /* doh */));
 }
+
+// Tests that, given an IP address with an allowed DoH provider name, PrivateDnsConfiguration
+// attempts to probe the server for DoH.
+TEST_F(PrivateDnsDohTest, UseDohAsLongAsHostnameMatch) {
+    // "example.com" is an allowed DoH provider name defined in
+    // PrivateDnsConfiguration::mAvailableDoHProviders.
+    constexpr char allowedDohName[] = "example.com";
+    constexpr char someOtherIp[] = "127.99.99.99";
+
+    // The test currently doesn't support testing DoH in private DNS strict mode, so DnsResolver
+    // can't connect to the testing DoH servers. We use onPrivateDnsValidationEvent() to check
+    // whether DoT/DoH probes are performed.
+    // Without an allowed private DNS provider hostname, expect PrivateDnsConfiguration to probe
+    // the server for DoT only.
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(
+            ResolverParams::Builder().setDotServers({someOtherIp}).build()));
+    EXPECT_TRUE(WaitForDotValidation(someOtherIp, false));
+    EXPECT_FALSE(hasUncaughtPrivateDnsValidation(someOtherIp));
+
+    // With an allowed private DNS provider hostname, expect PrivateDnsConfiguration to probe the
+    // server for both DoT and DoH.
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
+                                                          .setDotServers({someOtherIp})
+                                                          .setPrivateDnsProvider(allowedDohName)
+                                                          .build()));
+    EXPECT_TRUE(WaitForDotValidation(someOtherIp, false));
+    EXPECT_TRUE(WaitForDohValidation(someOtherIp, false));
+    EXPECT_FALSE(hasUncaughtPrivateDnsValidation(someOtherIp));
+}
