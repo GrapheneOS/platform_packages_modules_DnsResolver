@@ -202,9 +202,25 @@ class BaseTest : public NetNativeTestBase {
                                            IDnsResolverUnsolicitedEventListener::PROTOCOL_DOT);
     }
 
+    bool WaitForDotValidationSuccess(std::string serverAddr) {
+        return WaitForDotValidation(serverAddr, true);
+    }
+
+    bool WaitForDotValidationFailure(std::string serverAddr) {
+        return WaitForDotValidation(serverAddr, false);
+    }
+
     bool WaitForDohValidation(std::string serverAddr, bool validated) {
         return WaitForPrivateDnsValidation(serverAddr, validated,
                                            IDnsResolverUnsolicitedEventListener::PROTOCOL_DOH);
+    }
+
+    bool WaitForDohValidationSuccess(std::string serverAddr) {
+        return WaitForDohValidation(serverAddr, true);
+    }
+
+    bool WaitForDohValidationFailure(std::string serverAddr) {
+        return WaitForDohValidation(serverAddr, false);
     }
 
     bool WaitForPrivateDnsValidation(std::string serverAddr, bool validated, int protocol) {
@@ -399,8 +415,8 @@ TEST_P(TransportParameterizedTest, GetAddrInfo) {
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
-    if (testParamHasDoh()) EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    if (testParamHasDot()) EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    if (testParamHasDoh()) EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    if (testParamHasDot()) EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
 
     // This waiting time is expected to avoid that the DoH validation event interferes other tests.
     if (!testParamHasDoh()) waitForDohValidationFailed();
@@ -467,8 +483,8 @@ TEST_P(TransportParameterizedTest, MdnsGetAddrInfo_fallback) {
     auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
-    if (testParamHasDoh()) EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    if (testParamHasDot()) EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    if (testParamHasDoh()) EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    if (testParamHasDot()) EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
 
     // This waiting time is expected to avoid that the DoH validation event interferes other tests.
     if (!testParamHasDoh()) waitForDohValidationFailed();
@@ -542,8 +558,8 @@ TEST_F(PrivateDnsDohTest, ValidationFail) {
     Stopwatch s;
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, false));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, false));
+    EXPECT_TRUE(WaitForDohValidationFailure(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationFailure(test::kDefaultListenAddr));
     EXPECT_LT(s.getTimeAndResetUs(),
               microseconds(kExpectedDohValidationTimeWhenServerUnreachable + TIMING_TOLERANCE)
                       .count());
@@ -555,8 +571,8 @@ TEST_F(PrivateDnsDohTest, ValidationFail) {
 
     s.getTimeAndResetUs();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, false));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, false));
+    EXPECT_TRUE(WaitForDohValidationFailure(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationFailure(test::kDefaultListenAddr));
     EXPECT_LT(s.getTimeAndResetUs(),
               microseconds(kExpectedDohValidationTimeWhenTimeout + TIMING_TOLERANCE).count());
 
@@ -575,8 +591,8 @@ TEST_F(PrivateDnsDohTest, QueryFailover) {
 
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     dns.clearQueries();
@@ -593,7 +609,7 @@ TEST_F(PrivateDnsDohTest, QueryFailover) {
     resetNetwork();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     dns.clearQueries();
@@ -640,7 +656,7 @@ TEST_F(PrivateDnsDohTest, PreferIpv6) {
 
         // Currently, DnsResolver sorts the server list and did DoH validation only
         // for the first server.
-        EXPECT_TRUE(WaitForDohValidation(listen_ipv6_addr, true));
+        EXPECT_TRUE(WaitForDohValidationSuccess(listen_ipv6_addr));
 
         doh.clearQueries();
         doh_ipv6.clearQueries();
@@ -671,7 +687,7 @@ TEST_F(PrivateDnsDohTest, ChangeAndClearPrivateDnsServer) {
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
 
     // Use v4 DoH server first.
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
     doh.clearQueries();
     EXPECT_NO_FAILURE(sendQueryAndCheckResult());
     EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
@@ -680,7 +696,7 @@ TEST_F(PrivateDnsDohTest, ChangeAndClearPrivateDnsServer) {
     parcel.servers = {listen_ipv6_addr};
     parcel.tlsServers = {listen_ipv6_addr};
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(listen_ipv6_addr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(listen_ipv6_addr));
     doh.clearQueries();
     doh_ipv6.clearQueries();
     flushCache();
@@ -729,7 +745,7 @@ TEST_F(PrivateDnsDohTest, ChangePrivateDnsServerAndVerifyOutput) {
     // Start the v4 DoH server.
     auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(expectLog(ipv4DohServerAddr, kDohPortString));
 
     // Change to an invalid DoH server.
@@ -742,7 +758,7 @@ TEST_F(PrivateDnsDohTest, ChangePrivateDnsServerAndVerifyOutput) {
     parcel.servers = {ipv6DohServerAddr};
     parcel.tlsServers = {ipv6DohServerAddr};
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(ipv6DohServerAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(ipv6DohServerAddr));
     EXPECT_TRUE(expectLog(ipv6DohServerAddr, kDohPortString));
     EXPECT_FALSE(expectLog(ipv4DohServerAddr, kDohPortString));
 
@@ -762,8 +778,8 @@ TEST_F(PrivateDnsDohTest, TemporaryConnectionStalled) {
 
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -805,8 +821,8 @@ TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
 
     auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -899,8 +915,8 @@ TEST_F(PrivateDnsDohTest, RunOutOfDataLimit) {
 
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -948,8 +964,8 @@ TEST_F(PrivateDnsDohTest, RunOutOfStreams) {
 
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -986,8 +1002,8 @@ TEST_F(PrivateDnsDohTest, ReconnectAfterIdleTimeout) {
 
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -1027,8 +1043,8 @@ TEST_F(PrivateDnsDohTest, ConnectionIdleTimer) {
 
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -1061,8 +1077,8 @@ TEST_F(PrivateDnsDohTest, SessionResumption) {
 
         const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-        EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-        EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+        EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+        EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
         EXPECT_TRUE(dot.waitForQueries(1));
         dot.clearQueries();
         doh.clearQueries();
@@ -1100,8 +1116,8 @@ TEST_F(PrivateDnsDohTest, TestEarlyDataFlag) {
 
         const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-        EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-        EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+        EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+        EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
         EXPECT_TRUE(dot.waitForQueries(1));
         dot.clearQueries();
         doh.clearQueries();
@@ -1122,8 +1138,8 @@ TEST_F(PrivateDnsDohTest, TestEarlyDataFlag) {
 TEST_F(PrivateDnsDohTest, RemoteConnectionClosed) {
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -1149,8 +1165,8 @@ TEST_F(PrivateDnsDohTest, RemoteConnectionClosed) {
 TEST_F(PrivateDnsDohTest, ReceiveResetStream) {
     const auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-    EXPECT_TRUE(WaitForDohValidation(test::kDefaultListenAddr, true));
-    EXPECT_TRUE(WaitForDotValidation(test::kDefaultListenAddr, true));
+    EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
     EXPECT_TRUE(dot.waitForQueries(1));
     dot.clearQueries();
     doh.clearQueries();
@@ -1191,7 +1207,7 @@ TEST_F(PrivateDnsDohTest, UseDohAsLongAsHostnameMatch) {
     // the server for DoT only.
     ASSERT_TRUE(mDnsClient.SetResolversFromParcel(
             ResolverParams::Builder().setDotServers({someOtherIp}).build()));
-    EXPECT_TRUE(WaitForDotValidation(someOtherIp, false));
+    EXPECT_TRUE(WaitForDotValidationFailure(someOtherIp));
     EXPECT_FALSE(hasUncaughtPrivateDnsValidation(someOtherIp));
 
     // With an allowed private DNS provider hostname, expect PrivateDnsConfiguration to probe the
@@ -1200,7 +1216,7 @@ TEST_F(PrivateDnsDohTest, UseDohAsLongAsHostnameMatch) {
                                                           .setDotServers({someOtherIp})
                                                           .setPrivateDnsProvider(allowedDohName)
                                                           .build()));
-    EXPECT_TRUE(WaitForDotValidation(someOtherIp, false));
-    EXPECT_TRUE(WaitForDohValidation(someOtherIp, false));
+    EXPECT_TRUE(WaitForDotValidationFailure(someOtherIp));
+    EXPECT_TRUE(WaitForDohValidationFailure(someOtherIp));
     EXPECT_FALSE(hasUncaughtPrivateDnsValidation(someOtherIp));
 }
