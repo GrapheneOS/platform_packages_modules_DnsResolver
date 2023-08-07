@@ -4124,6 +4124,9 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     EXPECT_EQ(0, tls.queries()) << dns.dumpQueries();
     EXPECT_EQ(1U, GetNumQueries(dns, dns64_name)) << dns.dumpQueries();
 
+    EXPECT_TRUE(mDnsClient.resolvService()->stopPrefix64Discovery(TEST_NETID).isOk());
+    EXPECT_TRUE(WaitForNat64Prefix(EXPECT_NOT_FOUND));
+
     // Restart the testing network to reset the cache.
     mDnsClient.TearDown();
     mDnsClient.SetUp();
@@ -4147,6 +4150,16 @@ TEST_F(ResolverTest, PrefixDiscoveryBypassTls) {
     // Verify it bypassed TLS despite STRICT mode.
     EXPECT_EQ(0, tls.queries()) << dns.dumpQueries();
     EXPECT_EQ(1U, GetNumQueries(dns, dns64_name)) << dns.dumpQueries();
+
+    // Stop the prefix discovery to make DnsResolver send the prefix-removed event
+    // earlier. Without this, DnsResolver still sends the event once the network
+    // is destroyed; however, it will fail the next test if the test unexpectedly
+    // receives the event that it doesn't want.
+    EXPECT_TRUE(mDnsClient.resolvService()->stopPrefix64Discovery(TEST_NETID).isOk());
+    EXPECT_TRUE(WaitForNat64Prefix(EXPECT_NOT_FOUND));
+
+    EXPECT_EQ(0, sDnsMetricsListener->getUnexpectedNat64PrefixUpdates());
+    EXPECT_EQ(0, sUnsolicitedEventListener->getUnexpectedNat64PrefixUpdates());
 }
 
 TEST_F(ResolverTest, SetAndClearNat64Prefix) {
