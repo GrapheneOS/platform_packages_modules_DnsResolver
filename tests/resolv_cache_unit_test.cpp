@@ -630,9 +630,6 @@ class ResolvCacheParameterizedTest : public ResolvCacheTest,
 INSTANTIATE_TEST_SUITE_P(MaxCacheEntries, ResolvCacheParameterizedTest,
                          testing::Values(MAX_ENTRIES_LOWER_BOUND - 1, MAX_ENTRIES_UPPER_BOUND + 1),
                          [](const testing::TestParamInfo<int>& info) {
-                             if (info.param < 0) {  // '-' is an invalid character in test name
-                                 return "negative_" + std::to_string(abs(info.param));
-                             }
                              return std::to_string(info.param);
                          });
 
