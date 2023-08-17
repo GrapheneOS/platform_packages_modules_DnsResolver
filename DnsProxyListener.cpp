@@ -70,20 +70,19 @@ using std::span;
 
 namespace android {
 
+using netdutils::MAX_QUERIES_IN_TOTAL;
+using netdutils::MAX_QUERIES_PER_UID;
 using netdutils::ResponseCode;
 using netdutils::Stopwatch;
 
 namespace net {
 namespace {
 
-// Limits the number of outstanding DNS queries by client UID.
-constexpr int MAX_QUERIES_PER_UID = 256;
-
 android::netdutils::OperationLimiter<uid_t> queryLimiter(MAX_QUERIES_PER_UID);
 
 bool startQueryLimiter(uid_t uid) {
-    const int globalLimit =
-            android::net::Experiments::getInstance()->getFlag("max_queries_global", INT_MAX);
+    const int globalLimit = android::net::Experiments::getInstance()->getFlag("max_queries_global",
+                                                                              MAX_QUERIES_IN_TOTAL);
     return queryLimiter.start(uid, globalLimit);
 }
 

@@ -28,6 +28,11 @@
 namespace android {
 namespace netdutils {
 
+// Limits the number of outstanding DNS queries by client UID.
+constexpr int MAX_QUERIES_PER_UID = 256;
+// Limits the total number of outstanding DNS queries.
+constexpr int MAX_QUERIES_IN_TOTAL = 2500;
+
 // Tracks the number of operations in progress on behalf of a particular key or
 // ID, rejecting further attempts to start new operations after a configurable
 // limit has been reached.
@@ -56,11 +61,11 @@ class OperationLimiter {
     //
     // Note: each successful start(key) must be matched by exactly one call to
     // finish(key).
-    bool start(KeyType key, int globalLimit = INT_MAX) EXCLUDES(mMutex) {
+    bool start(KeyType key, int globalLimit = MAX_QUERIES_IN_TOTAL) EXCLUDES(mMutex) {
         std::lock_guard lock(mMutex);
         if (globalLimit < mLimitPerKey) {
             LOG(ERROR) << "Misconfiguration on max_queries_global " << globalLimit;
-            globalLimit = INT_MAX;
+            globalLimit = MAX_QUERIES_IN_TOTAL;
         }
         if (mGlobalCounter >= globalLimit) {
             // Oh, no!
