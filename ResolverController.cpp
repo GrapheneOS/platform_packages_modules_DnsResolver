@@ -192,8 +192,6 @@ int ResolverController::flushNetworkCache(unsigned netId) {
 }
 
 int ResolverController::setResolverConfiguration(const ResolverParamsParcel& resolverParams) {
-    using aidl::android::net::IDnsResolver;
-
     if (!has_named_cache(resolverParams.netId)) {
         return -ENOENT;
     }
