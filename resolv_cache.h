@@ -143,3 +143,6 @@ void resolv_netconfig_dump(android::netdutils::DumpWriter& dw, unsigned netid);
 // Get the maximum cache size of a network.
 // Return positive value on success, -1 on failure.
 int resolv_get_max_cache_entries(unsigned netid);
+
+// Return true if the enforceDnsUid is enabled on the network.
+bool resolv_is_enforceDnsUid_enabled_network(unsigned netid);
