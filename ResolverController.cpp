@@ -155,17 +155,17 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
 }  // namespace
 
 ResolverController::ResolverController()
-    : mDns64Configuration(
+    : mDns64Configuration(new Dns64Configuration(
               [](uint32_t netId, uint32_t uid, android_net_context* netcontext) {
                   gResNetdCallbacks.get_network_context(netId, uid, netcontext);
               },
-              std::bind(sendNat64PrefixEvent, std::placeholders::_1)) {}
+              std::bind(sendNat64PrefixEvent, std::placeholders::_1))) {}
 
 void ResolverController::destroyNetworkCache(unsigned netId) {
     LOG(VERBOSE) << __func__ << ": netId = " << netId;
 
     resolv_delete_cache_for_net(netId);
-    mDns64Configuration.stopPrefixDiscovery(netId);
+    mDns64Configuration->stopPrefixDiscovery(netId);
     PrivateDnsConfiguration::getInstance().clear(netId);
 
     // Don't get this instance in PrivateDnsConfiguration. It's probe to deadlock.
@@ -263,16 +263,16 @@ int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>*
 }
 
 void ResolverController::startPrefix64Discovery(int32_t netId) {
-    mDns64Configuration.startPrefixDiscovery(netId);
+    mDns64Configuration->startPrefixDiscovery(netId);
 }
 
 void ResolverController::stopPrefix64Discovery(int32_t netId) {
-    return mDns64Configuration.stopPrefixDiscovery(netId);
+    return mDns64Configuration->stopPrefixDiscovery(netId);
 }
 
 // TODO: use StatusOr<T> to wrap the result.
 int ResolverController::getPrefix64(unsigned netId, netdutils::IPPrefix* prefix) {
-    netdutils::IPPrefix p = mDns64Configuration.getPrefix64(netId);
+    netdutils::IPPrefix p = mDns64Configuration->getPrefix64(netId);
     if (p.family() != AF_INET6 || p.length() == 0) {
         LOG(INFO) << "No valid NAT64 prefix (" << netId << ", " << p.toString().c_str() << ")";
 
@@ -338,8 +338,7 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
                     params.sample_validity, params.success_threshold, params.min_samples,
                     params.max_samples, params.base_timeout_msec, params.retry_count);
         }
-
-        mDns64Configuration.dump(dw, netId);
+        mDns64Configuration->dump(dw, netId);
         const auto privateDnsStatus = PrivateDnsConfiguration::getInstance().getStatus(netId);
         dw.println("Private DNS mode: %s", getPrivateDnsModeString(privateDnsStatus.mode));
         if (privateDnsStatus.serversMap.size() == 0) {
