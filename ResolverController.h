@@ -55,10 +55,10 @@ class ResolverController {
 
     // Set or clear a NAT64 prefix discovered by other sources (e.g., RA).
     int setPrefix64(unsigned netId, const netdutils::IPPrefix& prefix) {
-        return mDns64Configuration.setPrefix64(netId, prefix);
+        return mDns64Configuration->setPrefix64(netId, prefix);
     }
 
-    int clearPrefix64(unsigned netId) { return mDns64Configuration.clearPrefix64(netId); }
+    int clearPrefix64(unsigned netId) { return mDns64Configuration->clearPrefix64(netId); }
 
     // Return the current NAT64 prefix network, regardless of how it was discovered.
     int getPrefix64(unsigned netId, netdutils::IPPrefix* prefix);
@@ -66,7 +66,7 @@ class ResolverController {
     void dump(netdutils::DumpWriter& dw, unsigned netId);
 
   private:
-    Dns64Configuration mDns64Configuration;
+    android::sp<Dns64Configuration> mDns64Configuration;
 };
 }  // namespace net
 }  // namespace android
