@@ -928,6 +928,38 @@ TEST_F(ResolvCacheTest, GetResolverStats) {
     }
 }
 
+TEST_F(ResolvCacheTest, IsEnforceDnsUidEnabled) {
+    const SetupParams unenforcedDnsUidCfg = {
+            .servers = {"127.0.0.1", "::127.0.0.2", "fe80::3"},
+            .domains = {"domain1.com", "domain2.com"},
+            .params = kParams,
+    };
+    // Network #1
+    EXPECT_EQ(0, cacheCreate(TEST_NETID));
+    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID, unenforcedDnsUidCfg));
+    EXPECT_FALSE(resolv_is_enforceDnsUid_enabled_network(TEST_NETID));
+
+    // Network #2
+    EXPECT_EQ(0, cacheCreate(TEST_NETID + 1));
+    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID + 1, unenforcedDnsUidCfg));
+    EXPECT_FALSE(resolv_is_enforceDnsUid_enabled_network(TEST_NETID + 1));
+
+    // Change the enforceDnsUid setting on network #1
+    const SetupParams enforcedDnsUidCfg = {
+            .servers = {"127.0.0.1", "::127.0.0.2", "fe80::3"},
+            .domains = {"domain1.com", "domain2.com"},
+            .params = kParams,
+            .resolverOptions = {.enforceDnsUid = true},
+    };
+    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID, enforcedDnsUidCfg));
+    EXPECT_TRUE(resolv_is_enforceDnsUid_enabled_network(TEST_NETID));
+
+    // Network #2 is unaffected
+    EXPECT_FALSE(resolv_is_enforceDnsUid_enabled_network(TEST_NETID + 1));
+
+    // Returns false on non-existent network
+    EXPECT_FALSE(resolv_is_enforceDnsUid_enabled_network(TEST_NETID + 2));
+}
 namespace {
 
 constexpr int EAI_OK = 0;
