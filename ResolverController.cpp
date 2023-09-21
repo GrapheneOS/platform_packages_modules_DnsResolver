@@ -37,9 +37,11 @@
 #include "stats.h"
 #include "util.h"
 
+using aidl::android::net::IDnsResolver;
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
+using android::net::ResolverStats;
 
 namespace android {
 
@@ -79,8 +81,6 @@ void sendNat64PrefixEvent(const Dns64Configuration::Nat64PrefixInfo& args) {
 int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<std::string>* domains,
                res_params* params, std::vector<android::net::ResolverStats>* stats,
                int* wait_for_pending_req_timeout_count) {
-    using aidl::android::net::IDnsResolver;
-    using android::net::ResolverStats;
     static_assert(ResolverStats::STATS_SUCCESSES == IDnsResolver::RESOLVER_STATS_SUCCESSES &&
                           ResolverStats::STATS_ERRORS == IDnsResolver::RESOLVER_STATS_ERRORS &&
                           ResolverStats::STATS_TIMEOUTS == IDnsResolver::RESOLVER_STATS_TIMEOUTS &&
@@ -192,8 +192,6 @@ int ResolverController::flushNetworkCache(unsigned netId) {
 }
 
 int ResolverController::setResolverConfiguration(const ResolverParamsParcel& resolverParams) {
-    using aidl::android::net::IDnsResolver;
-
     if (!has_named_cache(resolverParams.netId)) {
         return -ENOENT;
     }
@@ -247,8 +245,6 @@ int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>*
                                         std::vector<std::string>* tlsServers,
                                         std::vector<int32_t>* params, std::vector<int32_t>* stats,
                                         int* wait_for_pending_req_timeout_count) {
-    using aidl::android::net::IDnsResolver;
-    using android::net::ResolverStats;
     res_params res_params;
     std::vector<ResolverStats> res_stats;
     int ret = getDnsInfo(netId, servers, domains, &res_params, &res_stats,
@@ -295,7 +291,6 @@ int ResolverController::getPrefix64(unsigned netId, netdutils::IPPrefix* prefix)
 
 void ResolverController::dump(DumpWriter& dw, unsigned netId) {
     // No lock needed since Bionic's resolver locks all accessed data structures internally.
-    using android::net::ResolverStats;
     std::vector<std::string> servers;
     std::vector<std::string> domains;
     res_params params = {};
