@@ -2102,3 +2102,11 @@ int resolv_get_max_cache_entries(unsigned netid) {
     }
     return info->cache->get_max_cache_entries();
 }
+
+bool resolv_is_enforceDnsUid_enabled_network(unsigned netid) {
+    std::lock_guard guard(cache_mutex);
+    if (const auto info = find_netconfig_locked(netid); info != nullptr) {
+        return info->enforceDnsUid;
+    }
+    return false;
+}
