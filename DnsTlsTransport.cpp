@@ -113,7 +113,7 @@ base::Result<void> sendUdpQuery(netdutils::IPAddress ip, uint32_t mark,
         return ErrnoErrorf("connect failed");
     }
 
-    if (send(fd, query.data(), query.size(), 0) != query.size()) {
+    if (send(fd, query.data(), query.size(), 0) != static_cast<ptrdiff_t>(query.size())) {
         return ErrnoErrorf("send failed");
     }
 
