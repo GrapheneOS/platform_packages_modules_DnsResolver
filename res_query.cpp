@@ -126,7 +126,7 @@ again:
         *herrno = NO_RECOVERY;
         return n;
     }
-    n = res_nsend(statp, {buf, n}, answer, &rcode, 0);
+    n = res_nsend(statp, std::span(buf, n), answer, &rcode, 0);
     if (n < 0) {
         // If the query choked with EDNS0, retry without EDNS0 that when the server
         // has no response, resovler won't retry and do nothing. Even fallback to UDP,
