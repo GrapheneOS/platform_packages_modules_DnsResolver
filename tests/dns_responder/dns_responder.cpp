@@ -730,7 +730,8 @@ void DNSResponder::requestHandler() {
 
 bool DNSResponder::handleDNSRequest(const char* buffer, ssize_t len, int protocol, char* response,
                                     size_t* response_len) const {
-    LOG(DEBUG) << "request: '" << bytesToHexStr({reinterpret_cast<const uint8_t*>(buffer), len})
+    LOG(DEBUG) << "request: '"
+               << bytesToHexStr(std::span(reinterpret_cast<const uint8_t*>(buffer), len))
                << "', on " << dnsproto2str(protocol);
     const char* buffer_end = buffer + len;
     DNSHeader header;

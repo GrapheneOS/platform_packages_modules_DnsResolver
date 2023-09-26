@@ -1637,7 +1637,8 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
     ResState res_temp = res->clone(&event);
 
     int rcode = NOERROR;
-    n = res_nsend(&res_temp, {buf, n}, {t->answer.data(), anslen}, &rcode, 0, sleepTimeMs);
+    n = res_nsend(&res_temp, std::span(buf, n), std::span(t->answer.data(), anslen), &rcode, 0,
+                  sleepTimeMs);
     if (n < 0 || hp->rcode != NOERROR || ntohs(hp->ancount) == 0) {
         if (rcode != RCODE_TIMEOUT) rcode = hp->rcode;
         // if the query choked with EDNS0, retry without EDNS0
@@ -1646,7 +1647,8 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
             (res_temp.flags & RES_F_EDNS0ERR)) {
             LOG(INFO) << __func__ << ": retry without EDNS0";
             n = res_nmkquery(QUERY, name, cl, type, {}, buf, res_temp.netcontext_flags);
-            n = res_nsend(&res_temp, {buf, n}, {t->answer.data(), anslen}, &rcode, 0);
+            n = res_nsend(&res_temp, std::span(buf, n), std::span(t->answer.data(), anslen), &rcode,
+                          0);
         }
     }
 
