@@ -73,7 +73,7 @@ bool haveIpv6() {
 
 class DoHFFITest : public NetNativeTestBase {
   public:
-    static void SetUpTestSuite() { doh_init_logger(DOH_LOG_LEVEL_DEBUG); }
+    static void SetUpTestSuite() { doh_init_logger(DOH_LOG_LEVEL_TRACE); }
 };
 
 TEST_F(DoHFFITest, SmokeTest) {
