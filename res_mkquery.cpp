@@ -166,7 +166,7 @@ int res_nmkquery(int op,                         // opcode of query
             /*
              * Initialize answer section
              */
-            if (ep - cp < 1 + RRFIXEDSZ + data.size()) return (-1);
+            if (ep - cp < static_cast<ptrdiff_t>(1 + RRFIXEDSZ + data.size())) return (-1);
             *cp++ = '\0'; /* no domain name */
             *reinterpret_cast<uint16_t*>(cp) = htons(type);
             cp += INT16SZ;

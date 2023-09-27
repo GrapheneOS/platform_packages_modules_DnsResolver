@@ -1048,8 +1048,8 @@ void DnsProxyListener::ResNSendHandler::run() {
     uint16_t original_query_id = 0;
 
     // TODO: Handle the case which is msg contains more than one query
-    if (!parseQuery({msg.data(), msgLen}, &original_query_id, &rr_type, &rr_name) ||
-        !setQueryId({msg.data(), msgLen}, arc4random_uniform(65536))) {
+    if (!parseQuery(std::span(msg.data(), msgLen), &original_query_id, &rr_type, &rr_name) ||
+        !setQueryId(std::span(msg.data(), msgLen), arc4random_uniform(65536))) {
         // If the query couldn't be parsed, block the request.
         LOG(WARNING) << "ResNSendHandler::run: resnsend: from UID " << uid << ", invalid query";
         sendBE32(mClient, -EINVAL);
@@ -1064,7 +1064,7 @@ void DnsProxyListener::ResNSendHandler::run() {
     initDnsEvent(&event, mNetContext);
     if (startQueryLimiter(uid)) {
         if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
-            ansLen = resolv_res_nsend(&mNetContext, {msg.data(), msgLen}, ansBuf, &rcode,
+            ansLen = resolv_res_nsend(&mNetContext, std::span(msg.data(), msgLen), ansBuf, &rcode,
                                       static_cast<ResNsendFlags>(mFlags), &event);
         } else {
             ansLen = -EAI_SYSTEM;
@@ -1102,7 +1102,7 @@ void DnsProxyListener::ResNSendHandler::run() {
     }
 
     // Restore query id
-    if (!setQueryId({ansBuf.data(), ansLen}, original_query_id)) {
+    if (!setQueryId(std::span(ansBuf.data(), ansLen), original_query_id)) {
         LOG(WARNING) << "ResNSendHandler::run: resnsend: failed to restore query id";
         return;
     }
@@ -1117,7 +1117,7 @@ void DnsProxyListener::ResNSendHandler::run() {
     if (rr_type == ns_t_a || rr_type == ns_t_aaaa) {
         std::vector<std::string> ip_addrs;
         const int total_ip_addr_count =
-                extractResNsendAnswers({ansBuf.data(), ansLen}, rr_type, &ip_addrs);
+                extractResNsendAnswers(std::span(ansBuf.data(), ansLen), rr_type, &ip_addrs);
         reportDnsEvent(INetdEventListener::EVENT_RES_NSEND, mNetContext, latencyUs,
                        resNSendToAiError(ansLen, rcode), event, rr_name, ip_addrs,
                        total_ip_addr_count);
