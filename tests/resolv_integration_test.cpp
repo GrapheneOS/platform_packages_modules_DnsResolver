@@ -860,6 +860,7 @@ TEST_F(ResolverTest, GetAddrInfoV4_deferred_resp) {
     addrinfo hints = {.ai_family = AF_INET};
     const std::array<int, IDnsResolver::RESOLVER_PARAMS_COUNT> params = {300, 25, 8, 8, 5000, 0};
     bool t3_task_done = false;
+    bool t2_sv_setup_done = false;
 
     dns1.setDeferredResp(true);
     std::thread t1([&, this]() {
@@ -884,6 +885,7 @@ TEST_F(ResolverTest, GetAddrInfoV4_deferred_resp) {
                                                               .setDotServers({})
                                                               .setParams(params)
                                                               .build()));
+        t2_sv_setup_done = true;
         ScopedAddrinfo result = safe_getaddrinfo(host_name_deferred, nullptr, &hints);
         EXPECT_TRUE(t3_task_done);
         EXPECT_EQ(0U, GetNumQueries(dns2, host_name_deferred));
@@ -895,7 +897,7 @@ TEST_F(ResolverTest, GetAddrInfoV4_deferred_resp) {
     });
 
     // ensuring t2 and t3 handler functions are processed in order
-    usleep(100 * 1000);
+    EXPECT_TRUE(PollForCondition([&]() { return t2_sv_setup_done; }));
     std::thread t3([&, this]() {
         ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
                                                               .setDnsServers(servers_for_t3)
