@@ -52,6 +52,7 @@ using android::netdutils::ScopedAddrinfo;
 using android::netdutils::Stopwatch;
 using std::chrono::milliseconds;
 using std::this_thread::sleep_for;
+using ::testing::AnyOf;
 
 constexpr int MAXPACKET = (8 * 1024);
 
@@ -804,9 +805,19 @@ TEST_F(PrivateDnsDohTest, TemporaryConnectionStalled) {
 TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
     const int total_queries = 70;
 
-    // The number is from MAX_BUFFERED_COMMANDS + 2 (one that will be queued in
-    // connection mpsc channel; the other one that will get blocked at dispatcher sending channel).
-    const int timeout_queries = 52;
+    // In most cases, the number of timed-out DoH queries is MAX_BUFFERED_COMMANDS + 2 (one that
+    // will be queued in connection's mpsc::channel; the other one that will get blocked at
+    // dispatcher's mpsc::channel), as shown below:
+    //
+    // dispatcher's mpsc::channel -----> network's mpsc:channel -----> connection's mpsc::channel
+    // (expect 1 query queued here)   (size: MAX_BUFFERED_COMMANDS)   (expect 1 query queued here)
+    //
+    // However, it's still possible that the (MAX_BUFFERED_COMMANDS + 2)th query is sent to the DoH
+    // engine before the DoH engine moves a query to connection's mpsc::channel. In that case,
+    // the (MAX_BUFFERED_COMMANDS + 2)th query will be fallback'ed to DoT immediately rather than
+    // be waiting until DoH timeout, which result in only (MAX_BUFFERED_COMMANDS + 1) timed-out
+    // DoH queries.
+    const int doh_timeout_queries = 52;
 
     // If early data flag is enabled, DnsResolver doesn't wait for the connection established.
     // It will send DNS queries along with 0-RTT rather than queue them in connection mpsc channel.
@@ -829,7 +840,7 @@ TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
     dns.clearQueries();
 
     // Set the DoT server not to close the connection until it receives enough queries or timeout.
-    dot.setDelayQueries(total_queries - timeout_queries);
+    dot.setDelayQueries(total_queries - doh_timeout_queries);
     dot.setDelayQueriesTimeout(200);
 
     // Set the server blocking, wait for the connection closed, and send some DNS requests.
@@ -847,8 +858,10 @@ TEST_F(PrivateDnsDohTest, ExcessDnsRequests) {
 
     // There are some queries that fall back to DoT rather than UDP since the DoH client rejects
     // any new DNS requests when the capacity is full.
-    EXPECT_NO_FAILURE(expectQueries(timeout_queries /* dns */,
-                                    total_queries - timeout_queries /* dot */, 0 /* doh */));
+    EXPECT_THAT(dns.queries().size(), AnyOf(doh_timeout_queries, doh_timeout_queries - 1));
+    EXPECT_THAT(dot.queries(), AnyOf(total_queries - doh_timeout_queries,
+                                     total_queries - doh_timeout_queries + 1));
+    EXPECT_EQ(doh.queries(), 0);
 
     // Set up another network and send a DNS query. Expect that this network is unaffected.
     constexpr int TEST_NETID_2 = 31;
