@@ -706,8 +706,7 @@ bool isUidNetworkingBlocked(uid_t uid, unsigned netId) {
     // application's UID. Its DNS packets are not subject to certain network restriction features.
     if (resolv_is_enforceDnsUid_enabled_network(netId)) return false;
 
-    // TODO: Pass metered information from CS to DNS resolver and replace the hardcode value.
-    return (*ADnsHelper_isUidNetworkingBlocked)(uid, /*metered=*/false) == 1;
+    return (*ADnsHelper_isUidNetworkingBlocked)(uid, resolv_is_metered_network(netId)) == 1;
 }
 
 }  // namespace
