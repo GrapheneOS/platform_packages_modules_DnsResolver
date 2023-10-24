@@ -237,7 +237,8 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
 
     return resolv_set_nameservers(resolverParams.netId, resolverParams.servers,
                                   resolverParams.domains, res_params,
-                                  resolverParams.resolverOptions, resolverParams.transportTypes);
+                                  resolverParams.resolverOptions, resolverParams.transportTypes,
+                                  resolverParams.meteredNetwork);
 }
 
 int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>* servers,
