@@ -35,4 +35,5 @@ parcelable ResolverParamsParcel {
   int tlsConnectTimeoutMs = 0;
   @nullable android.net.ResolverOptionsParcel resolverOptions;
   int[] transportTypes = {};
+  boolean meteredNetwork = false;
 }
