@@ -113,4 +113,9 @@ parcelable ResolverParamsParcel {
      * reasonable network type by DnsResolver, it would be considered as unknown.
      */
     int[] transportTypes = {};
+
+    /**
+     * Whether the network is metered or not.
+     */
+    boolean meteredNetwork = false;
 }
