@@ -4505,9 +4505,9 @@ TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
         const char* hname;
         const int expectedErrorCode;
     } kTestData[] = {
-            {host_name, EAI_NODATA},
+            {host_name, isAtLeastT() ? EAI_FAIL : EAI_NODATA},
             // To test the query with search domain.
-            {"howdy", EAI_AGAIN},
+            {"howdy", isAtLeastT() ? EAI_FAIL : EAI_AGAIN},
     };
 
     INetd* netdService = mDnsClient.netdService();

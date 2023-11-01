@@ -18,6 +18,7 @@
 
 #include <arpa/inet.h>
 #include <dirent.h>
+#include <dlfcn.h>
 #include <linux/if.h>
 #include <math.h>
 #include <net/if.h>
@@ -661,6 +662,54 @@ std::string makeThreadName(unsigned netId, uint32_t uid) {
     return fmt::format("Dns_{}_{}", netId, multiuser_get_app_id(uid));
 }
 
+typedef int (*InitFn)();
+typedef int (*IsUidBlockedFn)(uid_t, bool);
+
+IsUidBlockedFn ADnsHelper_isUidNetworkingBlocked;
+
+IsUidBlockedFn resolveIsUidNetworkingBlockedFn() {
+    // Related BPF maps were mainlined from T.
+    if (!isAtLeastT()) return nullptr;
+
+    // TODO: Check whether it is safe to shared link the .so without using dlopen when the carrier
+    // APEX module (tethering) is fully released.
+    void* handle = dlopen("libcom.android.tethering.dns_helper.so", RTLD_NOW | RTLD_LOCAL);
+    if (!handle) {
+        LOG(WARNING) << __func__ << ": " << dlerror();
+        return nullptr;
+    }
+
+    InitFn ADnsHelper_init = reinterpret_cast<InitFn>(dlsym(handle, "ADnsHelper_init"));
+    if (!ADnsHelper_init) {
+        LOG(ERROR) << __func__ << ": " << dlerror();
+        abort();
+    }
+    const int ret = (*ADnsHelper_init)();
+    if (ret) {
+        LOG(ERROR) << __func__ << ": ADnsHelper_init failed " << strerror(-ret);
+        abort();
+    }
+
+    IsUidBlockedFn f =
+            reinterpret_cast<IsUidBlockedFn>(dlsym(handle, "ADnsHelper_isUidNetworkingBlocked"));
+    if (!f) {
+        LOG(ERROR) << __func__ << ": " << dlerror();
+        abort();
+    }
+    return f;
+}
+
+bool isUidNetworkingBlocked(uid_t uid, unsigned netId) {
+    if (!ADnsHelper_isUidNetworkingBlocked) return false;
+
+    // The enforceDnsUid is an OEM feature that sets DNS packet with AID_DNS instead of the
+    // application's UID. Its DNS packets are not subject to certain network restriction features.
+    if (resolv_is_enforceDnsUid_enabled_network(netId)) return false;
+
+    // TODO: Pass metered information from CS to DNS resolver and replace the hardcode value.
+    return (*ADnsHelper_isUidNetworkingBlocked)(uid, /*metered=*/false) == 1;
+}
+
 }  // namespace
 
 DnsProxyListener::DnsProxyListener() : FrameworkListener(SOCKET_NAME) {
@@ -678,6 +727,8 @@ DnsProxyListener::DnsProxyListener() : FrameworkListener(SOCKET_NAME) {
 
     mGetDnsNetIdCommand = std::make_unique<GetDnsNetIdCommand>();
     registerCmd(mGetDnsNetIdCommand.get());
+
+    ADnsHelper_isUidNetworkingBlocked = resolveIsUidNetworkingBlockedFn();
 }
 
 void DnsProxyListener::Handler::spawn() {
@@ -853,7 +904,10 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
     int32_t rv = 0;
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
-    if (startQueryLimiter(uid)) {
+    if (isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid)) {
+        LOG(INFO) << "GetAddrInfoHandler::run: network access blocked";
+        rv = EAI_FAIL;
+    } else if (startQueryLimiter(uid)) {
         const char* host = mHost.starts_with('^') ? nullptr : mHost.c_str();
         const char* service = mService.starts_with('^') ? nullptr : mService.c_str();
         if (evaluate_domain_name(mNetContext, host)) {
@@ -1062,11 +1116,15 @@ void DnsProxyListener::ResNSendHandler::run() {
     int ansLen = -1;
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
-    if (startQueryLimiter(uid)) {
+    if (isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid)) {
+        LOG(INFO) << "ResNSendHandler::run: network access blocked";
+        ansLen = -ECONNREFUSED;
+    } else if (startQueryLimiter(uid)) {
         if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
             ansLen = resolv_res_nsend(&mNetContext, std::span(msg.data(), msgLen), ansBuf, &rcode,
                                       static_cast<ResNsendFlags>(mFlags), &event);
         } else {
+            // TODO(b/307048182): It should return -errno.
             ansLen = -EAI_SYSTEM;
         }
         endQueryLimiter(uid);
@@ -1262,7 +1320,10 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     int32_t rv = 0;
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
-    if (startQueryLimiter(uid)) {
+    if (isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid)) {
+        LOG(INFO) << "GetHostByNameHandler::run: network access blocked";
+        rv = EAI_FAIL;
+    } else if (startQueryLimiter(uid)) {
         const char* name = mName.starts_with('^') ? nullptr : mName.c_str();
         if (evaluate_domain_name(mNetContext, name)) {
             rv = resolv_gethostbyname(name, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext, &hp,
@@ -1421,7 +1482,11 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     int32_t rv = 0;
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
-    if (startQueryLimiter(uid)) {
+
+    if (isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid)) {
+        LOG(INFO) << "GetHostByAddrHandler::run: network access blocked";
+        rv = EAI_FAIL;
+    } else if (startQueryLimiter(uid)) {
         // From Android U, evaluate_domain_name() is not only for OEM customization, but also tells
         // DNS resolver whether the UID can send DNS on the specified network. The function needs
         // to be called even when there is no domain name to evaluate (GetHostByAddr). This is
