@@ -32,6 +32,7 @@
 #include <netdutils/InternetAddresses.h>
 
 #include "dns_responder/dns_responder.h"
+#include "util.h"
 
 class ScopeBlockedUIDRule {
     using INetd = aidl::android::net::INetd;
@@ -402,3 +403,10 @@ android::netdutils::ScopedAddrinfo safe_getaddrinfo(const char* node, const char
 
 void SetMdnsRoute();
 void RemoveMdnsRoute();
+
+#define SKIP_IF_BEFORE_T                                                         \
+    do {                                                                         \
+        if (!isAtLeastT()) {                                                     \
+            GTEST_SKIP() << "Skipping test because SDK version is less than T."; \
+        }                                                                        \
+    } while (0)
