@@ -81,7 +81,7 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
 int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
                            const std::vector<std::string>& domains, const res_params& params,
                            std::optional<aidl::android::net::ResolverOptionsParcel> resolverOptions,
-                           const std::vector<int32_t>& transportTypes = {});
+                           const std::vector<int32_t>& transportTypes = {}, bool metered = false);
 
 // Sets options for a given network.
 int resolv_set_options(unsigned netid, const aidl::android::net::ResolverOptionsParcel& options);
@@ -146,3 +146,6 @@ int resolv_get_max_cache_entries(unsigned netid);
 
 // Return true if the enforceDnsUid is enabled on the network.
 bool resolv_is_enforceDnsUid_enabled_network(unsigned netid);
+
+// Return true if the network is metered.
+bool resolv_is_metered_network(unsigned netid);
