@@ -292,6 +292,9 @@ cc_library {
         "libssl",
         "libstatssocket",
     ],
+    runtime_libs: [
+        "libcom.android.tethering.dns_helper",
+    ],
     header_libs: [
         "libnetdbinder_utils_headers",
     ],
