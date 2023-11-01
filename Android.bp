@@ -96,22 +96,63 @@ aidl_interface {
             min_sdk_version: "30",
         },
     },
-    versions: [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-        "11",
-    ],
+
     dumpapi: {
         no_license: true,
     },
+    versions_with_info: [
+        {
+            version: "1",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "2",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "3",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "4",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "5",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "6",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "7",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "8",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "9",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "10",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "11",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "12",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+
+    ],
+    frozen: true,
+
 }
 
 cc_defaults {
@@ -154,7 +195,7 @@ cc_defaults {
     // after the build process.
     host_required: [
         "net-tests-utils-host-common",
-    ]
+    ],
 }
 
 cc_defaults {
@@ -176,7 +217,7 @@ cc_defaults {
     // after the build process.
     host_required: [
         "net-tests-utils-host-common",
-    ]
+    ],
 }
 
 cc_library {
