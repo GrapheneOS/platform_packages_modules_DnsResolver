@@ -66,6 +66,7 @@ struct SetupParams {
     res_params params;
     aidl::android::net::ResolverOptionsParcel resolverOptions;
     std::vector<int32_t> transportTypes;
+    bool metered;
 };
 
 struct CacheStats {
@@ -206,7 +207,7 @@ class ResolvCacheTest : public NetNativeTestBase {
 
     int cacheSetupResolver(uint32_t netId, const SetupParams& setup) {
         return resolv_set_nameservers(netId, setup.servers, setup.domains, setup.params,
-                                      setup.resolverOptions, setup.transportTypes);
+                                      setup.resolverOptions, setup.transportTypes, setup.metered);
     }
 
     void cacheAddStats(uint32_t netId, int revision_id, const IPSockAddr& ipsa,
@@ -960,6 +961,40 @@ TEST_F(ResolvCacheTest, IsEnforceDnsUidEnabled) {
     // Returns false on non-existent network
     EXPECT_FALSE(resolv_is_enforceDnsUid_enabled_network(TEST_NETID + 2));
 }
+
+TEST_F(ResolvCacheTest, IsNetworkMetered) {
+    const SetupParams defaultCfg = {
+            .servers = {"127.0.0.1"},
+            .domains = {"domain1.com"},
+            .params = kParams,
+    };
+    // Network #1
+    EXPECT_EQ(0, cacheCreate(TEST_NETID));
+    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID, defaultCfg));
+    EXPECT_FALSE(resolv_is_metered_network(TEST_NETID));
+
+    // Network #2
+    EXPECT_EQ(0, cacheCreate(TEST_NETID + 1));
+    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID + 1, defaultCfg));
+    EXPECT_FALSE(resolv_is_metered_network(TEST_NETID + 1));
+
+    // Change the metered setting on network #1
+    const SetupParams meteredCfg = {
+            .servers = {"127.0.0.1"},
+            .domains = {"domain1.com"},
+            .params = kParams,
+            .metered = true,
+    };
+    EXPECT_EQ(0, cacheSetupResolver(TEST_NETID, meteredCfg));
+    EXPECT_TRUE(resolv_is_metered_network(TEST_NETID));
+
+    // Network #2 is unaffected
+    EXPECT_FALSE(resolv_is_metered_network(TEST_NETID + 1));
+
+    // Returns false on non-existent network
+    EXPECT_FALSE(resolv_is_metered_network(TEST_NETID + 2));
+}
+
 namespace {
 
 constexpr int EAI_OK = 0;
