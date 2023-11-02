@@ -81,6 +81,33 @@ class ScopeBlockedUIDRule {
     const uid_t mSavedUid;
 };
 
+// Supported from T+ only.
+class ScopedSetDataSaverByBPF {
+  public:
+    ScopedSetDataSaverByBPF(bool wanted) {
+        if (android::modules::sdklevel::IsAtLeastT()) {
+            mFw = Firewall::getInstance();
+            // Backup current setting.
+            const Result<bool> current = mFw->getDataSaverSetting();
+            EXPECT_RESULT_OK(current);
+            if (wanted != current.value()) {
+                mSavedDataSaverSetting = current;
+                EXPECT_RESULT_OK(mFw->setDataSaver(wanted));
+            }
+        }
+    };
+    ~ScopedSetDataSaverByBPF() {
+        // Restore the setting.
+        if (mSavedDataSaverSetting.has_value()) {
+            EXPECT_RESULT_OK(mFw->setDataSaver(mSavedDataSaverSetting.value()));
+        }
+    }
+
+  private:
+    Firewall* mFw;
+    Result<bool> mSavedDataSaverSetting;
+};
+
 class ScopedChangeUID {
   public:
     ScopedChangeUID(uid_t testUid) : mTestUid(testUid), mSavedUid(getuid()) {
