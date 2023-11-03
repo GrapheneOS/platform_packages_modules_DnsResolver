@@ -166,7 +166,7 @@ static void do_section(ns_msg* handle, ns_sect section) {
 
             rdatalen = ns_rr_rdlen(rr);
             format_to(out, "; EDNS: version: {}, udp={}, flags={}\n", (rr.ttl >> 16) & 0xff,
-                      ns_rr_class(rr), rr.ttl & 0xffff);
+                      static_cast<int>(ns_rr_class(rr)), rr.ttl & 0xffff);
             const uint8_t* cp = ns_rr_rdata(rr);
             while (rdatalen <= ns_rr_rdlen(rr) && rdatalen >= 4) {
                 int i;
