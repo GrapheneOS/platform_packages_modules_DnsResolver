@@ -160,8 +160,6 @@ const std::string kKeepListeningUdpFlag(kFlagPrefix + "keep_listening_udp");
 const std::string kParallelLookupSleepTimeFlag(kFlagPrefix + "parallel_lookup_sleep_time");
 const std::string kRetransIntervalFlag(kFlagPrefix + "retransmission_time_interval");
 const std::string kRetryCountFlag(kFlagPrefix + "retry_count");
-const std::string kSkip4aQueryOnV6LinklocalAddrFlag(kFlagPrefix +
-                                                    "skip_4a_query_on_v6_linklocal_addr");
 const std::string kSortNameserversFlag(kFlagPrefix + "sort_nameservers");
 
 const std::string kPersistNetPrefix("persist.net.");
