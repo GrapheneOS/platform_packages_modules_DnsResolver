@@ -224,14 +224,14 @@ class DnsResolverBinderTest : public NetNativeTestBase {
                 "tlsName: {}, tlsServers: [{}], "
                 "tlsFingerprints: [{}], "
                 "caCertificate: {}, tlsConnectTimeoutMs: {}, "
-                "resolverOptions: {}, transportTypes: [{}]}}",
+                "resolverOptions: {}, transportTypes: [{}], meteredNetwork: {}}}",
                 parms.netId, parms.sampleValiditySeconds, parms.successThreshold, parms.minSamples,
                 parms.maxSamples, parms.baseTimeoutMsec, parms.retryCount,
                 fmt::join(parms.servers, ", "), fmt::join(parms.domains, ", "), parms.tlsName,
                 fmt::join(parms.tlsServers, ", "), fmt::join(parms.tlsFingerprints, ", "),
                 android::base::StringReplace(parms.caCertificate, "\n", "\\n", true),
                 parms.tlsConnectTimeoutMs, toString(parms.resolverOptions),
-                fmt::join(parms.transportTypes, ", "));
+                fmt::join(parms.transportTypes, ", "), parms.meteredNetwork);
     }
 
     PossibleLogData toSetResolverConfigurationLogData(const ResolverParamsParcel& parms,
@@ -496,6 +496,22 @@ TEST_F(DnsResolverBinderTest, SetResolverConfiguration_TransportTypes_Default) {
     std::string str;
     ASSERT_TRUE(ReadFdToString(readFd, &str)) << strerror(errno);
     EXPECT_THAT(str, HasSubstr("UNKNOWN"));
+}
+
+class MeteredNetworkParameterizedTest : public DnsResolverBinderTest,
+                                        public testing::WithParamInterface<bool> {};
+
+INSTANTIATE_TEST_SUITE_P(SetResolverConfigurationTest, MeteredNetworkParameterizedTest,
+                         testing::Bool(), [](const testing::TestParamInfo<bool>& info) {
+                             return info.param ? "Metered" : "NotMetered";
+                         });
+
+TEST_P(MeteredNetworkParameterizedTest, MeteredTest) {
+    const auto resolverParams = ResolverParams::Builder().setMetered(GetParam()).build();
+    ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
+    EXPECT_TRUE(status.isOk()) << status.getMessage();
+
+    mExpectedLogDataWithPacel.push_back(toSetResolverConfigurationLogData(resolverParams));
 }
 
 TEST_F(DnsResolverBinderTest, GetResolverInfo) {
