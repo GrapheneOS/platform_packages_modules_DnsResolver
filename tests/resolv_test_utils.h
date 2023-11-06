@@ -437,3 +437,8 @@ void RemoveMdnsRoute();
             GTEST_SKIP() << "Skipping test because SDK version is less than T."; \
         }                                                                        \
     } while (0)
+
+static const std::string DNS_HELPER =
+        android::bpf::isUserspace64bit()
+                ? "/apex/com.android.tethering/lib64/libcom.android.tethering.dns_helper.so"
+                : "/apex/com.android.tethering/lib/libcom.android.tethering.dns_helper.so";
