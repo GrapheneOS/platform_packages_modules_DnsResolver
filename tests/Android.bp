@@ -201,6 +201,7 @@ cc_test {
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libssl",
+        "libc++fs",
         "libcutils",
         "netd_aidl_interface-lateststable-ndk",
         "netd_event_listener_interface-lateststable-ndk",

@@ -20,6 +20,7 @@
 #include <arpa/nameser.h>
 #include <netdb.h>
 
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <vector>
@@ -436,4 +437,15 @@ void RemoveMdnsRoute();
         if (!isAtLeastT()) {                                                     \
             GTEST_SKIP() << "Skipping test because SDK version is less than T."; \
         }                                                                        \
+    } while (0)
+
+static const std::string DNS_HELPER =
+        android::bpf::isUserspace64bit()
+                ? "/apex/com.android.tethering/lib64/libcom.android.tethering.dns_helper.so"
+                : "/apex/com.android.tethering/lib/libcom.android.tethering.dns_helper.so";
+
+#define SKIP_IF_DEPENDENT_LIB_DOES_NOT_EXIST(libPath)                  \
+    do {                                                               \
+        if (!std::filesystem::exists(libPath))                         \
+            GTEST_SKIP() << "Required " << (libPath) << " not found."; \
     } while (0)
