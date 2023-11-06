@@ -1310,8 +1310,7 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
         return -1;
     }
 
-    if (Experiments::getInstance()->getFlag("skip_4a_query_on_v6_linklocal_addr", 1) &&
-        src_addr->sa_family == AF_INET6) {
+    if (src_addr->sa_family == AF_INET6) {
         sockaddr_in6* sin6 = reinterpret_cast<sockaddr_in6*>(src_addr);
         if (!allow_v6_linklocal && IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
             // There is no point in sending an AAAA query because the device does not have a global
