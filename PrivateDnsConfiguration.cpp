@@ -534,8 +534,8 @@ base::Result<DnsTlsServer*> PrivateDnsConfiguration::getDotServerLocked(
 
     auto iter = netPair->second.find(identity);
     if (iter == netPair->second.end()) {
-        return Errorf("Failed to get private DNS: server {{{}/{}}} not found", identity.sockaddr,
-                      identity.provider);
+        return Errorf("Failed to get private DNS: server {{{}/{}}} not found",
+                      identity.sockaddr.toString(), identity.provider);
     }
 
     return &iter->second;
