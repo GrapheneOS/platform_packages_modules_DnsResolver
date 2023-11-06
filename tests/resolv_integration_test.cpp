@@ -127,6 +127,8 @@ using android::netdutils::ScopedAddrinfo;
 using android::netdutils::Stopwatch;
 using android::netdutils::toHex;
 
+namespace fs = std::filesystem;
+
 namespace {
 
 std::pair<ScopedAddrinfo, int> safe_getaddrinfo_time_taken(const char* node, const char* service,
@@ -4505,9 +4507,9 @@ TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
         const char* hname;
         const int expectedErrorCode;
     } kTestData[] = {
-            {host_name, isAtLeastT() ? EAI_FAIL : EAI_NODATA},
+            {host_name, (isAtLeastT() && fs::exists(DNS_HELPER)) ? EAI_FAIL : EAI_NODATA},
             // To test the query with search domain.
-            {"howdy", isAtLeastT() ? EAI_FAIL : EAI_AGAIN},
+            {"howdy", (isAtLeastT() && fs::exists(DNS_HELPER)) ? EAI_FAIL : EAI_AGAIN},
     };
 
     INetd* netdService = mDnsClient.netdService();
