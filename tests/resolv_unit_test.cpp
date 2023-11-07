@@ -638,7 +638,7 @@ TEST_F(ResolvGetAddrInfoTest, ServerResponseError) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(fmt::format("rcode: {}", config.rcode));
+        SCOPED_TRACE(fmt::format("rcode: {}", static_cast<int>(config.rcode)));
 
         test::DNSResponder dns(config.rcode);
         dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
@@ -1538,7 +1538,7 @@ TEST_F(GetHostByNameForNetContextTest, ServerResponseError) {
     };
 
     for (const auto& config : testConfigs) {
-        SCOPED_TRACE(fmt::format("rcode: {}", config.rcode));
+        SCOPED_TRACE(fmt::format("rcode: {}", static_cast<int>(config.rcode)));
 
         test::DNSResponder dns(config.rcode);
         dns.addMapping(host_name, ns_type::ns_t_a, "1.2.3.4");
