@@ -30,6 +30,7 @@ using aidl::android::net::IDnsResolver;
 using aidl::android::net::INetd;
 using aidl::android::net::ResolverOptionsParcel;
 using aidl::android::net::ResolverParamsParcel;
+using aidl::android::net::resolv::aidl::DohParamsParcel;
 using android::base::Error;
 using android::base::Result;
 using android::net::ResolverStats;
@@ -51,6 +52,7 @@ ResolverParams::Builder::Builder() {
     mParcel.tlsServers = {kDefaultServer};
     mParcel.caCertificate = kCaCert;
     mParcel.resolverOptions = ResolverOptionsParcel{};  // optional, must be explicitly set.
+    mParcel.dohParams = std::nullopt;
 }
 
 void DnsResponderClient::SetupMappings(unsigned numHosts, const std::vector<std::string>& domains,
