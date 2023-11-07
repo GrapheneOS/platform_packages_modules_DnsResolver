@@ -18,6 +18,7 @@
 
 package android.net;
 /* @hide */
+@JavaDerive(equals=true, toString=true)
 parcelable ResolverParamsParcel {
   int netId;
   int sampleValiditySeconds;
