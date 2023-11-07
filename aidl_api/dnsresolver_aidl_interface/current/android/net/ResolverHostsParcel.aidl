@@ -18,6 +18,7 @@
 
 package android.net;
 /* @hide */
+@JavaDerive(equals=true)
 parcelable ResolverHostsParcel {
   @utf8InCpp String ipAddr;
   @utf8InCpp String hostName = "";
