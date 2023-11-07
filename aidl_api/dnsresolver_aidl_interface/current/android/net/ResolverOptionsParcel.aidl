@@ -18,6 +18,7 @@
 
 package android.net;
 /* @hide */
+@JavaDerive(equals=true, toString=true)
 parcelable ResolverOptionsParcel {
   android.net.ResolverHostsParcel[] hosts = {};
   int tcMode = 0;

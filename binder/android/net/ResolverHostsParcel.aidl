@@ -23,6 +23,7 @@ package android.net;
  *
  * {@hide}
  */
+@JavaDerive(equals=true)
 parcelable ResolverHostsParcel {
     /**
      * The IPv4 or IPv6 address corresponding to |hostName| field.

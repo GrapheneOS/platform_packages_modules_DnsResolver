@@ -24,6 +24,7 @@ import android.net.resolv.aidl.DohParamsParcel;
  *
  * {@hide}
  */
+@JavaDerive(equals=true, toString=true)
 parcelable ResolverParamsParcel {
     /**
      * The network ID of the network for which information should be configured.
