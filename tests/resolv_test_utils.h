@@ -20,6 +20,7 @@
 #include <arpa/nameser.h>
 #include <netdb.h>
 
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <vector>
@@ -187,8 +188,6 @@ const std::string kKeepListeningUdpFlag(kFlagPrefix + "keep_listening_udp");
 const std::string kParallelLookupSleepTimeFlag(kFlagPrefix + "parallel_lookup_sleep_time");
 const std::string kRetransIntervalFlag(kFlagPrefix + "retransmission_time_interval");
 const std::string kRetryCountFlag(kFlagPrefix + "retry_count");
-const std::string kSkip4aQueryOnV6LinklocalAddrFlag(kFlagPrefix +
-                                                    "skip_4a_query_on_v6_linklocal_addr");
 const std::string kSortNameserversFlag(kFlagPrefix + "sort_nameservers");
 
 const std::string kPersistNetPrefix("persist.net.");
@@ -436,4 +435,15 @@ void RemoveMdnsRoute();
         if (!isAtLeastT()) {                                                     \
             GTEST_SKIP() << "Skipping test because SDK version is less than T."; \
         }                                                                        \
+    } while (0)
+
+static const std::string DNS_HELPER =
+        android::bpf::isUserspace64bit()
+                ? "/apex/com.android.tethering/lib64/libcom.android.tethering.dns_helper.so"
+                : "/apex/com.android.tethering/lib/libcom.android.tethering.dns_helper.so";
+
+#define SKIP_IF_DEPENDENT_LIB_DOES_NOT_EXIST(libPath)                  \
+    do {                                                               \
+        if (!std::filesystem::exists(libPath))                         \
+            GTEST_SKIP() << "Required " << (libPath) << " not found."; \
     } while (0)
