@@ -17,6 +17,7 @@
 package android.net;
 
 import android.net.ResolverOptionsParcel;
+import android.net.resolv.aidl.DohParamsParcel;
 
 /**
  * Configuration for a resolver parameters.
@@ -118,4 +119,10 @@ parcelable ResolverParamsParcel {
      * Whether the network is metered or not.
      */
     boolean meteredNetwork = false;
+
+    /**
+     * Information about DNS-over-HTTPS servers to use
+     */
+    @nullable
+    DohParamsParcel dohParams;
 }
