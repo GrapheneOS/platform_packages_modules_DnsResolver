@@ -17,12 +17,14 @@
 package android.net;
 
 import android.net.ResolverOptionsParcel;
+import android.net.resolv.aidl.DohParamsParcel;
 
 /**
  * Configuration for a resolver parameters.
  *
  * {@hide}
  */
+@JavaDerive(equals=true, toString=true)
 parcelable ResolverParamsParcel {
     /**
      * The network ID of the network for which information should be configured.
@@ -118,4 +120,10 @@ parcelable ResolverParamsParcel {
      * Whether the network is metered or not.
      */
     boolean meteredNetwork = false;
+
+    /**
+     * Information about DNS-over-HTTPS servers to use
+     */
+    @nullable
+    DohParamsParcel dohParams;
 }

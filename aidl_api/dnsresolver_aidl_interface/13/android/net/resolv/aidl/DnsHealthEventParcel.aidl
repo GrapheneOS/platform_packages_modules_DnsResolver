@@ -16,10 +16,11 @@
 // with such a backward incompatible change, it has a high risk of breaking
 // later when a module using the interface is updated, e.g., Mainline modules.
 
-package android.net;
+package android.net.resolv.aidl;
 /* @hide */
-@JavaDerive(equals=true)
-parcelable ResolverHostsParcel {
-  @utf8InCpp String ipAddr;
-  @utf8InCpp String hostName = "";
+@JavaDerive(toString=true)
+parcelable DnsHealthEventParcel {
+  int netId;
+  int healthResult;
+  int[] successRttMicros;
 }
