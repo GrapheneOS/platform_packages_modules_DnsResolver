@@ -29,6 +29,7 @@
 #include <netdutils/InternetAddresses.h>
 #include <netdutils/NetNativeTestBase.h>
 #include <netdutils/Stopwatch.h>
+#include <nettestutils/DumpService.h>
 
 #include "doh_frontend.h"
 #include "tests/dns_responder/dns_responder.h"
@@ -60,33 +61,6 @@ constexpr int MAXPACKET = (8 * 1024);
 constexpr int kDohIdleDefaultTimeoutMs = 55000;
 
 namespace {
-
-std::vector<std::string> dumpService(ndk::SpAIBinder binder) {
-    unique_fd localFd, remoteFd;
-    bool success = Pipe(&localFd, &remoteFd);
-    EXPECT_TRUE(success) << "Failed to open pipe for dumping: " << strerror(errno);
-    if (!success) return {};
-
-    // dump() blocks until another thread has consumed all its output.
-    std::thread dumpThread = std::thread([binder, remoteFd{std::move(remoteFd)}]() {
-        EXPECT_EQ(STATUS_OK, AIBinder_dump(binder.get(), remoteFd, nullptr, 0));
-    });
-
-    std::string dumpContent;
-
-    EXPECT_TRUE(ReadFdToString(localFd.get(), &dumpContent))
-            << "Error during dump: " << strerror(errno);
-    dumpThread.join();
-
-    std::stringstream dumpStream(std::move(dumpContent));
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(dumpStream, line)) {
-        lines.push_back(std::move(line));
-    }
-
-    return lines;
-}
 
 int getAsyncResponse(int fd, int* rcode, uint8_t* buf, int bufLen) {
     struct pollfd wait_fd[1];
@@ -241,9 +215,13 @@ class BaseTest : public NetNativeTestBase {
     }
 
     bool expectLog(const std::string& ipAddrOrNoData, const std::string& port) {
-        ndk::SpAIBinder resolvBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));
-        assert(nullptr != resolvBinder.get());
-        std::vector<std::string> lines = dumpService(resolvBinder);
+        std::vector<std::string> lines;
+        const android::status_t ret =
+                dumpService(sResolvBinder, /*args=*/nullptr, /*num_args=*/0, lines);
+        if (ret != android::OK) {
+            ADD_FAILURE() << "Error dumping service: " << android::statusToString(ret);
+            return false;
+        }
 
         const std::string expectedLog =
                 port.empty() ? ipAddrOrNoData
