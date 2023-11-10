@@ -603,6 +603,70 @@ TEST_P(TransportParameterizedTest, BlockDnsQuery) {
     }
 }
 
+// Verify whether the DNS fail-fast feature can be turned off by flag.
+TEST_P(TransportParameterizedTest, BlockDnsQuery_FlaggedOff) {
+    SKIP_IF_BEFORE_T;
+    SKIP_IF_DEPENDENT_LIB_DOES_NOT_EXIST(DNS_HELPER);
+
+    constexpr char ptr_name[] = "v4v6.example.com.";
+    // PTR record for IPv6 address 2001:db8::102:304
+    constexpr char ptr_addr_v6[] =
+            "4.0.3.0.2.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.";
+    const DnsRecord r = {ptr_addr_v6, ns_type::ns_t_ptr, ptr_name};
+    dns.addMapping(r.host_name, r.type, r.addr);
+    dot_backend.addMapping(r.host_name, r.type, r.addr);
+    doh_backend.addMapping(r.host_name, r.type, r.addr);
+
+    ScopedSystemProperties sp1(kFailFastOnUidNetworkBlockingFlag, "0");
+    resetNetwork();
+
+    auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+
+    if (testParamHasDoh()) EXPECT_TRUE(WaitForDohValidationSuccess(test::kDefaultListenAddr));
+    if (testParamHasDot()) EXPECT_TRUE(WaitForDotValidationSuccess(test::kDefaultListenAddr));
+
+    // This waiting time is expected to avoid that the DoH validation event interferes other tests.
+    if (!testParamHasDoh()) waitForDohValidationFailed();
+
+    // Have the test independent of the number of sent queries in private DNS validation, because
+    // the DnsResolver can send either 1 or 2 queries in DoT validation.
+    if (testParamHasDoh()) {
+        doh.clearQueries();
+    }
+    if (testParamHasDot()) {
+        EXPECT_TRUE(dot.waitForQueries(1));
+        dot.clearQueries();
+    }
+    dns.clearQueries();
+
+    for (const bool testDataSaver : {false, true}) {
+        SCOPED_TRACE(fmt::format("test {}", testDataSaver ? "data saver" : "UID firewall rules"));
+        if (testDataSaver) {
+            // Data Saver applies on metered networks only.
+            parcel.meteredNetwork = true;
+            ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+
+            // Block network access by enabling data saver.
+            ScopedSetDataSaverByBPF scopedSetDataSaverByBPF(true);
+            ScopedChangeUID scopedChangeUID(TEST_UID);
+            EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+        } else {
+            // Block network access by setting UID firewall rules.
+            ScopeBlockedUIDRule scopeBlockUidRule(mDnsClient.netdService(), TEST_UID);
+            EXPECT_NO_FAILURE(sendQueryAndCheckResult());
+        }
+
+        if (testParamHasDoh()) {
+            EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
+            dot.clearQueries();
+        } else {
+            EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 2 /* dot */, 0 /* doh */));
+            doh.clearQueries();
+        }
+    }
+}
+
 class PrivateDnsDohTest : public BasePrivateDnsTest {
   protected:
     void SetUp() override {
