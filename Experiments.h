@@ -62,6 +62,7 @@ class Experiments {
             "dot_validation_latency_factor",
             "dot_validation_latency_offset_ms",
             "dot_xport_unusable_threshold",
+            "fail_fast_on_uid_network_blocking",
             "keep_listening_udp",
             "max_cache_entries",
             "max_queries_global",
