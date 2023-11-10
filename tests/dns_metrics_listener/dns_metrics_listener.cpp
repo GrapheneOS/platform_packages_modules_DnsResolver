@@ -21,9 +21,7 @@
 #include <android-base/chrono_utils.h>
 #include <android-base/format.h>
 
-namespace android {
-namespace net {
-namespace metrics {
+namespace android::net::metrics {
 
 using android::base::ScopedLockAssertion;
 using std::chrono::milliseconds;
@@ -49,6 +47,7 @@ std::ostream& operator<<(std::ostream& os, const DnsMetricsListener::DnsEvent& d
     std::lock_guard lock(mMutex);
     mUnexpectedNat64PrefixUpdates++;
     if (netId == mNetId) mNat64Prefix = added ? prefixString : "";
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -60,7 +59,7 @@ std::ostream& operator<<(std::ostream& os, const DnsMetricsListener::DnsEvent& d
         // keep updating the server to have latest validation status.
         mValidationRecords.insert_or_assign({netId, ipAddress}, validated);
     }
-    mCv.notify_one();
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -78,18 +77,18 @@ std::ostream& operator<<(std::ostream& os, const DnsMetricsListener::DnsEvent& d
 }
 
 bool DnsMetricsListener::waitForNat64Prefix(ExpectNat64PrefixStatus status, milliseconds timeout) {
-    android::base::Timer t;
-    while (t.duration() < timeout) {
-        {
-            std::lock_guard lock(mMutex);
-            if ((status == EXPECT_FOUND && !mNat64Prefix.empty()) ||
-                (status == EXPECT_NOT_FOUND && mNat64Prefix.empty())) {
-                mUnexpectedNat64PrefixUpdates--;
-                return true;
-            }
-        }
-        std::this_thread::sleep_for(kRetryIntervalMs);
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
+
+    if (mCv.wait_for(lock, timeout, [&]() REQUIRES(mMutex) {
+            return (status == EXPECT_FOUND && !mNat64Prefix.empty()) ||
+                   (status == EXPECT_NOT_FOUND && mNat64Prefix.empty());
+        })) {
+        mUnexpectedNat64PrefixUpdates--;
+        return true;
     }
+
+    // Timeout.
     return false;
 }
 
@@ -129,6 +128,4 @@ std::optional<DnsMetricsListener::DnsEvent> DnsMetricsListener::popDnsEvent() {
     return ret;
 }
 
-}  // namespace metrics
-}  // namespace net
-}  // namespace android
+}  // namespace android::net::metrics
