@@ -708,6 +708,12 @@ bool isUidNetworkingBlocked(uid_t uid, unsigned netId) {
     // application's UID. Its DNS packets are not subject to certain network restriction features.
     if (resolv_is_enforceDnsUid_enabled_network(netId)) return false;
 
+    // Feature flag that can disable the feature.
+    if (!android::net::Experiments::getInstance()->getFlag("fail_fast_on_uid_network_blocking",
+                                                           1)) {
+        return false;
+    }
+
     return (*ADnsHelper_isUidNetworkingBlocked)(uid, resolv_is_metered_network(netId)) == 1;
 }
 

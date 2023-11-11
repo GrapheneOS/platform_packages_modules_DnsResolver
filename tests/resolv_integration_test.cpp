@@ -5782,8 +5782,9 @@ TEST_F(ResolverTest, RepeatedSetup_KeepChangingPrivateDnsServers) {
     for (const auto& serverState : {WORKING, UNSUPPORTED, UNRESPONSIVE}) {
         int testIndex = 0;
         for (const auto& config : testConfigs) {
-            SCOPED_TRACE(fmt::format("serverState:{} testIndex:{} testConfig:[{}]", serverState,
-                                     testIndex++, config.asTestName()));
+            SCOPED_TRACE(fmt::format("serverState:{} testIndex:{} testConfig:[{}]",
+                                     static_cast<int>(serverState), testIndex++,
+                                     config.asTestName()));
             auto& tls = (config.tlsServer == addr1) ? tls1 : tls2;
 
             if (serverState == UNSUPPORTED && tls.running()) ASSERT_TRUE(tls.stopServer());
@@ -7431,7 +7432,7 @@ TEST_F(ResolverMultinetworkTest, GetAddrInfo_AI_ADDRCONFIG) {
             ConnectivityType::V4V6,
     };
     for (const auto& type : allTypes) {
-        SCOPED_TRACE(fmt::format("ConnectivityType: {}", type));
+        SCOPED_TRACE(fmt::format("ConnectivityType: {}", static_cast<int>(type)));
 
         // Create a network.
         ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(type);
@@ -7563,7 +7564,7 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
             {ConnectivityType::V4V6, {ipv6_addr, ipv4_addr}},
     };
     for (const auto& [type, result] : testPairs) {
-        SCOPED_TRACE(fmt::format("ConnectivityType: {}", type));
+        SCOPED_TRACE(fmt::format("ConnectivityType: {}", static_cast<int>(type)));
 
         // Create a network.
         ScopedPhysicalNetwork underlyingNetwork = CreateScopedPhysicalNetwork(type, "Underlying");
@@ -7683,7 +7684,7 @@ TEST_F(ResolverMultinetworkTest, PerAppDefaultNetwork) {
             {ConnectivityType::V4V6, {ipv6_addr, ipv4_addr}},
     };
     for (const auto& [ipVersion, expectedDnsReply] : testPairs) {
-        SCOPED_TRACE(fmt::format("ConnectivityType: {}", ipVersion));
+        SCOPED_TRACE(fmt::format("ConnectivityType: {}", static_cast<int>(ipVersion)));
 
         // Create networks.
         ScopedPhysicalNetwork sysDefaultNetwork =
@@ -7928,7 +7929,7 @@ TEST_F(ResolverMultinetworkTest, UidAllowedNetworks) {
             {ConnectivityType::V4V6, {ipv6_addr, ipv4_addr}},
     };
     for (const auto& [ipVersion, expectedDnsReply] : testPairs) {
-        SCOPED_TRACE(fmt::format("ConnectivityType: {}", ipVersion));
+        SCOPED_TRACE(fmt::format("ConnectivityType: {}", static_cast<int>(ipVersion)));
 
         // Create networks.
         ScopedPhysicalNetwork sysDefaultNetwork =
