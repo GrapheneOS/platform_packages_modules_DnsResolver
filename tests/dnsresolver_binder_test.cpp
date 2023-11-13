@@ -55,6 +55,7 @@ using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::metrics::INetdEventListener;
 using aidl::android::net::resolv::aidl::DohParamsParcel;
 using android::base::ReadFdToString;
+using android::base::StringReplace;
 using android::base::unique_fd;
 using android::net::ResolverStats;
 using android::net::metrics::TestOnDnsEvent;
@@ -116,7 +117,6 @@ class DnsResolverBinderTest : public NetNativeTestBase {
                         // information. To keep it working on Q/R/..., remove what has been
                         // added for now. TODO(b/266248339)
                         std::string output = match[1].str();
-                        using android::base::StringReplace;
                         output = StringReplace(output, "(null)", "", /*all=*/true);
                         output = StringReplace(output, "<unimplemented>", "", /*all=*/true);
                         output = StringReplace(output, "<interface>", "", /*all=*/true);
@@ -172,50 +172,12 @@ class DnsResolverBinderTest : public NetNativeTestBase {
         LogData withoutPacel;
     };
 
-    std::string toString(const std::vector<ResolverHostsParcel>& parms) {
-        std::string o;
-        const size_t size = parms.size();
-        for (size_t i = 0; i < size; ++i) {
-            o.append(fmt::format("ResolverHostsParcel{{ipAddr: {}, hostName: {}}}", parms[i].ipAddr,
-                                 parms[i].hostName));
-            if (i + 1 < size) o.append(", ");
-        }
-        return o;
-    }
-
-    std::string toString(const std::optional<ResolverOptionsParcel>& parms) {
-        if (!parms.has_value()) return "(null)";
-        return fmt::format("ResolverOptionsParcel{{hosts: [{}], tcMode: {}, enforceDnsUid: {}}}",
-                           toString(parms->hosts), parms->tcMode, parms->enforceDnsUid);
-    }
-
-    std::string toString(const std::optional<DohParamsParcel>& params) {
-        return params.has_value() ? params.value().toString() : "(null)";
-    }
-
-    std::string toString(const ResolverParamsParcel& parms) {
-        return fmt::format(
-                "ResolverParamsParcel{{netId: {}, sampleValiditySeconds: {}, successThreshold: {}, "
-                "minSamples: {}, "
-                "maxSamples: {}, baseTimeoutMsec: {}, retryCount: {}, "
-                "servers: [{}], domains: [{}], "
-                "tlsName: {}, tlsServers: [{}], "
-                "tlsFingerprints: [{}], "
-                "caCertificate: {}, tlsConnectTimeoutMs: {}, "
-                "resolverOptions: {}, transportTypes: [{}], meteredNetwork: {}, dohParams: {}}}",
-                parms.netId, parms.sampleValiditySeconds, parms.successThreshold, parms.minSamples,
-                parms.maxSamples, parms.baseTimeoutMsec, parms.retryCount,
-                fmt::join(parms.servers, ", "), fmt::join(parms.domains, ", "), parms.tlsName,
-                fmt::join(parms.tlsServers, ", "), fmt::join(parms.tlsFingerprints, ", "),
-                android::base::StringReplace(parms.caCertificate, "\n", "\\n", true),
-                parms.tlsConnectTimeoutMs, toString(parms.resolverOptions),
-                fmt::join(parms.transportTypes, ", "), parms.meteredNetwork,
-                toString(parms.dohParams));
-    }
-
     PossibleLogData toSetResolverConfigurationLogData(const ResolverParamsParcel& parms,
                                                       int returnCode = 0) {
-        std::string outputWithParcel = "setResolverConfiguration(" + toString(parms) + ")";
+        // Replace "\n" with "\\n" in parms.caCertificate.
+        std::string outputWithParcel =
+                fmt::format("setResolverConfiguration({})",
+                            StringReplace(parms.toString(), "\n", "\\n", /*all=*/true));
         std::string hintRegexWithParcel = fmt::format("setResolverConfiguration.*{}", parms.netId);
 
         std::string outputWithoutParcel = "setResolverConfiguration()";
@@ -653,9 +615,9 @@ TEST_F(DnsResolverBinderTest, SetResolverOptions) {
     options.enforceDnsUid = true;
     EXPECT_TRUE(mDnsResolver->setResolverOptions(TEST_NETID, options).isOk());
     mExpectedLogData.push_back(
-            {"setResolverOptions(30, " + toString(options) + ")", "setResolverOptions.*30"});
+            {"setResolverOptions(30, " + options.toString() + ")", "setResolverOptions.*30"});
     EXPECT_EQ(ENONET, mDnsResolver->setResolverOptions(-1, options).getServiceSpecificError());
-    mExpectedLogData.push_back({"setResolverOptions(-1, " + toString(options) +
+    mExpectedLogData.push_back({"setResolverOptions(-1, " + options.toString() +
                                         ") -> ServiceSpecificException(64, \"Machine is not on the "
                                         "network\")",
                                 "setResolverOptions.*-1.*64"});
