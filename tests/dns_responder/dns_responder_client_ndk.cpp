@@ -118,22 +118,6 @@ Result<ResolverInfo> DnsResponderClient::getResolverInfo() {
 }
 
 bool DnsResponderClient::SetResolversForNetwork(const std::vector<std::string>& servers,
-                                                const std::vector<std::string>& domains,
-                                                std::vector<int> params) {
-    params.resize(IDnsResolver::RESOLVER_PARAMS_COUNT);
-    std::array<int, IDnsResolver::RESOLVER_PARAMS_COUNT> arr;
-    std::copy_n(params.begin(), arr.size(), arr.begin());
-    const auto resolverParams = ResolverParams::Builder()
-                                        .setDomains(domains)
-                                        .setDnsServers(servers)
-                                        .setDotServers({})
-                                        .setParams(arr)
-                                        .build();
-    const auto rv = mDnsResolvSrv->setResolverConfiguration(resolverParams);
-    return rv.isOk();
-}
-
-bool DnsResponderClient::SetResolversForNetwork(const std::vector<std::string>& servers,
                                                 const std::vector<std::string>& domains) {
     const auto resolverParams = ResolverParams::Builder()
                                         .setDomains(domains)
