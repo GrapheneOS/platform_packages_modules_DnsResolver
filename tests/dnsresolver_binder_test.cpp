@@ -37,6 +37,7 @@
 #include <gtest/gtest.h>
 #include <netdutils/NetNativeTestBase.h>
 #include <netdutils/Stopwatch.h>
+#include <nettestutils/DumpService.h>
 
 #include <util.h>
 #include "dns_metrics_listener/base_metrics_listener.h"
@@ -64,37 +65,6 @@ using android::netdutils::Stopwatch;
 // Sync from TEST_NETID in dns_responder_client.cpp as resolv_integration_test.cpp does.
 constexpr int TEST_NETID = 30;
 
-namespace {
-
-std::vector<std::string> dumpService(ndk::SpAIBinder binder) {
-    unique_fd localFd, remoteFd;
-    bool success = Pipe(&localFd, &remoteFd);
-    EXPECT_TRUE(success) << "Failed to open pipe for dumping: " << strerror(errno);
-    if (!success) return {};
-
-    // dump() blocks until another thread has consumed all its output.
-    std::thread dumpThread = std::thread([binder, remoteFd{std::move(remoteFd)}]() {
-        EXPECT_EQ(STATUS_OK, AIBinder_dump(binder.get(), remoteFd, nullptr, 0));
-    });
-
-    std::string dumpContent;
-
-    EXPECT_TRUE(ReadFdToString(localFd.get(), &dumpContent))
-            << "Error during dump: " << strerror(errno);
-    dumpThread.join();
-
-    std::stringstream dumpStream(std::move(dumpContent));
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(dumpStream, line)) {
-        lines.push_back(std::move(line));
-    }
-
-    return lines;
-}
-
-}  // namespace
-
 class DnsResolverBinderTest : public NetNativeTestBase {
   public:
     DnsResolverBinderTest() {
@@ -119,7 +89,10 @@ class DnsResolverBinderTest : public NetNativeTestBase {
         // This could happen when the test isn't running as root, or if netd isn't running.
         assert(nullptr != netdBinder.get());
         // Send the service dump request to netd.
-        std::vector<std::string> lines = dumpService(netdBinder);
+        std::vector<std::string> lines;
+        const android::status_t ret =
+                dumpService(netdBinder, /*args=*/nullptr, /*num_args=*/0, lines);
+        ASSERT_EQ(android::OK, ret) << "Error dumping service: " << android::statusToString(ret);
 
         // Basic regexp to match dump output lines. Matches the beginning and end of the line, and
         // puts the output of the command itself into the first match group.
