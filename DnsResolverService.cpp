@@ -90,8 +90,6 @@ binder_status_t DnsResolverService::start() {
 
     ABinderProcess_startThreadPool();
 
-    // TODO: register log callback if binder NDK backend support it. b/126501406
-
     return STATUS_OK;
 }
 
