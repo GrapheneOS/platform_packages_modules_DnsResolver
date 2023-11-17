@@ -197,19 +197,7 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
         return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(EX_SECURITY, err.c_str()));
     }
 
-    // TODO: Remove this log after AIDL gen_log supporting more types, b/129732660
-    auto entry =
-            gDnsResolverLog.newEntry()
-                    .prettyFunction(__PRETTY_FUNCTION__)
-                    .args(resolverParams.netId, resolverParams.servers, resolverParams.domains,
-                          resolverParams.sampleValiditySeconds, resolverParams.successThreshold,
-                          resolverParams.minSamples, resolverParams.maxSamples,
-                          resolverParams.baseTimeoutMsec, resolverParams.retryCount,
-                          resolverParams.tlsName, resolverParams.tlsServers);
-
     int res = gDnsResolv->resolverCtrl.setResolverConfiguration(resolverParams);
-    gResNetdCallbacks.log(entry.returns(res).withAutomaticDuration().toString().c_str());
-
     return statusFromErrcode(res);
 }
 

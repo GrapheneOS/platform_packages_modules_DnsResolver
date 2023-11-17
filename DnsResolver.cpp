@@ -68,7 +68,6 @@ bool verifyCallbacks() {
 
 DnsResolver* gDnsResolv = nullptr;
 ResolverNetdCallbacks gResNetdCallbacks;
-netdutils::Log gDnsResolverLog("dnsResolver");
 uint64_t gApiLevel = 0;
 
 DnsResolver* DnsResolver::getInstance() {
