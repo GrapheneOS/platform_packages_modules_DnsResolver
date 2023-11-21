@@ -18,7 +18,6 @@
 
 #include <thread>
 
-#include <android-base/chrono_utils.h>
 #include <android-base/format.h>
 
 namespace android::net::metrics {
@@ -26,7 +25,6 @@ namespace android::net::metrics {
 using android::base::ScopedLockAssertion;
 using std::chrono::milliseconds;
 
-constexpr milliseconds kRetryIntervalMs{20};
 constexpr milliseconds kEventTimeoutMs{5000};
 
 bool DnsMetricsListener::DnsEvent::operator==(const DnsMetricsListener::DnsEvent& o) const {
@@ -73,6 +71,7 @@ std::ostream& operator<<(std::ostream& os, const DnsMetricsListener::DnsEvent& d
         mDnsEventRecords.push(
                 {netId, eventType, returnCode, hostname, ipAddresses, ipAddressesCount});
     }
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -110,18 +109,13 @@ bool DnsMetricsListener::findAndRemoveValidationRecord(const ServerKey& key, con
 }
 
 std::optional<DnsMetricsListener::DnsEvent> DnsMetricsListener::popDnsEvent() {
-    // Wait until the queue is not empty or timeout.
-    android::base::Timer t;
-    while (t.duration() < milliseconds{1000}) {
-        {
-            std::lock_guard lock(mMutex);
-            if (!mDnsEventRecords.empty()) break;
-        }
-        std::this_thread::sleep_for(kRetryIntervalMs);
-    }
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
 
-    std::lock_guard lock(mMutex);
-    if (mDnsEventRecords.empty()) return std::nullopt;
+    if (!mCv.wait_for(lock, kEventTimeoutMs,
+                      [&]() REQUIRES(mMutex) { return !mDnsEventRecords.empty(); })) {
+        return std::nullopt;
+    }
 
     auto ret = mDnsEventRecords.front();
     mDnsEventRecords.pop();
