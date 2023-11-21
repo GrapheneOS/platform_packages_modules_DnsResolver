@@ -68,18 +68,10 @@ constexpr milliseconds kRetryIntervalMs{20};
 
 bool UnsolicitedEventListener::waitForPrivateDnsValidation(const std::string& serverAddr,
                                                            int validation, int protocol) {
-    const auto now = std::chrono::steady_clock::now();
-
     std::unique_lock lock(mMutex);
-    ScopedLockAssertion assume_lock(mMutex);
-
-    // onPrivateDnsValidationEvent() might already be invoked. Search for the record first.
-    do {
-        if (findAndRemoveValidationRecord({mNetId, serverAddr, protocol}, validation)) return true;
-    } while (mCv.wait_until(lock, now + kEventTimeoutMs) != std::cv_status::timeout);
-
-    // Timeout.
-    return false;
+    return mCv.wait_for(lock, kEventTimeoutMs, [&]() REQUIRES(mMutex) {
+        return findAndRemoveValidationRecord({mNetId, serverAddr, protocol}, validation);
+    });
 }
 
 bool UnsolicitedEventListener::findAndRemoveValidationRecord(const ServerKey& key, int value) {
