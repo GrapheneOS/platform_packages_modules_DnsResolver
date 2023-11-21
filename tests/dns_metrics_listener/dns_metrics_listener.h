@@ -30,11 +30,8 @@ enum ExpectNat64PrefixStatus : bool {
     EXPECT_NOT_FOUND,
 };
 
-namespace android {
-namespace net {
-namespace metrics {
+namespace android::net::metrics {
 
-// TODO: Perhaps use condition variable but continually polling.
 // TODO: Perhaps create a queue to monitor the event changes. That improves the unit test which can
 // verify the event count, the event change order, and so on.
 class DnsMetricsListener : public BaseMetricsListener {
@@ -131,6 +128,4 @@ class DnsMetricsListener : public BaseMetricsListener {
     std::condition_variable mCv;
 };
 
-}  // namespace metrics
-}  // namespace net
-}  // namespace android
+}  // namespace android::net::metrics
