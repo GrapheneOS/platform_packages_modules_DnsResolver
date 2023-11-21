@@ -33,11 +33,11 @@ using android::base::ScopedLockAssertion;
 using std::chrono::milliseconds;
 
 constexpr milliseconds kEventTimeoutMs{5000};
-constexpr milliseconds kRetryIntervalMs{20};
 
 ::ndk::ScopedAStatus UnsolicitedEventListener::onDnsHealthEvent(const DnsHealthEventParcel& event) {
     std::lock_guard lock(mMutex);
     if (event.netId == mNetId) mDnsHealthResultRecords.push(event.healthResult);
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -105,18 +105,13 @@ bool UnsolicitedEventListener::waitForNat64Prefix(int operation, const milliseco
 }
 
 Result<int> UnsolicitedEventListener::popDnsHealthResult() {
-    // Wait until the queue is not empty or timeout.
-    android::base::Timer t;
-    while (t.duration() < milliseconds{1000}) {
-        {
-            std::lock_guard lock(mMutex);
-            if (!mDnsHealthResultRecords.empty()) break;
-        }
-        std::this_thread::sleep_for(kRetryIntervalMs);
-    }
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
 
-    std::lock_guard lock(mMutex);
-    if (mDnsHealthResultRecords.empty()) return Error() << "Dns health result record is empty";
+    if (!mCv.wait_for(lock, kEventTimeoutMs,
+                      [&]() REQUIRES(mMutex) { return !mDnsHealthResultRecords.empty(); })) {
+        return Error() << "Dns health result record is empty";
+    }
 
     auto ret = mDnsHealthResultRecords.front();
     mDnsHealthResultRecords.pop();
