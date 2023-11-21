@@ -336,11 +336,12 @@ void reportDnsEvent(int eventType, const android_net_context& netContext, int la
         stats::BytesField dnsQueryBytesField{dnsQueryStats.c_str(), dnsQueryStats.size()};
         event.set_return_code(static_cast<ReturnCode>(returnCode));
         event.set_network_type(resolv_get_network_types_for_net(netContext.dns_netid));
-        android::net::stats::stats_write(android::net::stats::NETWORK_DNS_EVENT_REPORTED,
-                                         event.event_type(), event.return_code(),
-                                         event.latency_micros(), event.hints_ai_flags(),
-                                         event.res_nsend_flags(), event.network_type(),
-                                         event.private_dns_modes(), dnsQueryBytesField, rate);
+        event.set_uid(netContext.uid);
+        android::net::stats::stats_write(
+                android::net::stats::NETWORK_DNS_EVENT_REPORTED, event.event_type(),
+                event.return_code(), event.latency_micros(), event.hints_ai_flags(),
+                event.res_nsend_flags(), event.network_type(), event.private_dns_modes(),
+                dnsQueryBytesField, rate, event.uid());
     }
 
     maybeLogQuery(eventType, netContext, event, query_name, ip_addrs);
