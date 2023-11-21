@@ -95,18 +95,10 @@ bool DnsMetricsListener::waitForNat64Prefix(ExpectNat64PrefixStatus status, mill
 
 bool DnsMetricsListener::waitForPrivateDnsValidation(const std::string& serverAddr,
                                                      const bool validated) {
-    const auto now = std::chrono::steady_clock::now();
-
     std::unique_lock lock(mMutex);
-    ScopedLockAssertion assume_lock(mMutex);
-
-    // onPrivateDnsValidationEvent() might already be invoked. Search for the record first.
-    do {
-        if (findAndRemoveValidationRecord({mNetId, serverAddr}, validated)) return true;
-    } while (mCv.wait_until(lock, now + kEventTimeoutMs) != std::cv_status::timeout);
-
-    // Timeout.
-    return false;
+    return mCv.wait_for(lock, kEventTimeoutMs, [&]() REQUIRES(mMutex) {
+        return findAndRemoveValidationRecord({mNetId, serverAddr}, validated);
+    });
 }
 
 bool DnsMetricsListener::findAndRemoveValidationRecord(const ServerKey& key, const bool value) {
