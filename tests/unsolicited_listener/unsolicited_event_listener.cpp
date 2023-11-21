@@ -51,6 +51,7 @@ constexpr milliseconds kRetryIntervalMs{20};
                                       ? event.prefixAddress
                                       : "";
     }
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -62,7 +63,7 @@ constexpr milliseconds kRetryIntervalMs{20};
         mValidationRecords.insert_or_assign({event.netId, event.ipAddress, event.protocol},
                                             event.validation);
     }
-    mCv.notify_one();
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -84,20 +85,22 @@ bool UnsolicitedEventListener::findAndRemoveValidationRecord(const ServerKey& ke
 }
 
 bool UnsolicitedEventListener::waitForNat64Prefix(int operation, const milliseconds& timeout) {
-    android::base::Timer t;
-    while (t.duration() < timeout) {
-        {
-            std::lock_guard lock(mMutex);
-            if ((operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED &&
-                 !mNat64PrefixAddress.empty()) ||
-                (operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_REMOVED &&
-                 mNat64PrefixAddress.empty())) {
-                mUnexpectedNat64PrefixUpdates--;
-                return true;
-            }
-        }
-        std::this_thread::sleep_for(kRetryIntervalMs);
+    const auto now = std::chrono::steady_clock::now();
+
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
+
+    if (mCv.wait_for(lock, timeout, [&]() REQUIRES(mMutex) {
+            return (operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED &&
+                    !mNat64PrefixAddress.empty()) ||
+                   (operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_REMOVED &&
+                    mNat64PrefixAddress.empty());
+        })) {
+        mUnexpectedNat64PrefixUpdates--;
+        return true;
     }
+
+    // Timeout.
     return false;
 }
 
