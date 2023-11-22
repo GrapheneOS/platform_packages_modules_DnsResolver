@@ -412,6 +412,9 @@ message NetworkDnsEventReported {
 
     // The sample rate of DNS stats (to statsd) is 1/sampling_rate_denom.
     optional int32 sampling_rate_denom = 9;
+
+    // UID sends the DNS query.
+    optional int32 uid = 10;
 }
 
 enum HandshakeResult {
