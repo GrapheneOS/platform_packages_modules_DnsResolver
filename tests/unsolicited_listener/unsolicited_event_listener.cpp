@@ -33,11 +33,11 @@ using android::base::ScopedLockAssertion;
 using std::chrono::milliseconds;
 
 constexpr milliseconds kEventTimeoutMs{5000};
-constexpr milliseconds kRetryIntervalMs{20};
 
 ::ndk::ScopedAStatus UnsolicitedEventListener::onDnsHealthEvent(const DnsHealthEventParcel& event) {
     std::lock_guard lock(mMutex);
     if (event.netId == mNetId) mDnsHealthResultRecords.push(event.healthResult);
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -51,6 +51,7 @@ constexpr milliseconds kRetryIntervalMs{20};
                                       ? event.prefixAddress
                                       : "";
     }
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
@@ -62,24 +63,16 @@ constexpr milliseconds kRetryIntervalMs{20};
         mValidationRecords.insert_or_assign({event.netId, event.ipAddress, event.protocol},
                                             event.validation);
     }
-    mCv.notify_one();
+    mCv.notify_all();
     return ::ndk::ScopedAStatus::ok();
 }
 
 bool UnsolicitedEventListener::waitForPrivateDnsValidation(const std::string& serverAddr,
                                                            int validation, int protocol) {
-    const auto now = std::chrono::steady_clock::now();
-
     std::unique_lock lock(mMutex);
-    ScopedLockAssertion assume_lock(mMutex);
-
-    // onPrivateDnsValidationEvent() might already be invoked. Search for the record first.
-    do {
-        if (findAndRemoveValidationRecord({mNetId, serverAddr, protocol}, validation)) return true;
-    } while (mCv.wait_until(lock, now + kEventTimeoutMs) != std::cv_status::timeout);
-
-    // Timeout.
-    return false;
+    return mCv.wait_for(lock, kEventTimeoutMs, [&]() REQUIRES(mMutex) {
+        return findAndRemoveValidationRecord({mNetId, serverAddr, protocol}, validation);
+    });
 }
 
 bool UnsolicitedEventListener::findAndRemoveValidationRecord(const ServerKey& key, int value) {
@@ -92,36 +85,33 @@ bool UnsolicitedEventListener::findAndRemoveValidationRecord(const ServerKey& ke
 }
 
 bool UnsolicitedEventListener::waitForNat64Prefix(int operation, const milliseconds& timeout) {
-    android::base::Timer t;
-    while (t.duration() < timeout) {
-        {
-            std::lock_guard lock(mMutex);
-            if ((operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED &&
-                 !mNat64PrefixAddress.empty()) ||
-                (operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_REMOVED &&
-                 mNat64PrefixAddress.empty())) {
-                mUnexpectedNat64PrefixUpdates--;
-                return true;
-            }
-        }
-        std::this_thread::sleep_for(kRetryIntervalMs);
+    const auto now = std::chrono::steady_clock::now();
+
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
+
+    if (mCv.wait_for(lock, timeout, [&]() REQUIRES(mMutex) {
+            return (operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_ADDED &&
+                    !mNat64PrefixAddress.empty()) ||
+                   (operation == IDnsResolverUnsolicitedEventListener::PREFIX_OPERATION_REMOVED &&
+                    mNat64PrefixAddress.empty());
+        })) {
+        mUnexpectedNat64PrefixUpdates--;
+        return true;
     }
+
+    // Timeout.
     return false;
 }
 
 Result<int> UnsolicitedEventListener::popDnsHealthResult() {
-    // Wait until the queue is not empty or timeout.
-    android::base::Timer t;
-    while (t.duration() < milliseconds{1000}) {
-        {
-            std::lock_guard lock(mMutex);
-            if (!mDnsHealthResultRecords.empty()) break;
-        }
-        std::this_thread::sleep_for(kRetryIntervalMs);
-    }
+    std::unique_lock lock(mMutex);
+    ScopedLockAssertion assume_lock(mMutex);
 
-    std::lock_guard lock(mMutex);
-    if (mDnsHealthResultRecords.empty()) return Error() << "Dns health result record is empty";
+    if (!mCv.wait_for(lock, kEventTimeoutMs,
+                      [&]() REQUIRES(mMutex) { return !mDnsHealthResultRecords.empty(); })) {
+        return Error() << "Dns health result record is empty";
+    }
 
     auto ret = mDnsHealthResultRecords.front();
     mDnsHealthResultRecords.pop();
