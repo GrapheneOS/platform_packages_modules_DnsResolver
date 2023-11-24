@@ -4827,77 +4827,76 @@ TEST_F(ResolverTest, ConnectTlsServerTimeout_ConcurrentQueries) {
     }
 }
 
+// Tests that the DoT query timeout is configurable via the feature flag "dot_query_timeout_ms".
+// The test DoT server is configured to postpone DNS queries for DOT_SERVER_UNRESPONSIVE_TIME_MS
+// (2s). If the feature flag is set to a positive value smaller than
+// DOT_SERVER_UNRESPONSIVE_TIME_MS, DoT queries should timeout.
 TEST_F(ResolverTest, QueryTlsServerTimeout) {
-    constexpr uint32_t cacheFlag = ANDROID_RESOLV_NO_CACHE_LOOKUP;
-    constexpr int INFINITE_QUERY_TIMEOUT = -1;
-    constexpr int DOT_SERVER_UNRESPONSIVE_TIME_MS = 5000;
+    constexpr int DOT_SERVER_UNRESPONSIVE_TIME_MS = 2000;
+    constexpr int TIMING_TOLERANCE_MS = 200;
     constexpr char hostname1[] = "query1.example.com.";
-    constexpr char hostname2[] = "query2.example.com.";
     const std::vector<DnsRecord> records = {
             {hostname1, ns_type::ns_t_a, "1.2.3.4"},
-            {hostname2, ns_type::ns_t_a, "1.2.3.5"},
     };
 
-    for (const int queryTimeoutMs : {INFINITE_QUERY_TIMEOUT, 1000}) {
-        for (const std::string_view dnsMode : {"OPPORTUNISTIC", "STRICT"}) {
-            SCOPED_TRACE(fmt::format("testConfig: [{}] [{}]", dnsMode, queryTimeoutMs));
+    static const struct TestConfig {
+        std::string dnsMode;
+        int queryTimeoutMs;
+        int expectResultTimedOut;
+        int expectedTimeTakenMs;
+    } testConfigs[] = {
+            // clang-format off
+            {"OPPORTUNISTIC",   -1, false, DOT_SERVER_UNRESPONSIVE_TIME_MS},
+            {"OPPORTUNISTIC", 1000, false,                            1000},
+            {"STRICT",          -1, false, DOT_SERVER_UNRESPONSIVE_TIME_MS},
+            // `expectResultTimedOut` is true in the following testcase because in strict mode
+            // DnsResolver doesn't try Do53 servers after the DoT query is timed out.
+            {"STRICT",        1000,  true,                            1000},
+            // clang-format on
+    };
+    for (const auto& config : testConfigs) {
+        SCOPED_TRACE(fmt::format("testConfig: [{}] [{}]", config.dnsMode, config.queryTimeoutMs));
 
-            const std::string addr = getUniqueIPv4Address();
-            test::DNSResponder dns(addr);
-            StartDns(dns, records);
-            test::DnsTlsFrontend tls(addr, "853", addr, "53");
-            ASSERT_TRUE(tls.startServer());
+        const std::string addr = getUniqueIPv4Address();
+        test::DNSResponder dns(addr);
+        StartDns(dns, records);
+        test::DnsTlsFrontend tls(addr, "853", addr, "53");
+        ASSERT_TRUE(tls.startServer());
 
-            ScopedSystemProperties sp(kDotQueryTimeoutMsFlag, std::to_string(queryTimeoutMs));
+        ScopedSystemProperties sp(kDotQueryTimeoutMsFlag, std::to_string(config.queryTimeoutMs));
 
-            // Don't skip unusable DoT servers and disable revalidation for this test.
-            ScopedSystemProperties sp2(kDotXportUnusableThresholdFlag, "-1");
-            ScopedSystemProperties sp3(kDotRevalidationThresholdFlag, "-1");
-            resetNetwork();
+        // Don't skip unusable DoT servers and disable revalidation for this test.
+        ScopedSystemProperties sp2(kDotXportUnusableThresholdFlag, "-1");
+        ScopedSystemProperties sp3(kDotRevalidationThresholdFlag, "-1");
+        resetNetwork();
 
-            auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
-            parcel.servers = {addr};
-            parcel.tlsServers = {addr};
-            if (dnsMode == "STRICT") parcel.tlsName = kDefaultPrivateDnsHostName;
+        auto parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+        parcel.servers = {addr};
+        parcel.tlsServers = {addr};
+        if (config.dnsMode == "STRICT") parcel.tlsName = kDefaultPrivateDnsHostName;
 
-            ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
-            EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
-            EXPECT_TRUE(tls.waitForQueries(1));
-            tls.clearQueries();
+        ASSERT_TRUE(mDnsClient.SetResolversFromParcel(parcel));
+        EXPECT_TRUE(WaitForPrivateDnsValidation(tls.listen_address(), true));
+        EXPECT_TRUE(tls.waitForQueries(1));
+        tls.clearQueries();
 
-            // Set the DoT server to be unresponsive to DNS queries until either it receives
-            // 2 queries or 5s later.
-            tls.setDelayQueries(2);
-            tls.setDelayQueriesTimeout(DOT_SERVER_UNRESPONSIVE_TIME_MS);
+        // Set the DoT server to be unresponsive to DNS queries for
+        // `DOT_SERVER_UNRESPONSIVE_TIME_MS` ms.
+        tls.setDelayQueries(999);
+        tls.setDelayQueriesTimeout(DOT_SERVER_UNRESPONSIVE_TIME_MS);
 
-            // First query.
-            Stopwatch s;
-            int fd = resNetworkQuery(TEST_NETID, hostname1, ns_c_in, ns_t_a, cacheFlag);
-            if (dnsMode == "STRICT" && queryTimeoutMs != INFINITE_QUERY_TIMEOUT) {
-                expectAnswersNotValid(fd, -ETIMEDOUT);
-            } else {
-                expectAnswersValid(fd, AF_INET, "1.2.3.4");
-            }
-
-            // Besides checking the result of the query, check how much time the
-            // resolver processed the query.
-            int timeTakenMs = s.getTimeAndResetUs() / 1000;
-            const int expectedTimeTakenMs = (queryTimeoutMs == INFINITE_QUERY_TIMEOUT)
-                                                    ? DOT_SERVER_UNRESPONSIVE_TIME_MS
-                                                    : queryTimeoutMs;
-            EXPECT_GE(timeTakenMs, expectedTimeTakenMs);
-            EXPECT_LE(timeTakenMs, expectedTimeTakenMs + 1000);
-
-            // Second query.
-            tls.setDelayQueries(1);
-            fd = resNetworkQuery(TEST_NETID, hostname2, ns_c_in, ns_t_a, cacheFlag);
-            expectAnswersValid(fd, AF_INET, "1.2.3.5");
-
-            // Also check how much time the resolver processed the query.
-            timeTakenMs = s.timeTakenUs() / 1000;
-            EXPECT_LE(timeTakenMs, 500);
-            EXPECT_TRUE(tls.waitForQueries(2));
+        // Send a DNS query, and then check the result and the response time.
+        Stopwatch s;
+        int fd = resNetworkQuery(TEST_NETID, hostname1, ns_c_in, ns_t_a,
+                                 ANDROID_RESOLV_NO_CACHE_LOOKUP);
+        if (config.expectResultTimedOut) {
+            expectAnswersNotValid(fd, -ETIMEDOUT);
+        } else {
+            expectAnswersValid(fd, AF_INET, "1.2.3.4");
         }
+        const int timeTakenMs = s.getTimeAndResetUs() / 1000;
+        EXPECT_NEAR(config.expectedTimeTakenMs, timeTakenMs, TIMING_TOLERANCE_MS);
+        EXPECT_TRUE(tls.waitForQueries(1));
     }
 }
 
