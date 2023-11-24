@@ -229,3 +229,7 @@ void RemoveMdnsRoute() {
     };
     EXPECT_EQ(0, ForkAndRun(args_v6));
 }
+
+bool is64bitAbi() {
+    return android::base::GetProperty("ro.product.cpu.abi", "").find("64") != std::string::npos;
+}
