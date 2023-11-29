@@ -107,6 +107,8 @@ NetworkDnsEventReported fromNetworkDnsEventReportedStr(const std::string& str) {
                 event.set_private_dns_modes(static_cast<PrivateDnsModes>(value));
             } else if (protoField[1] == "sampling_rate_denom" && ParseInt(protoField[2], &value)) {
                 event.set_sampling_rate_denom(value);
+            } else if (protoField[1] == "uid" && ParseInt(protoField[2], &value)) {
+                event.set_uid(value);
             }
         }
         // Parsing each field of the proto DnsQueryEvent
@@ -169,6 +171,7 @@ void PrintTo(const NetworkDnsEventReported& event, std::ostream* os) {
     *os << "  network_type: " << event.network_type() << "\n";
     *os << "  private_dns_modes: " << event.private_dns_modes() << "\n";
     *os << "  dns_query_event_size: " << event.dns_query_events().dns_query_event_size() << "\n";
+    *os << "  uid: " << event.uid() << "\n";
     *os << "}";
 }
 
