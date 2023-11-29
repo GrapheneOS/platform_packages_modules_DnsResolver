@@ -58,7 +58,8 @@ TEST_F(ResolvStatsUtilsTest, NetworkDnsEventEq) {
                  latency_micros: 0,
                 }
                ]
-             }
+             },
+             uid: 1000,
         })Event";
 
     // TODO: Add integration test to verify Level 1 fields of NetworkDnsEventReported.
@@ -83,6 +84,7 @@ TEST_F(ResolvStatsUtilsTest, NetworkDnsEventEq) {
     dnsQueryEvent2->set_dns_server_index(1);
     dnsQueryEvent2->set_connected(0);
     dnsQueryEvent2->set_latency_micros(5);
+    event1.set_uid(1000);
     EXPECT_THAT(event1, NetworkDnsEventEq(fromNetworkDnsEventReportedStr(event2)));
 }
 

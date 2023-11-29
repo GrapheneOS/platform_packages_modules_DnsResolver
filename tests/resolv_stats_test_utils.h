@@ -120,7 +120,9 @@ MATCHER_P(NetworkDnsEventEq, other, "") {
                     */
                     ::testing::Property("dns_query_events",
                                         &android::net::NetworkDnsEventReported::dns_query_events,
-                                        DnsQueryEventsEq(other.dns_query_events()))),
+                                        DnsQueryEventsEq(other.dns_query_events())),
+                    ::testing::Property("uid", &android::net::NetworkDnsEventReported::uid,
+                                        ::testing::Eq(other.uid()))),
             arg, result_listener);
 }
 
