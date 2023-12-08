@@ -275,6 +275,7 @@ cc_library {
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
         "libsysutils",
+        "libutils",
         "netd_event_listener_interface-lateststable-ndk",
         "server_configurable_flags",
         "stats_proto",
