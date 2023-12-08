@@ -571,7 +571,12 @@ TEST_P(TransportParameterizedTest, BlockDnsQuery) {
             // Block network access by enabling data saver.
             ScopedSetDataSaverByBPF scopedSetDataSaverByBPF(true);
             ScopedChangeUID scopedChangeUID(TEST_UID);
-            expectQueriesAreBlocked();
+
+            // DataSaver information is only meaningful after V.
+            // TODO: Add 'else' to check that DNS queries are not blocked before V.
+            if (android::modules::sdklevel::IsAtLeastV()) {
+                expectQueriesAreBlocked();
+            }
         } else {
             // Block network access by setting UID firewall rules.
             ScopeBlockedUIDRule scopeBlockUidRule(mDnsClient.netdService(), TEST_UID);
