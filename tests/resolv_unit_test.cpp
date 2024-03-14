@@ -1895,6 +1895,7 @@ TEST_F(ResolvCommonFunctionTest, ConvertTransportsToNetworkType) {
             {android::net::NT_VPN, {IDnsResolver::TRANSPORT_VPN}},
             {android::net::NT_WIFI_AWARE, {IDnsResolver::TRANSPORT_WIFI_AWARE}},
             {android::net::NT_LOWPAN, {IDnsResolver::TRANSPORT_LOWPAN}},
+            {android::net::NT_SATELLITE, {IDnsResolver::TRANSPORT_SATELLITE}},
             {android::net::NT_CELLULAR_VPN,
              {IDnsResolver::TRANSPORT_CELLULAR, IDnsResolver::TRANSPORT_VPN}},
             {android::net::NT_CELLULAR_VPN,

@@ -2013,6 +2013,8 @@ static android::net::NetworkType to_stats_network_type(int32_t mainType, bool wi
             return withVpn ? android::net::NT_BLUETOOTH_VPN : android::net::NT_BLUETOOTH;
         case IDnsResolver::TRANSPORT_ETHERNET:
             return withVpn ? android::net::NT_ETHERNET_VPN : android::net::NT_ETHERNET;
+        case IDnsResolver::TRANSPORT_SATELLITE:
+            return withVpn ? android::net::NT_UNKNOWN : android::net::NT_SATELLITE;
         case IDnsResolver::TRANSPORT_VPN:
             return withVpn ? android::net::NT_UNKNOWN : android::net::NT_VPN;
         case IDnsResolver::TRANSPORT_WIFI_AWARE:
@@ -2080,6 +2082,8 @@ static const char* transport_type_to_str(const std::vector<int32_t>& transportTy
             return "ETHERNET_VPN";
         case android::net::NT_WIFI_CELLULAR_VPN:
             return "WIFI_CELLULAR_VPN";
+        case android::net::NT_SATELLITE:
+            return "SATELLITE";
         default:
             return "UNKNOWN";
     }

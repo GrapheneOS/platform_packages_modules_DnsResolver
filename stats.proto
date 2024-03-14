@@ -196,6 +196,8 @@ enum NetworkType {
     NT_ETHERNET_VPN = 11;
     // Indicates this network uses a Wi-Fi+Cellular+VPN transport.
     NT_WIFI_CELLULAR_VPN = 12;
+    // Indicates this network uses an Satellite transport.
+    NT_SATELLITE = 13;
 }
 
 enum CacheStatus{
