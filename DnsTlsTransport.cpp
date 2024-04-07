@@ -67,7 +67,7 @@ std::vector<uint8_t> makeDnsQuery() {
             "ABCDEFHIJKLMNOPQRSTUVWXYZ"
             "0123456789";
     const auto c = [](uint8_t rnd) -> uint8_t {
-        return kDnsSafeChars[(rnd % std::size(kDnsSafeChars))];
+        return kDnsSafeChars[rnd % (std::size(kDnsSafeChars) - 1)];
     };
     uint8_t rnd[8];
     arc4random_buf(rnd, std::size(rnd));
