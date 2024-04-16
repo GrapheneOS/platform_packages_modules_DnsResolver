@@ -262,9 +262,10 @@ cc_library {
     },
     defaults: [
         "libresolvrs_ffi_defaults",
-        "netd_defaults"
+        "netd_defaults",
     ],
     srcs: [
+        "addrlabel.cpp",
         "getaddrinfo.cpp",
         "gethnamaddr.cpp",
         "sethostent.cpp",
@@ -426,4 +427,3 @@ filegroup {
         "PrivateDnsConfigurationTest.cpp",
     ],
 }
-

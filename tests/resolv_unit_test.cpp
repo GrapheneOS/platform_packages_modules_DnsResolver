@@ -27,6 +27,7 @@
 #include <netdutils/NetNativeTestBase.h>
 #include <resolv_stats_test_utils.h>
 
+#include "addrlabel.h"
 #include "dns_responder.h"
 #include "getaddrinfo.h"
 #include "gethnamaddr.h"
@@ -1383,6 +1384,40 @@ TEST_F(ResolvGetAddrInfoTest, OverlengthResp) {
     EXPECT_TRUE(result == nullptr);
     EXPECT_EQ(GetNumQueriesForProtocol(dns, IPPROTO_UDP, kHelloExampleCom), 2U);
     EXPECT_EQ(GetNumQueriesForProtocol(dns, IPPROTO_TCP, kHelloExampleCom), 2U);
+}
+
+TEST_F(ResolvGetAddrInfoTest, GetAddrLabel) {
+    static const struct TestConfig {
+        const char* addr;
+        uint32_t simple_label;
+        uint32_t netlink_label;
+    } testConfigs[]{
+            // clang-format off
+            // address        simple netlink
+            {"::1",               0,  3},  // Kernel bug? ::1 matches ::/96 instead of ::1/128.
+            {"2000::",            1,  1},
+            {"2002::",            2,  2},
+            {"::1.2.3.4",         3,  3},
+            {"192.0.2.1",         4,  4},
+            {"::ffff:192.0.2.1",  4,  4},
+            {"fd00::",           13,  5},
+            {"3ffe::",           12, 12},
+            // clang-format on
+    };
+
+    for (const auto& config : testConfigs) {
+        addrinfo hints = {.ai_flags = AI_NUMERICHOST};
+        addrinfo* res;
+        const int ifindex = 0;
+
+        ASSERT_EQ(0, getaddrinfo(config.addr, nullptr /* service */, &hints, &res));
+        EXPECT_EQ(config.netlink_label, resolv_getaddrlabel_netlink(res[0].ai_addr, ifindex))
+                << "Incorrect netlink label for " << config.addr;
+
+        EXPECT_EQ(config.simple_label, resolv_getaddrlabel_simple(res[0].ai_addr))
+                << "Incorrect simple label for " << config.addr;
+        freeaddrinfo(res);
+    }
 }
 
 TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
