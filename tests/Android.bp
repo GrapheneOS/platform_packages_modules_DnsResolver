@@ -458,6 +458,9 @@ cc_fuzz {
         "libbinder_random_parcel",
         "libcutils",
     ],
+    shared_libs: [
+        "libcom.android.tethering.dns_helper",
+    ],
     target: {
         android: {
             shared_libs: [
