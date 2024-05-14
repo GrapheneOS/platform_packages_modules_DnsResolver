@@ -314,7 +314,7 @@ impl ClientMap {
     }
 
     pub fn get_mut(&mut self, id: &[u8]) -> Option<&mut Client> {
-        self.clients.get_mut(&id.to_vec())
+        self.clients.get_mut(id)
     }
 
     pub fn iter_mut(&mut self) -> hash_map::IterMut<ConnectionID, Client> {
