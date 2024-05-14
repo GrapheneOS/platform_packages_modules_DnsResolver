@@ -254,3 +254,15 @@ inline void resolv_tag_socket(int sock, uid_t uid, pid_t pid) {
         PLOG(WARNING) << "Failed to chown socket";
     }
 }
+
+struct addrinfo_sort_elem {
+    struct addrinfo* ai;
+    int has_src_addr;
+    sockaddr_union src_addr;
+    int scope_src, scope_dst;
+    int label_src, label_dst;
+    int precedence;
+    int original_order;
+};
+
+void rfc6724_sort_array(addrinfo_sort_elem* elems, int nelem);

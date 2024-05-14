@@ -19,6 +19,7 @@
 #include <aidl/android/net/IDnsResolver.h>
 #include <android-base/format.h>
 #include <android-base/logging.h>
+#include <android-base/scopeguard.h>
 #include <arpa/inet.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -32,6 +33,7 @@
 #include "getaddrinfo.h"
 #include "gethnamaddr.h"
 #include "resolv_cache.h"
+#include "resolv_private.h"
 #include "stats.pb.h"
 #include "tests/resolv_test_utils.h"
 
@@ -1418,6 +1420,80 @@ TEST_F(ResolvGetAddrInfoTest, GetAddrLabel) {
                 << "Incorrect simple label for " << config.addr;
         freeaddrinfo(res);
     }
+}
+
+// TODO: find a way to move these to resolv_test_utils.
+// Currently this doesn't build because resolv_test_utils can't depend on resolv_private.h.
+sockaddr_union make_sockaddr_union(const char* addrstr) {
+    sockaddr_union su{};
+    if (inet_pton(AF_INET, addrstr, &su.sin.sin_addr)) {
+        su.sa.sa_family = AF_INET;
+        return su;
+    }
+    inet_pton(AF_INET6, addrstr, &su.sin6.sin6_addr);
+    su.sa.sa_family = AF_INET6;
+    return su;
+}
+
+// Use with `make_addrinfo_sort_elem` with `cleanup_addrinfo_sort_elem`
+addrinfo_sort_elem make_addrinfo_sort_elem(const char* daddr, int scope_dst, int label_dst,
+                                           const char* saddr, int scope_src, int label_src,
+                                           int precedence) {
+    addrinfo_sort_elem elem{
+        .scope_src = scope_src,
+        .scope_dst = scope_dst,
+        .label_src = label_src,
+        .label_dst = label_dst,
+        .precedence = precedence,
+    };
+
+    if (saddr != nullptr) {
+        elem.src_addr = make_sockaddr_union(saddr);
+        elem.has_src_addr = 1;
+    } else {
+        elem.ai = 0;
+    }
+    sockaddr_union dst = make_sockaddr_union(daddr);
+    elem.ai = (addrinfo*)calloc(1, sizeof(*elem.ai));
+    elem.ai->ai_addrlen = dst.sa.sa_family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6);
+    elem.ai->ai_addr = (sockaddr*)calloc(1, sizeof(sockaddr_union));
+    memcpy(elem.ai->ai_addr, &dst, sizeof(sockaddr_union));
+
+    return elem;
+}
+
+// Use with `make_addrinfo_sort_elem` with `cleanup_addrinfo_sort_elem`
+void cleanup_addrinfo_sort_elem(addrinfo_sort_elem& elem) {
+    free(elem.ai->ai_addr);
+    free(elem.ai);
+}
+
+std::string addrstr(const addrinfo_sort_elem& elem) {
+    char addr[INET6_ADDRSTRLEN];
+    getnameinfo(elem.ai->ai_addr, elem.ai->ai_addrlen, addr, sizeof(addr), nullptr, 0,
+                NI_NUMERICHOST);
+    return std::string(addr);
+}
+
+TEST_F(ResolvGetAddrInfoTest, Sorting) {
+    constexpr int GLOBAL = IPV6_ADDR_SCOPE_GLOBAL;
+    constexpr int V4 = 4;
+    constexpr int V6 = 1;
+
+    std::vector<addrinfo_sort_elem> v4v6 = {
+        make_addrinfo_sort_elem("8.8.8.8", GLOBAL, V4, "192.168.0.1", GLOBAL, V4, 35),
+        make_addrinfo_sort_elem("2001:4860:4860::8888", GLOBAL, V6, "2001:db8::1", GLOBAL, V6, 40),
+    };
+    base::ScopeGuard v4v6_cleanup([&v4v6] () {
+        for (auto& elem : v4v6) cleanup_addrinfo_sort_elem(elem);
+    });
+    rfc6724_sort_array(v4v6.data(), v4v6.size());
+    EXPECT_EQ("2001:4860:4860::8888", addrstr(v4v6[0]));
+
+    v4v6[0].precedence = 35;
+    v4v6[1].precedence = 40;
+    rfc6724_sort_array(v4v6.data(), v4v6.size());
+    EXPECT_EQ("8.8.8.8", addrstr(v4v6[0]));
 }
 
 TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
