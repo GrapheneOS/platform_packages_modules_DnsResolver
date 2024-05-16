@@ -445,6 +445,7 @@ rust_test {
     auto_gen_config: true,
     rustlibs: doh_rust_deps + ["libquiche_static"],
     min_sdk_version: "30",
+    shared_libs: ["libc++"],
 }
 
 // It's required by unit tests.
