@@ -22,6 +22,7 @@ cc_test_library {
     ],
     static_libs: [
         "netd_aidl_interface-lateststable-ndk",
+        "dnsresolver_aidl_interface-lateststable-ndk",
         "libconnectivity_native_test_utils",
         "libmodules-utils-build",
         "libnetd_test_dnsresponder_ndk",

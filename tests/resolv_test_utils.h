@@ -26,6 +26,7 @@
 #include <vector>
 
 #include <aidl/android/net/INetd.h>
+#include <aidl/android/net/ResolverParamsParcel.h>
 #include <android-base/properties.h>
 #include <android-modules-utils/sdk_level.h>
 #include <firewall.h>
@@ -33,6 +34,7 @@
 #include <netdutils/InternetAddresses.h>
 
 #include "dns_responder/dns_responder.h"
+#include "params.h"
 #include "util.h"
 
 class ScopeBlockedUIDRule {
@@ -432,6 +434,33 @@ android::netdutils::ScopedAddrinfo safe_getaddrinfo(const char* node, const char
 void SetMdnsRoute();
 void RemoveMdnsRoute();
 void AllowNetworkInBackground(int uid, bool allow);
+
+// Local definition to avoid including resolv_cache.h.
+int resolv_set_nameservers(const aidl::android::net::ResolverParamsParcel& params);
+
+// For testing only. Production code passes the parcel down directly.
+inline int resolv_set_nameservers(
+        unsigned netid, const std::vector<std::string>& servers,
+        const std::vector<std::string>& domains, const res_params& res_params,
+        std::optional<aidl::android::net::ResolverOptionsParcel> resolverOptions,
+        const std::vector<int32_t>& transportTypes = {}, bool metered = false) {
+    aidl::android::net::ResolverParamsParcel params;
+    params.netId = netid;
+    params.servers = servers;
+    params.domains = domains;
+    params.resolverOptions = resolverOptions;
+    params.transportTypes = transportTypes;
+    params.meteredNetwork = metered;
+
+    params.sampleValiditySeconds = res_params.sample_validity;
+    params.successThreshold = res_params.success_threshold;
+    params.minSamples = res_params.min_samples;
+    params.maxSamples = res_params.max_samples;
+    params.baseTimeoutMsec = res_params.base_timeout_msec;
+    params.retryCount = res_params.retry_count;
+
+    return resolv_set_nameservers(params);
+}
 
 #define SKIP_IF_BEFORE_T                                                         \
     do {                                                                         \

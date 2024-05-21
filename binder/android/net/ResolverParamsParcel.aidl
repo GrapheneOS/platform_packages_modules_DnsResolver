@@ -126,4 +126,11 @@ parcelable ResolverParamsParcel {
      */
     @nullable
     DohParamsParcel dohParams;
+
+    /**
+     * The interface names associated with this netId. Interface names instead of indices because
+     * the caller is not aware of interface indices and looking up ifindices for interface names is
+     * fast.
+     */
+    @utf8InCpp String[] interfaceNames = {};
 }

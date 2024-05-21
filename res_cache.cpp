@@ -67,6 +67,7 @@
 
 using aidl::android::net::IDnsResolver;
 using aidl::android::net::ResolverOptionsParcel;
+using aidl::android::net::ResolverParamsParcel;
 using android::net::DnsQueryEvent;
 using android::net::DnsStats;
 using android::net::Experiments;
@@ -1066,6 +1067,7 @@ struct NetConfig {
     bool enforceDnsUid = false;
     std::vector<int32_t> transportTypes;
     bool metered = false;
+    std::vector<std::string> interfaceNames;
 };
 
 /* gets cache associated with a network, or NULL if none exists */
@@ -1640,11 +1642,17 @@ std::vector<std::string> getCustomizedTableByName(const size_t netid, const char
     return result;
 }
 
-int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& servers,
-                           const std::vector<std::string>& domains, const res_params& params,
-                           const std::optional<ResolverOptionsParcel> optionalResolverOptions,
-                           const std::vector<int32_t>& transportTypes, bool metered) {
-    std::vector<std::string> nameservers = filter_nameservers(servers);
+std::vector<std::string> resolv_get_interface_names(int netid) {
+    std::lock_guard guard(cache_mutex);
+
+    NetConfig* netconfig = find_netconfig_locked(netid);
+    if (netconfig != nullptr) return netconfig->interfaceNames;
+    return {};
+}
+
+int resolv_set_nameservers(const ResolverParamsParcel& params) {
+    const unsigned netid = params.netId;
+    std::vector<std::string> nameservers = filter_nameservers(params.servers);
     const int numservers = static_cast<int>(nameservers.size());
 
     LOG(DEBUG) << __func__ << ": netId = " << netid << ", numservers = " << numservers;
@@ -1664,7 +1672,14 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
     if (netconfig == nullptr) return -ENONET;
 
     uint8_t old_max_samples = netconfig->params.max_samples;
-    netconfig->params = params;
+
+    memset(&netconfig->params, 0, sizeof(netconfig->params));
+    netconfig->params.sample_validity = params.sampleValiditySeconds;
+    netconfig->params.success_threshold = params.successThreshold;
+    netconfig->params.min_samples = params.minSamples;
+    netconfig->params.max_samples = params.maxSamples;
+    netconfig->params.base_timeout_msec = params.baseTimeoutMsec;
+    netconfig->params.retry_count = params.retryCount;
 
     // This check must always be true, but add a protection against OEMs configure negative values
     // for retry_count and base_timeout_msec.
@@ -1679,7 +1694,7 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
                 (retransmissionInterval <= 0) ? RES_TIMEOUT : retransmissionInterval;
     }
 
-    if (!resolv_is_nameservers_equal(netconfig->nameservers, nameservers)) {
+    if (!resolv_is_nameservers_equal(netconfig->nameservers, params.servers)) {
         // free current before adding new
         free_nameservers_locked(netconfig);
         netconfig->nameservers = std::move(nameservers);
@@ -1701,7 +1716,7 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
 
     // Always update the search paths. Cache-flushing however is not necessary,
     // since the stored cache entries do contain the domain, not just the host name.
-    netconfig->search_domains = filter_domains(domains);
+    netconfig->search_domains = filter_domains(params.domains);
 
     // Setup stats for cleartext dns servers.
     if (!netconfig->dnsStats.setAddrs(netconfig->nameserverSockAddrs, PROTO_TCP) ||
@@ -1709,12 +1724,14 @@ int resolv_set_nameservers(unsigned netid, const std::vector<std::string>& serve
         LOG(WARNING) << __func__ << ": netid = " << netid << ", failed to set dns stats";
         return -EINVAL;
     }
-    netconfig->transportTypes = transportTypes;
-    netconfig->metered = metered;
-    if (optionalResolverOptions.has_value()) {
-        const ResolverOptionsParcel& resolverOptions = optionalResolverOptions.value();
-        return netconfig->setOptions(resolverOptions);
+    netconfig->transportTypes = std::move(params.transportTypes);
+    netconfig->metered = params.meteredNetwork;
+    netconfig->interfaceNames = std::move(params.interfaceNames);
+
+    if (params.resolverOptions.has_value()) {
+        return netconfig->setOptions(params.resolverOptions.value());
     }
+
     return 0;
 }
 

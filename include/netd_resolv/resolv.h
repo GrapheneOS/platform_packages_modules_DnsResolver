@@ -29,6 +29,7 @@
 #pragma once
 
 #include <android-base/format.h>
+#include <android-base/strings.h>
 #include <arpa/nameser.h>
 #include <netinet/in.h>
 

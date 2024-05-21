@@ -227,18 +227,7 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
         }
     }
 
-    res_params res_params = {};
-    res_params.sample_validity = resolverParams.sampleValiditySeconds;
-    res_params.success_threshold = resolverParams.successThreshold;
-    res_params.min_samples = resolverParams.minSamples;
-    res_params.max_samples = resolverParams.maxSamples;
-    res_params.base_timeout_msec = resolverParams.baseTimeoutMsec;
-    res_params.retry_count = resolverParams.retryCount;
-
-    return resolv_set_nameservers(resolverParams.netId, resolverParams.servers,
-                                  resolverParams.domains, res_params,
-                                  resolverParams.resolverOptions, resolverParams.transportTypes,
-                                  resolverParams.meteredNetwork);
+    return resolv_set_nameservers(resolverParams);
 }
 
 int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>* servers,

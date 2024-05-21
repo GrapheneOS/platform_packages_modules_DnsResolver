@@ -16,27 +16,18 @@
 // with such a backward incompatible change, it has a high risk of breaking
 // later when a module using the interface is updated, e.g., Mainline modules.
 
-package android.net;
+package android.net.resolv.aidl;
 /* @hide */
-@JavaDerive(equals=true, toString=true)
-parcelable ResolverParamsParcel {
-  int netId;
-  int sampleValiditySeconds;
-  int successThreshold;
-  int minSamples;
-  int maxSamples;
-  int baseTimeoutMsec;
-  int retryCount;
-  @utf8InCpp String[] servers;
-  @utf8InCpp String[] domains;
-  @utf8InCpp String tlsName;
-  @utf8InCpp String[] tlsServers;
-  @utf8InCpp String[] tlsFingerprints = {};
-  @utf8InCpp String caCertificate = "";
-  int tlsConnectTimeoutMs = 0;
-  @nullable android.net.ResolverOptionsParcel resolverOptions;
-  int[] transportTypes = {};
-  boolean meteredNetwork = false;
-  @nullable android.net.resolv.aidl.DohParamsParcel dohParams;
-  @utf8InCpp String[] interfaceNames = {};
+interface IDnsResolverUnsolicitedEventListener {
+  oneway void onDnsHealthEvent(in android.net.resolv.aidl.DnsHealthEventParcel dnsHealthEvent);
+  oneway void onNat64PrefixEvent(in android.net.resolv.aidl.Nat64PrefixEventParcel nat64PrefixEvent);
+  oneway void onPrivateDnsValidationEvent(in android.net.resolv.aidl.PrivateDnsValidationEventParcel privateDnsValidationEvent);
+  const int DNS_HEALTH_RESULT_OK = 0;
+  const int DNS_HEALTH_RESULT_TIMEOUT = 255;
+  const int PREFIX_OPERATION_ADDED = 1;
+  const int PREFIX_OPERATION_REMOVED = 2;
+  const int VALIDATION_RESULT_SUCCESS = 1;
+  const int VALIDATION_RESULT_FAILURE = 2;
+  const int PROTOCOL_DOT = 1;
+  const int PROTOCOL_DOH = 2;
 }

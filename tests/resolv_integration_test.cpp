@@ -7382,6 +7382,7 @@ bool ResolverMultinetworkTest::ScopedNetwork::setDnsConfiguration() const {
     parcel.tlsServers.clear();
     parcel.netId = mNetId;
     parcel.servers.clear();
+    parcel.interfaceNames.push_back(mIfname);
     for (const auto& pair : mDnsServerPairs) {
         parcel.servers.push_back(pair.dnsAddr);
     }
