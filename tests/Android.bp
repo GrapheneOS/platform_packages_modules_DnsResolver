@@ -208,8 +208,6 @@ cc_test {
         "dnsproxyd_protocol_headers",
         "libnetd_resolv_headers",
     ],
-    // TODO: make static link libc++ work.
-    //stl: "libc++_static",
     shared_libs: [
         "libbinder_ndk",
         "libnetd_client",
