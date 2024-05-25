@@ -41,6 +41,7 @@ using aidl::android::net::IDnsResolver;
 using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
+using android::base::Join;
 using android::net::ResolverStats;
 
 namespace android {
@@ -80,7 +81,7 @@ void sendNat64PrefixEvent(const Dns64Configuration::Nat64PrefixInfo& args) {
 
 int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<std::string>* domains,
                res_params* params, std::vector<android::net::ResolverStats>* stats,
-               int* wait_for_pending_req_timeout_count) {
+               std::vector<std::string>* interfaceNames, int* wait_for_pending_req_timeout_count) {
     static_assert(ResolverStats::STATS_SUCCESSES == IDnsResolver::RESOLVER_STATS_SUCCESSES &&
                           ResolverStats::STATS_ERRORS == IDnsResolver::RESOLVER_STATS_ERRORS &&
                           ResolverStats::STATS_TIMEOUTS == IDnsResolver::RESOLVER_STATS_TIMEOUTS &&
@@ -99,6 +100,7 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
     res_stats res_stats[MAXNS];
     servers->clear();
     domains->clear();
+    interfaceNames->clear();
     *params = res_params{};
     stats->clear();
     int revision_id = android_net_res_stats_get_info_for_net(netId, &nscount, res_servers, &dcount,
@@ -148,6 +150,8 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
     for (int i = 0; i < dcount; ++i) {
         domains->push_back(res_domains[i]);
     }
+
+    *interfaceNames = resolv_get_interface_names(netId);
 
     return 0;
 }
@@ -233,11 +237,12 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
 int ResolverController::getResolverInfo(int32_t netId, std::vector<std::string>* servers,
                                         std::vector<std::string>* domains,
                                         std::vector<std::string>* tlsServers,
+                                        std::vector<std::string>* interfaceNames,
                                         std::vector<int32_t>* params, std::vector<int32_t>* stats,
                                         int* wait_for_pending_req_timeout_count) {
     res_params res_params;
     std::vector<ResolverStats> res_stats;
-    int ret = getDnsInfo(netId, servers, domains, &res_params, &res_stats,
+    int ret = getDnsInfo(netId, servers, domains, &res_params, &res_stats, interfaceNames,
                          wait_for_pending_req_timeout_count);
     if (ret != 0) {
         return ret;
@@ -283,11 +288,12 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
     // No lock needed since Bionic's resolver locks all accessed data structures internally.
     std::vector<std::string> servers;
     std::vector<std::string> domains;
+    std::vector<std::string> interfaceNames;
     res_params params = {};
     std::vector<ResolverStats> stats;
     int wait_for_pending_req_timeout_count = 0;
     time_t now = time(nullptr);
-    int rv = getDnsInfo(netId, &servers, &domains, &params, &stats,
+    int rv = getDnsInfo(netId, &servers, &domains, &params, &stats, &interfaceNames,
                         &wait_for_pending_req_timeout_count);
     dw.incIndent();
     if (rv != 0) {
@@ -297,9 +303,9 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
             dw.println("No DNS servers defined");
         } else {
             dw.println("DnsEvent subsampling map: " +
-                       android::base::Join(resolv_cache_dump_subsampling_map(netId, false), ' '));
+                       Join(resolv_cache_dump_subsampling_map(netId, false), ' '));
             dw.println("DnsEvent subsampling map for MDNS: " +
-                       android::base::Join(resolv_cache_dump_subsampling_map(netId, true), ' '));
+                       Join(resolv_cache_dump_subsampling_map(netId, true), ' '));
             dw.println(
                     "DNS servers: # IP (total, successes, errors, timeouts, internal errors, "
                     "RTT avg, last sample)");
@@ -322,10 +328,12 @@ void ResolverController::dump(DumpWriter& dw, unsigned netId) {
             }
             dw.decIndent();
         }
+        std::string ifacenames_str = Join(interfaceNames, ", ");
+        dw.println("Interface names: [%s]", ifacenames_str.c_str());
         if (domains.empty()) {
             dw.println("No search domains defined");
         } else {
-            std::string domains_str = android::base::Join(domains, ", ");
+            std::string domains_str = Join(domains, ", ");
             dw.println("search domains: %s", domains_str.c_str());
         }
         if (params.sample_validity != 0) {

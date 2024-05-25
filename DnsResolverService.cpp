@@ -208,9 +208,13 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     // Locking happens in PrivateDnsConfiguration and res_* functions.
     ENFORCE_NETWORK_STACK_PERMISSIONS();
 
+    // The interface names aren't part of the IPC signature, so cannot be passed back to the caller.
+    // TODO: consider defining a new IP method that returns a parcel instead.
+    std::vector<std::string> interfaceNames;
+
     int timeout_count = 0;
-    int res = gDnsResolv->resolverCtrl.getResolverInfo(netId, servers, domains, tlsServers, params,
-                                                       stats, &timeout_count);
+    int res = gDnsResolv->resolverCtrl.getResolverInfo(
+            netId, servers, domains, tlsServers, &interfaceNames, params, stats, &timeout_count);
     // Due to historical reason, wait_for_pending_req_timeout_count couldn't be
     // an int but a vector. See aosp/858377 for more details.
     wait_for_pending_req_timeout_count->clear();

@@ -622,3 +622,52 @@ TEST_F(DnsResolverBinderTest, SetResolverOptions) {
                                         "network\")",
                                 "setResolverOptions.*-1.*64"});
 }
+
+static std::string getNetworkInterfaceNames(int netId, const std::vector<std::string>& lines) {
+    bool foundNetId = false;
+    for (const auto& line : lines) {
+        // Find the beginning of the section for this netId.
+        const std::string netIdMarker = "NetId: " + std::to_string(netId);
+        if (!foundNetId && !line.compare(0, netIdMarker.size(), netIdMarker)) {
+            foundNetId = true;
+            continue;
+        }
+
+        // A blank line terminates the section for this netId.
+        if (foundNetId && line.size() == 0) {
+            foundNetId = false;
+            break;
+        }
+
+        const std::string interfacesNamesPrefix = "  Interface names: ";
+        if (foundNetId && !line.compare(0, interfacesNamesPrefix.size(), interfacesNamesPrefix)) {
+            return line.substr(interfacesNamesPrefix.size());
+        }
+    }
+    return "";
+}
+
+TEST_F(DnsResolverBinderTest, InterfaceNamesInDumpsys) {
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsResolver.get(), 15);
+
+    std::vector<std::string> lines;
+    ndk::SpAIBinder netdBinder = ndk::SpAIBinder(AServiceManager_getService("dnsresolver"));
+
+    auto resolverParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    resolverParams.interfaceNames = {"myinterface0"};
+    ::ndk::ScopedAStatus status = mDnsResolver->setResolverConfiguration(resolverParams);
+    ASSERT_TRUE(status.isOk()) << status.getMessage();
+
+    android::status_t ret = dumpService(netdBinder, /*args=*/nullptr, /*num_args=*/0, lines);
+    ASSERT_EQ(android::OK, ret) << "Error dumping service: " << android::statusToString(ret);
+    EXPECT_EQ("[myinterface0]", getNetworkInterfaceNames(TEST_NETID, lines));
+
+    lines = {};
+    resolverParams.interfaceNames = {"myinterface0", "myinterface1"};
+    status = mDnsResolver->setResolverConfiguration(resolverParams);
+    ASSERT_TRUE(status.isOk()) << status.getMessage();
+
+    ret = dumpService(netdBinder, /*args=*/nullptr, /*num_args=*/0, lines);
+    ASSERT_EQ(android::OK, ret) << "Error dumping service: " << android::statusToString(ret);
+    EXPECT_EQ("[myinterface0, myinterface1]", getNetworkInterfaceNames(TEST_NETID, lines));
+}
