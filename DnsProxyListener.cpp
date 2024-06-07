@@ -764,6 +764,8 @@ DnsProxyListener::GetAddrInfoHandler::GetAddrInfoHandler(SocketClient* c, std::s
       mHints(std::move(hints)),
       mNetContext(netcontext) {}
 
+DnsProxyListener::GetAddrInfoHandler::~GetAddrInfoHandler() = default;
+
 // Before U, the Netd callback is implemented by OEM to evaluate if a DNS query for the provided
 // hostname is allowed. On U+, the Netd callback also checks if the user is allowed to send DNS on
 // the specified network.

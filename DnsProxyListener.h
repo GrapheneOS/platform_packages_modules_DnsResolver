@@ -67,7 +67,7 @@ class DnsProxyListener : public FrameworkListener {
         // Note: All of host, service, and hints may be NULL
         GetAddrInfoHandler(SocketClient* c, std::string host, std::string service,
                            std::unique_ptr<addrinfo> hints, const android_net_context& netcontext);
-        ~GetAddrInfoHandler() override = default;
+        ~GetAddrInfoHandler() override;
 
         void run() override;
         std::string threadName() override;
