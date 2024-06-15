@@ -353,6 +353,7 @@ cc_test {
         "resolv_test_defaults",
         "resolv_test_mts_coverage_without_root_defaults",
     ],
+    test_config: "doh_ffi_test_config.xml",
     header_libs: [
         "libnetd_resolv_internal_headers",
     ],
@@ -369,6 +370,10 @@ cc_test {
         "libnetd_client",
         "libstatssocket",
     ],
+    host_required: [
+        "net-tests-utils-host-common",
+    ],
+    data: [":ConnectivityTestPreparer"],
 }
 
 cc_defaults {
