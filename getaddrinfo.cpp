@@ -227,8 +227,9 @@ static int have_ipv6(unsigned mark, uid_t uid, bool mdns) {
             .sin6_addr.s6_addr = {// 2000::
                                   0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
     sockaddr_union addr = {.sin6 = sin6_test};
-    sockaddr sa;
-    return _find_src_addr(&addr.sa, &sa, mark, uid, /*allow_v6_linklocal=*/mdns) == 1;
+    sockaddr_storage sa;
+    return _find_src_addr(&addr.sa, (struct sockaddr*)&sa, mark, uid,
+                          /*allow_v6_linklocal=*/mdns) == 1;
 }
 
 static int have_ipv4(unsigned mark, uid_t uid) {
@@ -237,8 +238,9 @@ static int have_ipv4(unsigned mark, uid_t uid) {
             .sin_addr.s_addr = __constant_htonl(0x08080808L)  // 8.8.8.8
     };
     sockaddr_union addr = {.sin = sin_test};
-    sockaddr sa;
-    return _find_src_addr(&addr.sa, &sa, mark, uid, /*(don't care) allow_v6_linklocal=*/false) == 1;
+    sockaddr_storage sa;
+    return _find_src_addr(&addr.sa, (struct sockaddr*)&sa, mark, uid,
+                          /*(don't care) allow_v6_linklocal=*/false) == 1;
 }
 
 // Internal version of getaddrinfo(), but limited to AI_NUMERICHOST.
