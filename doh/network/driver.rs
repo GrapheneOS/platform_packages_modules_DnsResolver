@@ -60,6 +60,7 @@ pub enum Status {
     /// Network is believed to be working
     Live,
     /// Network is broken, reason as argument
+    #[allow(dead_code)]
     Failed(Arc<anyhow::Error>),
 }
 

@@ -107,6 +107,7 @@ pub struct Request {
 /// HTTP/3 Response
 pub struct Stream {
     /// Response headers
+    #[allow(dead_code)]
     pub headers: Vec<h3::Header>,
     /// Response body
     pub data: Vec<u8>,
