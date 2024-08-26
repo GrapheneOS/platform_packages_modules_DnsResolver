@@ -215,9 +215,9 @@ int ResolverController::setResolverConfiguration(const ResolverParamsParcel& res
     // applies to UID 0, dns_mark is assigned for default network rathan the VPN. (note that it's
     // possible that a VPN doesn't have any DNS servers but DoT servers in DNS strict mode)
     auto& privateDnsConfiguration = PrivateDnsConfiguration::getInstance();
-    int err = privateDnsConfiguration.set(resolverParams.netId, netcontext.app_mark,
-                                          resolverParams.servers, tlsServers,
-                                          resolverParams.tlsName, resolverParams.caCertificate);
+    int err = privateDnsConfiguration.set(
+            resolverParams.netId, netcontext.app_mark, resolverParams.servers, tlsServers,
+            resolverParams.tlsName, resolverParams.caCertificate, resolverParams.dohParams);
 
     if (err != 0) {
         return err;

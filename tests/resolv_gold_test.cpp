@@ -107,7 +107,7 @@ class TestBase : public NetNativeTestBase {
         fwmark.permission = PERMISSION_SYSTEM;
         ASSERT_EQ(privateDnsConfiguration.set(TEST_NETID, fwmark.intValue,
                                               {} /* unencrypted resolvers */, tlsServers,
-                                              tlsHostname, caCert),
+                                              tlsHostname, caCert, std::nullopt),
                   0);
         ASSERT_EQ(resolv_set_nameservers(TEST_NETID, servers, domains, kParams, std::nullopt), 0);
     }

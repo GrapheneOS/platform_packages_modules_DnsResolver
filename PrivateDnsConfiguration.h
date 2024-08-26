@@ -22,6 +22,8 @@
 #include <mutex>
 #include <vector>
 
+#include <aidl/android/net/resolv/aidl/DohParamsParcel.h>
+
 #include <android-base/format.h>
 #include <android-base/logging.h>
 #include <android-base/result.h>
@@ -72,6 +74,9 @@ struct PrivateDnsStatus {
 };
 
 class PrivateDnsConfiguration {
+  private:
+    using DohParamsParcel = aidl::android::net::resolv::aidl::DohParamsParcel;
+
   public:
     static constexpr int kDohQueryDefaultTimeoutMs = 30000;
     static constexpr int kDohProbeDefaultTimeoutMs = 60000;
@@ -104,7 +109,8 @@ class PrivateDnsConfiguration {
 
     int set(int32_t netId, uint32_t mark, const std::vector<std::string>& unencryptedServers,
             const std::vector<std::string>& encryptedServers, const std::string& name,
-            const std::string& caCert) EXCLUDES(mPrivateDnsLock);
+            const std::string& caCert, const std::optional<DohParamsParcel> dohParams)
+            EXCLUDES(mPrivateDnsLock);
 
     void initDoh() EXCLUDES(mPrivateDnsLock);
 
@@ -171,7 +177,8 @@ class PrivateDnsConfiguration {
 
     void initDohLocked() REQUIRES(mPrivateDnsLock);
     int setDoh(int32_t netId, uint32_t mark, const std::vector<std::string>& servers,
-               const std::string& name, const std::string& caCert) REQUIRES(mPrivateDnsLock);
+               const std::string& name, const std::string& caCert,
+               const std::optional<DohParamsParcel> dohParams) REQUIRES(mPrivateDnsLock);
     void clearDoh(unsigned netId) REQUIRES(mPrivateDnsLock);
 
     mutable std::mutex mPrivateDnsLock;
@@ -290,9 +297,12 @@ class PrivateDnsConfiguration {
              false},
     }};
 
-    // Makes a DohIdentity by looking up the `mAvailableDoHProviders` by `servers` and `name`.
+    // Makes a DohIdentity if
+    //   1. `dohParams` has some valid value, or
+    //   2. `servers` and `name` match up `mAvailableDoHProviders`.
     base::Result<DohIdentity> makeDohIdentity(const std::vector<std::string>& servers,
-                                              const std::string& name) const
+                                              const std::string& name,
+                                              const std::optional<DohParamsParcel> dohParams) const
             REQUIRES(mPrivateDnsLock);
 
     // For the metrics. Store the current DNS server list in the same order as what is passed

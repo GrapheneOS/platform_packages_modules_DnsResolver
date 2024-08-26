@@ -33,6 +33,17 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
   public:
     using ServerIdentity = PrivateDnsConfiguration::ServerIdentity;
 
+    class WrappedPrivateDnsConfiguration : public PrivateDnsConfiguration {
+      public:
+        int set(int32_t netId, uint32_t mark, const std::vector<std::string>& unencryptedServers,
+                const std::vector<std::string>& encryptedServers) {
+            // TODO(b/240259333): Add test coverage for dohParamsParcel.
+            return PrivateDnsConfiguration::set(netId, mark, unencryptedServers, encryptedServers,
+                                                {} /* name */, {} /* caCert */,
+                                                std::nullopt /* dohParamsParcel */);
+        }
+    };
+
     static void SetUpTestSuite() {
         // stopServer() will be called in their destructor.
         ASSERT_TRUE(tls1.startServer());
@@ -83,7 +94,7 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
     void TearDown() {
         // Reset the state for the next test.
         resolv_delete_cache_for_net(kNetId);
-        mPdc.set(kNetId, kMark, {}, {}, {}, {});
+        mPdc.set(kNetId, kMark, {}, {});
     }
 
   protected:
@@ -138,7 +149,7 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
     static constexpr char kServer2[] = "127.0.2.3";
 
     MockObserver mObserver;
-    inline static PrivateDnsConfiguration mPdc;
+    inline static WrappedPrivateDnsConfiguration mPdc;
 
     // TODO: Because incorrect CAs result in validation failed in strict mode, have
     // PrivateDnsConfiguration run mocked code rather than DnsTlsTransport::validate().
@@ -154,7 +165,7 @@ TEST_F(PrivateDnsConfigurationTest, ValidationSuccess) {
     EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
     EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
 
-    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
     expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
     ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
@@ -167,7 +178,7 @@ TEST_F(PrivateDnsConfigurationTest, ValidationFail_Opportunistic) {
     EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
     EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::fail, kNetId));
 
-    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
     expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
     // Strictly wait for all of the validation finish; otherwise, the test can crash somehow.
@@ -183,7 +194,7 @@ TEST_F(PrivateDnsConfigurationTest, Revalidation_Opportunistic) {
     EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
     EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::success, kNetId));
 
-    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
     expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
     ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
 
@@ -216,25 +227,25 @@ TEST_F(PrivateDnsConfigurationTest, ValidationBlock) {
     {
         testing::InSequence seq;
         EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
         ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 1; }));
         expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
         EXPECT_CALL(mObserver, onValidationStateUpdate(kServer2, Validation::in_process, kNetId));
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer2}, {}, {}), 0);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer2}), 0);
         ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 2; }));
         mObserver.removeFromServerStateMap(kServer1);
         expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
         // No duplicate validation as long as not in OFF mode; otherwise, an unexpected
         // onValidationStateUpdate() will be caught.
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1, kServer2}, {}, {}), 0);
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer2}, {}, {}), 0);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1, kServer2}), 0);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer2}), 0);
         expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
         // The status keeps unchanged if pass invalid arguments.
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {"invalid_addr"}, {}, {}), -EINVAL);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {"invalid_addr"}), -EINVAL);
         expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
     }
 
@@ -260,12 +271,12 @@ TEST_F(PrivateDnsConfigurationTest, Validation_NetworkDestroyedOrOffMode) {
 
         testing::InSequence seq;
         EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::in_process, kNetId));
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
         ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 1; }));
         expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
         if (config == "OFF") {
-            EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {}, {}, {}), 0);
+            EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {}), 0);
         } else if (config == "NETWORK_DESTROYED") {
             mPdc.clear(kNetId);
         }
@@ -289,10 +300,10 @@ TEST_F(PrivateDnsConfigurationTest, NoValidation) {
         EXPECT_THAT(status.dotServersMap, testing::IsEmpty());
     };
 
-    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {"invalid_addr"}, {}, {}), -EINVAL);
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {"invalid_addr"}), -EINVAL);
     expectStatus();
 
-    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {}, {}, {}), 0);
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {}), 0);
     expectStatus();
 }
 
@@ -336,7 +347,7 @@ TEST_F(PrivateDnsConfigurationTest, RequestValidation) {
             ASSERT_TRUE(backend.stopServer());
             EXPECT_CALL(mObserver, onValidationStateUpdate(kServer1, Validation::fail, kNetId));
         }
-        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
+        EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
         expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
         // Wait until the validation state is transitioned.
@@ -382,7 +393,7 @@ TEST_F(PrivateDnsConfigurationTest, GetPrivateDns) {
     // Suppress the warning.
     EXPECT_CALL(mObserver, onValidationStateUpdate).Times(2);
 
-    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}, {}, {}), 0);
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {}, {kServer1}), 0);
     expectPrivateDnsStatus(PrivateDnsMode::OPPORTUNISTIC);
 
     EXPECT_TRUE(hasPrivateDnsServer(ServerIdentity(server1), kNetId));
@@ -403,7 +414,7 @@ TEST_F(PrivateDnsConfigurationTest, GetStatusForMetrics) {
 
     // Set 1 unencrypted server and 2 encrypted servers (one will pass DoT validation; the other
     // will fail. Both of them don't support DoH).
-    EXPECT_EQ(mPdc.set(kNetId, kMark, {kServer2}, {kServer1, kServer2}, {}, {}), 0);
+    EXPECT_EQ(mPdc.set(kNetId, kMark, {kServer2}, {kServer1, kServer2}), 0);
     ASSERT_TRUE(PollForCondition([&]() { return mObserver.runningThreads == 0; }));
 
     // Get the metric before call clear().
