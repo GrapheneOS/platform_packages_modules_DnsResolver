@@ -43,6 +43,7 @@
 #include <poll.h>
 #include "NetdClient.h"
 
+using aidl::android::net::resolv::aidl::DohParamsParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using android::base::GetProperty;
 using android::base::ReadFdToString;
@@ -1344,6 +1345,7 @@ TEST_F(PrivateDnsDohTest, ReceiveResetStream) {
 
 // Tests that, given an IP address with an allowed DoH provider name, PrivateDnsConfiguration
 // attempts to probe the server for DoH.
+// This test is representative of DoH using DDR in opportunistic mode.
 TEST_F(PrivateDnsDohTest, UseDohAsLongAsHostnameMatch) {
     // "example.com" is an allowed DoH provider name defined in
     // PrivateDnsConfiguration::mAvailableDoHProviders.
@@ -1368,5 +1370,74 @@ TEST_F(PrivateDnsDohTest, UseDohAsLongAsHostnameMatch) {
                                                           .build()));
     EXPECT_TRUE(WaitForDotValidationFailure(someOtherIp));
     EXPECT_TRUE(WaitForDohValidationFailure(someOtherIp));
+
+    // Disable DoT and DoH. This ensures that when DoT is re-enabled right afterwards, the test
+    // observes a validation failure.
+    ASSERT_TRUE(
+            mDnsClient.SetResolversFromParcel(ResolverParams::Builder().setDotServers({}).build()));
+
+    // If DDR is enabled and reports no results (empty DoH params), don't probe for DoH.
+    DohParamsParcel emptyDohParams = {};
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
+                                                          .setDotServers({someOtherIp})
+                                                          .setPrivateDnsProvider(allowedDohName)
+                                                          .setDohParams(emptyDohParams)
+                                                          .build()));
+    EXPECT_TRUE(WaitForDotValidationFailure(someOtherIp));
+    EXPECT_FALSE(WaitForDohValidationFailure(someOtherIp));
+
     EXPECT_FALSE(hasUncaughtPrivateDnsValidation(someOtherIp));
+}
+
+// Tests that if DDR is enabled, but returns no parameters, that DoH is not enabled.
+TEST_F(PrivateDnsDohTest, DdrEnabledButNoResponse) {
+    // "example.com" is an allowed DoH provider name defined in
+    // PrivateDnsConfiguration::mAvailableDoHProviders.
+    constexpr char allowedDohName[] = "example.com";
+    constexpr char someOtherIp[] = "127.99.99.99";
+
+    // If DDR is enabled and reports no results (empty DoH params), don't probe for DoH.
+    DohParamsParcel emptyDohParams = {};
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
+                                                          .setDotServers({someOtherIp})
+                                                          .setPrivateDnsProvider(allowedDohName)
+                                                          .setDohParams(emptyDohParams)
+                                                          .build()));
+    EXPECT_TRUE(WaitForDotValidationFailure(someOtherIp));
+    EXPECT_FALSE(WaitForDohValidationFailure(someOtherIp));
+
+    EXPECT_FALSE(hasUncaughtPrivateDnsValidation(someOtherIp));
+}
+// Tests DoH with a hostname.
+// This test is representative of DoH using DDR in strict mode.
+TEST_F(PrivateDnsDohTest, DohParamsParcel) {
+    // Because the test doesn't support serving DoH in strict mode, it cannot check for actual DoH
+    // queries, it can only check for validation attempts.
+    constexpr char name[] = "example.com";
+    constexpr char dohIp[] = "127.99.99.99";
+    DohParamsParcel dohParams = {
+            .name = name,
+            .ips = {dohIp},
+            .dohpath = "/dns-query{?dns}",
+            .port = 443,
+    };
+
+    // Only DoH enabled.
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(
+            ResolverParams::Builder().setDohParams(dohParams).build()));
+    EXPECT_FALSE(WaitForDotValidationFailure(dohIp));
+    EXPECT_TRUE(WaitForDohValidationFailure(dohIp));
+
+    // Both DoT and DoH enabled.
+    constexpr char dotIp[] = "127.88.88.88";
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(ResolverParams::Builder()
+                                                          .setPrivateDnsProvider(name)
+                                                          .setDotServers({dotIp})
+                                                          .setDohParams(dohParams)
+                                                          .build()));
+    EXPECT_TRUE(WaitForDotValidationFailure(dotIp));
+    EXPECT_TRUE(WaitForDohValidationFailure(dohIp));
+
+    EXPECT_FALSE(hasUncaughtPrivateDnsValidation(dohIp));
+    EXPECT_FALSE(hasUncaughtPrivateDnsValidation(dotIp));
 }
