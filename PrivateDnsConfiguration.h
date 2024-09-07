@@ -44,13 +44,21 @@ namespace net {
 
 PrivateDnsModes convertEnumType(PrivateDnsMode mode);
 
+struct DohServerInfo {
+    std::string httpsTemplate;
+    Validation status;
+
+    DohServerInfo(const std::string httpsTemplate, Validation status)
+        : httpsTemplate(httpsTemplate), status(status) {}
+};
+
 struct PrivateDnsStatus {
     PrivateDnsMode mode;
 
     // TODO: change the type to std::vector<DnsTlsServer>.
     std::map<DnsTlsServer, Validation, AddressComparator> dotServersMap;
 
-    std::map<netdutils::IPSockAddr, Validation> dohServersMap;
+    std::map<netdutils::IPSockAddr, DohServerInfo> dohServersMap;
 
     std::list<DnsTlsServer> validatedServers() const {
         std::list<DnsTlsServer> servers;
@@ -64,8 +72,8 @@ struct PrivateDnsStatus {
     }
 
     bool hasValidatedDohServers() const {
-        for (const auto& [_, status] : dohServersMap) {
-            if (status == Validation::success) {
+        for (const auto& [_, info] : dohServersMap) {
+            if (info.status == Validation::success) {
                 return true;
             }
         }
