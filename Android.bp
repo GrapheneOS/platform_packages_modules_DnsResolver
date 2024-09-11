@@ -501,7 +501,6 @@ rust_ffi_static {
         "libanyhow",
         "libbase64_rust",
         "libfutures",
-        "liblazy_static",
         "liblibc",
         "liblog_rust",
         "libquiche_static",

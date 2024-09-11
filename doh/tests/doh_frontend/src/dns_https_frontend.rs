@@ -20,28 +20,27 @@ use super::client::{ClientMap, ConnectionID, CONN_ID_LEN, DNS_HEADER_SIZE, MAX_U
 use super::config::{Config, QUICHE_IDLE_TIMEOUT_MS};
 use super::stats::Stats;
 use anyhow::{bail, ensure, Result};
-use lazy_static::lazy_static;
 use log::{debug, error, warn};
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::io::{AsRawFd, FromRawFd};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-lazy_static! {
-    static ref RUNTIME_STATIC: Arc<Runtime> = Arc::new(
+static RUNTIME_STATIC: LazyLock<Arc<Runtime>> = LazyLock::new(|| {
+    Arc::new(
         Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
             .thread_name("DohFrontend")
             .build()
-            .expect("Failed to create tokio runtime")
-    );
-}
+            .expect("Failed to create tokio runtime"),
+    )
+});
 
 /// Command used by worker_thread itself.
 #[derive(Debug)]
