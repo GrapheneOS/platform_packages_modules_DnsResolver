@@ -170,8 +170,6 @@ struct NameserverStats {
     int rtt_avg = -1;
 };
 
-const bool isAtLeastR = (getApiLevel() >= 30);
-
 #define SKIP_IF_KERNEL_VERSION_LOWER_THAN(major, minor, sub)                                  \
     do {                                                                                      \
         if (!android::bpf::isAtLeastKernelVersion(major, minor, sub))                         \
@@ -4476,18 +4474,10 @@ TEST_F(ResolverTest, BlockDnsQueryWithUidRule) {
     int res2 = getAsyncResponse(fd2, &rcode, buf2, MAXPACKET);
     int res1 = getAsyncResponse(fd1, &rcode, buf1, MAXPACKET);
     // If API level >= 30 (R+), these queries should be blocked.
-    if (isAtLeastR) {
-        EXPECT_EQ(res2, -ECONNREFUSED);
-        EXPECT_EQ(res1, -ECONNREFUSED);
-        ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
-        ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
-    } else {
-        EXPECT_GT(res2, 0);
-        EXPECT_EQ("::1.2.3.4", toString(buf2, res2, AF_INET6));
-        EXPECT_GT(res1, 0);
-        EXPECT_EQ("1.2.3.4", toString(buf1, res1, AF_INET));
-        // To avoid flaky test, do not evaluate DnsEvent since event order is not guaranteed.
-    }
+    EXPECT_EQ(res2, -ECONNREFUSED);
+    EXPECT_EQ(res1, -ECONNREFUSED);
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
+    ExpectDnsEvent(INetdEventListener::EVENT_RES_NSEND, EAI_SYSTEM, "howdy.example.com", {});
 }
 
 TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
@@ -4523,20 +4513,11 @@ TEST_F(ResolverTest, GetAddrinfo_BlockDnsQueryWithUidRule) {
         SCOPED_TRACE(td.hname);
         ScopeBlockedUIDRule scopeBlockUidRule(netdService, TEST_UID);
         // If API level >= 30 (R+), these queries should be blocked.
-        if (isAtLeastR) {
-            addrinfo* result = nullptr;
-            // getaddrinfo() in bionic would convert all errors to EAI_NODATA
-            // except EAI_SYSTEM.
-            EXPECT_EQ(EAI_NODATA, getaddrinfo(td.hname, nullptr, &hints, &result));
-            ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, td.expectedErrorCode, td.hname,
-                           {});
-        } else {
-            ScopedAddrinfo result = safe_getaddrinfo(td.hname, nullptr, &hints);
-            EXPECT_NE(nullptr, result);
-            EXPECT_THAT(ToStrings(result),
-                        testing::UnorderedElementsAreArray({"1.2.3.4", "::1.2.3.4"}));
-            // To avoid flaky test, do not evaluate DnsEvent since event order is not guaranteed.
-        }
+        addrinfo* result = nullptr;
+        // getaddrinfo() in bionic would convert all errors to EAI_NODATA
+        // except EAI_SYSTEM.
+        EXPECT_EQ(EAI_NODATA, getaddrinfo(td.hname, nullptr, &hints, &result));
+        ExpectDnsEvent(INetdEventListener::EVENT_GETADDRINFO, td.expectedErrorCode, td.hname, {});
     }
 }
 
@@ -4575,15 +4556,8 @@ TEST_F(ResolverTest, EnforceDnsUid) {
         const int res2 = getAsyncResponse(fd2, &rcode, buf2, MAXPACKET);
         const int res1 = getAsyncResponse(fd1, &rcode, buf, MAXPACKET);
         // If API level >= 30 (R+), the query should be blocked.
-        if (isAtLeastR) {
-            EXPECT_EQ(res2, -ECONNREFUSED);
-            EXPECT_EQ(res1, -ECONNREFUSED);
-        } else {
-            EXPECT_GT(res2, 0);
-            EXPECT_EQ("::1.2.3.4", toString(buf2, res2, AF_INET6));
-            EXPECT_GT(res1, 0);
-            EXPECT_EQ("1.2.3.4", toString(buf, res1, AF_INET));
-        }
+        EXPECT_EQ(res2, -ECONNREFUSED);
+        EXPECT_EQ(res1, -ECONNREFUSED);
     }
 
     memset(buf, 0, MAXPACKET);
@@ -5040,15 +5014,9 @@ TEST_F(ResolverTest, TlsServerRevalidation) {
         // This test is sensitive to the number of queries sent in DoT validation.
         int latencyFactor;
         int latencyOffsetMs;
-        if (isAtLeastR) {
-            // The feature is enabled by default in R.
-            latencyFactor = std::stoi(GetProperty(kDotValidationLatencyFactorFlag, "3"));
-            latencyOffsetMs = std::stoi(GetProperty(kDotValidationLatencyOffsetMsFlag, "100"));
-        } else {
-            // The feature is disabled by default in Q.
-            latencyFactor = std::stoi(GetProperty(kDotValidationLatencyFactorFlag, "-1"));
-            latencyOffsetMs = std::stoi(GetProperty(kDotValidationLatencyOffsetMsFlag, "-1"));
-        }
+        // The feature is enabled by default in R.
+        latencyFactor = std::stoi(GetProperty(kDotValidationLatencyFactorFlag, "3"));
+        latencyOffsetMs = std::stoi(GetProperty(kDotValidationLatencyOffsetMsFlag, "100"));
         const bool dotValidationExtraProbes = (config.dnsMode == "OPPORTUNISTIC") &&
                                               (latencyFactor >= 0 && latencyOffsetMs >= 0 &&
                                                latencyFactor + latencyOffsetMs != 0);
@@ -6293,15 +6261,13 @@ TEST_F(ResolverTest, BlockDnsQueryUidDoesNotLeadToBadServer) {
     // If api level >= 30 (R+), expect all query packets to be blocked, hence we should not see any
     // of their stats show up. Otherwise, all queries should succeed.
     const std::vector<NameserverStats> expectedDnsStats = {
-            NameserverStats(listen_addr1)
-                    .setSuccesses(isAtLeastR ? 0 : setupParams.maxSamples)
-                    .setRttAvg(isAtLeastR ? -1 : 1),
+            NameserverStats(listen_addr1).setSuccesses(0).setRttAvg(-1),
             NameserverStats(listen_addr2),
     };
     expectStatsEqualTo(expectedDnsStats);
     // If api level >= 30 (R+), expect server won't receive any queries,
     // otherwise expect 20 == 10 * (setupParams.domains.size() + 1) queries.
-    EXPECT_EQ(dns1.queries().size(), isAtLeastR ? 0U : 10 * (setupParams.domains.size() + 1));
+    EXPECT_EQ(dns1.queries().size(), 0U);
     EXPECT_EQ(dns2.queries().size(), 0U);
 }
 
