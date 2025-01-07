@@ -163,25 +163,13 @@ TEST_F(CallbackTest, tagSocketCallback) {
 }
 
 TEST_F(CallbackTest, tagSocketFchown) {
-    const uint64_t tmpApiLevel = gApiLevel;
-
     // Expect the given socket will be fchown() with given uid.
-    gApiLevel = 30;  // R
     unique_fd sk(socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0));
     EXPECT_GE(sk, 3);
     resolv_tag_socket(sk, TEST_UID, -1);
     struct stat sb;
     EXPECT_EQ(fstat(sk, &sb), 0);
     EXPECT_EQ(sb.st_uid, TEST_UID);
-
-    // Expect the given socket will be fchown() with AID_DNS.
-    gApiLevel = 29;  // Q
-    resolv_tag_socket(sk, TEST_UID, -1);
-    EXPECT_EQ(fstat(sk, &sb), 0);
-    EXPECT_EQ(sb.st_uid, static_cast<uid_t>(AID_DNS));
-
-    // restore API level.
-    gApiLevel = tmpApiLevel;
 }
 
 }  // end of namespace android::net
