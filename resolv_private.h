@@ -242,8 +242,7 @@ inline void resolv_tag_socket(int sock, uid_t uid, pid_t pid) {
         }
     }
 
-    // fchown() apps' uid only in R+, since it's incompatible with Q's ebpf vpn isolation feature.
-    if (fchown(sock, (android::net::gApiLevel >= 30) ? uid : AID_DNS, -1) == -1) {
+    if (fchown(sock, uid, -1) == -1) {
         PLOG(WARNING) << "Failed to chown socket";
     }
 }
