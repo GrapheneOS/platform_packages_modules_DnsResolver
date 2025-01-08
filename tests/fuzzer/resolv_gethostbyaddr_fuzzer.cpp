@@ -17,8 +17,8 @@ void TestResolvGethostbyaddr(FuzzedDataProvider& fdp) {
     hostent* hp;
     NetworkDnsEventReported event;
 
-    resolv_gethostbyaddr(&v6addr, mAddressLen, af, &hbuf, tmpbuf, sizeof(tmpbuf), &mNetContext, &hp,
-                         &event);
+    resolv_gethostbyaddr(&v6addr, mAddressLen, af, &hbuf, tmpbuf, sizeof(tmpbuf), &mNetContext,
+                         APP_SOCKET_NONE, &hp, &event);
 }
 
 }  // namespace

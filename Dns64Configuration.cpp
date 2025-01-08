@@ -160,8 +160,8 @@ bool Dns64Configuration::doRfc7050PrefixDiscovery(const android_net_context& net
     // handling and the resolver event logging.
     struct addrinfo* res = nullptr;
     NetworkDnsEventReported event;
-    const int status =
-            resolv_getaddrinfo(kIPv4OnlyHost, nullptr, &hints, &netcontext, &res, &event);
+    const int status = resolv_getaddrinfo(kIPv4OnlyHost, nullptr, &hints, &netcontext,
+                                          APP_SOCKET_NONE, &res, &event);
     ScopedAddrinfo result(res);
     if (status != 0) {
         LOG(WARNING) << "(" << cfg->netId << ", " << cfg->discoveryId << ") plat_prefix/dns("

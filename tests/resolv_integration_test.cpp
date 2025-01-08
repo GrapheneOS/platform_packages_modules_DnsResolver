@@ -406,6 +406,8 @@ class ResolverTest : public NetNativeTestBase {
         return fmt::format("127.0.100.{}", (++counter & 0xff));
     }
 
+    void runCancelledQueryTest(bool expectCancelled);
+
     DnsResponderClient mDnsClient;
 
     bool mIsResolverOptionIPCSupported = false;
@@ -3021,6 +3023,51 @@ TEST_F(ResolverTest, Async_VerifyQueryID) {
     EXPECT_EQ(0x0053U, htons(hp->id));
 
     EXPECT_EQ(1U, GetNumQueries(dns, host_name));
+}
+
+void ResolverTest::runCancelledQueryTest(bool expectCancelled) {
+    resetNetwork();
+    constexpr char listen_addr[] = "127.0.0.4";
+    constexpr char host_name_1[] = "howdy1.example.com.";
+    constexpr char host_name_2[] = "howdy2.example.com.";
+    const std::vector<DnsRecord> records = {
+            {host_name_1, ns_type::ns_t_aaaa, "::1.2.3.4"},
+            {host_name_2, ns_type::ns_t_aaaa, "::1.2.3.4"},
+    };
+
+    test::DNSResponder dns(listen_addr);
+    StartDns(dns, records);
+    dns.setResponseProbability(0.0);
+    std::vector<std::string> servers = {listen_addr};
+    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
+
+    int fd1 = resNetworkQuery(TEST_NETID, host_name_1, ns_c_in, ns_t_aaaa, 0);
+    int fd2 = resNetworkQuery(TEST_NETID, host_name_2, ns_c_in, ns_t_aaaa, 0);
+
+    // Immediately cancel the first query
+    resNetworkCancel(fd1);
+
+    expectAnswersNotValid(fd2, -ETIMEDOUT);
+
+    if (expectCancelled) {
+        // Expect multiple retries on the second query, but only one attempt on the first one
+        EXPECT_GT(GetNumQueries(dns, host_name_2), 1U);
+        EXPECT_EQ(1U, GetNumQueries(dns, host_name_1));
+    } else {
+        // The queries are not actually cancelled and multiple are sent. Poll as in some cases the
+        // timeout for query 2 will come before queries are done for query 1.
+        EXPECT_TRUE(PollForCondition([&]() { return GetNumQueries(dns, host_name_1) > 1U; }));
+    }
+}
+
+TEST_F(ResolverTest, Async_CancelledQuery) {
+    ScopedSystemProperties sp(kNoRetryAfterCancelFlag, "1");
+    ASSERT_NO_FATAL_FAILURE(runCancelledQueryTest(/*expectCancelled=*/true));
+}
+
+TEST_F(ResolverTest, Async_CancelledQueryWithFlagDisabled) {
+    ScopedSystemProperties sp(kNoRetryAfterCancelFlag, "0");
+    ASSERT_NO_FATAL_FAILURE(runCancelledQueryTest(/*expectCancelled=*/false));
 }
 
 // This test checks that the resolver should not generate the request containing OPT RR when using

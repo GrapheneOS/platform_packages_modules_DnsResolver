@@ -436,6 +436,19 @@ static bool isNetworkRestricted(int terrno) {
     return (terrno == EPERM);
 }
 
+static bool isClientStreamSocketClosed(std::optional<int> fd) {
+    if (!fd.has_value()) return false;
+    if (!android::net::Experiments::getInstance()->getFlag("no_retry_after_cancel", 0)) {
+        return false;
+    }
+    struct pollfd fds{
+            // POLLHUP is always included in events but is specified explicitly here
+            .fd = fd.value(),
+            .events = POLLHUP,
+    };
+    return (poll(&fds, 1, /* timeout=*/0) > 0) && (fds.revents & POLLHUP);
+}
+
 int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* rcode,
               uint32_t flags, std::chrono::milliseconds sleepTimeMs) {
     LOG(DEBUG) << __func__;
@@ -576,6 +589,15 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
     int terrno = ETIME;
     // plaintext DNS
     for (int attempt = 0; attempt < retryTimes; ++attempt) {
+        if (attempt > 0 && isClientStreamSocketClosed(statp->app_socket)) {
+            // Stop retrying if the remote end is not listening for answers anymore. Only do that
+            // for retries and not the initial query to minimize latency (although the check is very
+            // cheap) in the vast majority of cases where queries are not immediately cancelled, and
+            // to make testing easier so tests can cancel immediately and reliably expect one query.
+            // This could also cancel before the first attempt if private DNS was already tried and
+            // this is a fallback, but this is not done here for simplicity.
+            break;
+        }
         for (size_t ns = 0; ns < statp->nsaddrs.size(); ++ns) {
             if (!usable_servers[ns]) continue;
 
@@ -1455,11 +1477,11 @@ int res_tls_send(const std::list<DnsTlsServer>& tlsServers, ResState* statp, con
     }
 }
 
-int resolv_res_nsend(const android_net_context* netContext, span<const uint8_t> msg,
-                     span<uint8_t> ans, int* rcode, uint32_t flags,
+int resolv_res_nsend(const android_net_context* netContext, std::optional<int> app_socket,
+                     span<const uint8_t> msg, span<uint8_t> ans, int* rcode, uint32_t flags,
                      NetworkDnsEventReported* event) {
     assert(event != nullptr);
-    ResState res(netContext, event);
+    ResState res(netContext, app_socket, event);
     resolv_populate_res_for_net(&res);
     *rcode = NOERROR;
     return res_nsend(&res, msg, ans, rcode, flags);
