@@ -198,8 +198,8 @@ class TestBase : public NetNativeTestBase {
         addrinfo* res = nullptr;
         const android_net_context netcontext = GetNetContext(protocol);
         NetworkDnsEventReported event;
-        const int rv =
-                resolv_getaddrinfo(args.host().c_str(), nullptr, &hints, &netcontext, &res, &event);
+        const int rv = resolv_getaddrinfo(args.host().c_str(), nullptr, &hints, &netcontext,
+                                          APP_SOCKET_NONE, &res, &event);
         ScopedAddrinfo result(res);
         ASSERT_EQ(rv, goldtest.result().return_code());
         VerifyAddress(goldtest, result);
@@ -213,8 +213,9 @@ class TestBase : public NetNativeTestBase {
         char tmpbuf[MAXPACKET];
         const android_net_context netcontext = GetNetContext(protocol);
         NetworkDnsEventReported event;
-        const int rv = resolv_gethostbyname(args.host().c_str(), args.family(), &hbuf, tmpbuf,
-                                            sizeof(tmpbuf), &netcontext, &hp, &event);
+        const int rv =
+                resolv_gethostbyname(args.host().c_str(), args.family(), &hbuf, tmpbuf,
+                                     sizeof(tmpbuf), &netcontext, APP_SOCKET_NONE, &hp, &event);
         ASSERT_EQ(rv, goldtest.result().return_code());
         VerifyAddress(goldtest, hp);
     }
@@ -291,7 +292,8 @@ TEST_F(ResolvGetAddrInfo, RemovePacketMapping) {
     addrinfo* res = nullptr;
     const addrinfo hints = {.ai_family = AF_INET};
     NetworkDnsEventReported event;
-    int rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
+    int rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, APP_SOCKET_NONE,
+                                &res, &event);
     ScopedAddrinfo result(res);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(rv, 0);
@@ -301,7 +303,8 @@ TEST_F(ResolvGetAddrInfo, RemovePacketMapping) {
     dns.removeMappingBinaryPacket(kHelloExampleComQueryV4);
 
     // Expect to have no answer in DNS query result.
-    rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
+    rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, APP_SOCKET_NONE, &res,
+                            &event);
     result.reset(res);
     ASSERT_EQ(result, nullptr);
     ASSERT_EQ(rv, EAI_NODATA);
@@ -319,7 +322,8 @@ TEST_F(ResolvGetAddrInfo, ReplacePacketMapping) {
     addrinfo* res = nullptr;
     const addrinfo hints = {.ai_family = AF_INET};
     NetworkDnsEventReported event;
-    int rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
+    int rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, APP_SOCKET_NONE,
+                                &res, &event);
     ScopedAddrinfo result(res);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(rv, 0);
@@ -351,7 +355,8 @@ TEST_F(ResolvGetAddrInfo, ReplacePacketMapping) {
     dns.addMappingBinaryPacket(kHelloExampleComQueryV4, newHelloExampleComResponseV4);
 
     // Expect that DNS query returns new IPv4 address 5.6.7.8.
-    rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, &res, &event);
+    rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontext, APP_SOCKET_NONE, &res,
+                            &event);
     result.reset(res);
     ASSERT_NE(result, nullptr);
     ASSERT_EQ(rv, 0);
@@ -378,8 +383,8 @@ TEST_F(ResolvGetAddrInfo, BasicTlsQuery) {
     // the second query of different socket type are responded by the cache.
     const addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
     NetworkDnsEventReported event;
-    const int rv =
-            resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontextTls, &res, &event);
+    const int rv = resolv_getaddrinfo(kHelloExampleCom, nullptr, &hints, &kNetcontextTls,
+                                      APP_SOCKET_NONE, &res, &event);
     ScopedAddrinfo result(res);
     ASSERT_EQ(rv, 0);
     EXPECT_EQ(GetNumQueries(dns, kHelloExampleCom), 2U);

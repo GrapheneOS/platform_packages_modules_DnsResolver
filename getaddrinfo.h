@@ -27,8 +27,8 @@ int android_getaddrinfofornetcontext(const char* hostname, const char* servname,
 
 // This is the DNS proxy entry point for getaddrinfo().
 int resolv_getaddrinfo(const char* hostname, const char* servname, const addrinfo* hints,
-                       const android_net_context* netcontext, addrinfo** res,
-                       android::net::NetworkDnsEventReported*);
+                       const android_net_context* netcontext, std::optional<int> app_socket,
+                       addrinfo** res, android::net::NetworkDnsEventReported*);
 
 // Sort the linked list starting at sentinel->ai_next in RFC6724 order.
 void resolv_rfc6724_sort(struct addrinfo* list_sentinel, unsigned mark, uid_t uid);

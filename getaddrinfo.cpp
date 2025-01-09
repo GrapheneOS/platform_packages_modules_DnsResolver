@@ -124,7 +124,8 @@ struct res_target {
 };
 
 static int explore_fqdn(const struct addrinfo*, const char*, const char*, struct addrinfo**,
-                        const struct android_net_context*, NetworkDnsEventReported* event);
+                        const struct android_net_context*, std::optional<int> app_socket,
+                        NetworkDnsEventReported* event);
 static int explore_null(const struct addrinfo*, const char*, struct addrinfo**);
 static int explore_numeric(const struct addrinfo*, const char*, const char*, struct addrinfo**,
                            const char*);
@@ -140,8 +141,8 @@ static int ip6_str2scopeid(const char*, struct sockaddr_in6*, uint32_t*);
 static struct addrinfo* getanswer(const std::vector<uint8_t>&, int, const char*, int,
                                   const struct addrinfo*, int* herrno);
 static int dns_getaddrinfo(const char* name, const addrinfo* pai,
-                           const android_net_context* netcontext, addrinfo** rv,
-                           NetworkDnsEventReported* event);
+                           const android_net_context* netcontext, std::optional<int> app_socket,
+                           addrinfo** rv, NetworkDnsEventReported* event);
 static void _sethtent(FILE**);
 static void _endhtent(FILE**);
 static struct addrinfo* _gethtent(FILE**, const char*, const struct addrinfo*);
@@ -381,7 +382,8 @@ int android_getaddrinfofornetcontext(const char* hostname, const char* servname,
             break;
         }
 
-        return resolv_getaddrinfo(hostname, servname, hints, netcontext, res, event);
+        return resolv_getaddrinfo(hostname, servname, hints, netcontext, APP_SOCKET_NONE, res,
+                                  event);
     } while (0);
 
     if (error) {
@@ -394,7 +396,8 @@ int android_getaddrinfofornetcontext(const char* hostname, const char* servname,
 }
 
 int resolv_getaddrinfo(const char* _Nonnull hostname, const char* servname, const addrinfo* hints,
-                       const android_net_context* _Nonnull netcontext, addrinfo** _Nonnull res,
+                       const android_net_context* _Nonnull netcontext,
+                       std::optional<int> app_socket, addrinfo** _Nonnull res,
                        NetworkDnsEventReported* _Nonnull event) {
     if (hostname == nullptr && servname == nullptr) return EAI_NONAME;
     if (hostname == nullptr) return EAI_NODATA;
@@ -430,7 +433,8 @@ int resolv_getaddrinfo(const char* _Nonnull hostname, const char* servname, cons
 
         LOG(DEBUG) << __func__ << ": explore_fqdn(): ai_family=" << tmp.ai_family
                    << " ai_socktype=" << tmp.ai_socktype << " ai_protocol=" << tmp.ai_protocol;
-        error = explore_fqdn(&tmp, hostname, servname, &cur->ai_next, netcontext, event);
+        error = explore_fqdn(&tmp, hostname, servname, &cur->ai_next, netcontext, app_socket,
+                             event);
 
         while (cur->ai_next) cur = cur->ai_next;
     }
@@ -447,7 +451,7 @@ int resolv_getaddrinfo(const char* _Nonnull hostname, const char* servname, cons
 // FQDN hostname, DNS lookup
 static int explore_fqdn(const addrinfo* pai, const char* hostname, const char* servname,
                         addrinfo** res, const android_net_context* netcontext,
-                        NetworkDnsEventReported* event) {
+                        std::optional<int> app_socket, NetworkDnsEventReported* event) {
     assert(pai != nullptr);
     // hostname may be nullptr
     // servname may be nullptr
@@ -460,7 +464,7 @@ static int explore_fqdn(const addrinfo* pai, const char* hostname, const char* s
     if ((error = get_portmatch(pai, servname))) return error;
 
     if (!files_getaddrinfo(netcontext->dns_netid, hostname, pai, &result)) {
-        error = dns_getaddrinfo(hostname, pai, netcontext, &result, event);
+        error = dns_getaddrinfo(hostname, pai, netcontext, app_socket, &result, event);
     }
     if (error) {
         freeaddrinfo(result);
@@ -1384,11 +1388,11 @@ error:
 }
 
 static int dns_getaddrinfo(const char* name, const addrinfo* pai,
-                           const android_net_context* netcontext, addrinfo** rv,
-                           NetworkDnsEventReported* event) {
+                           const android_net_context* netcontext, std::optional<int> app_socket,
+                           addrinfo** rv, NetworkDnsEventReported* event) {
     res_target q = {};
     res_target q2 = {};
-    ResState res(netcontext, event);
+    ResState res(netcontext, app_socket, event);
     setMdnsFlag(name, res.netid, &(res.flags));
 
     switch (pai->ai_family) {

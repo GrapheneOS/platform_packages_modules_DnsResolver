@@ -94,8 +94,8 @@ typedef union {
 
 static void pad_v4v6_hostent(struct hostent* hp, char** bpp, char* ep);
 static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
-                           const android_net_context* netcontext, getnamaddr* info,
-                           NetworkDnsEventReported* event);
+                           const android_net_context* netcontext, std::optional<int> app_socket,
+                           getnamaddr* info, NetworkDnsEventReported* event);
 static int dns_gethtbyname(ResState* res, const char* name, int af, getnamaddr* info);
 
 #define BOUNDED_INCR(x)      \
@@ -371,14 +371,14 @@ nospc:
 }
 
 int resolv_gethostbyname(const char* name, int af, hostent* hp, char* buf, size_t buflen,
-                         const android_net_context* netcontext, hostent** result,
-                         NetworkDnsEventReported* event) {
+                         const android_net_context* netcontext, std::optional<int> app_socket,
+                         hostent** result, NetworkDnsEventReported* event) {
     if (name == nullptr || hp == nullptr) {
         return EAI_SYSTEM;
     }
 
     getnamaddr info;
-    ResState res(netcontext, event);
+    ResState res(netcontext, app_socket, event);
 
     setMdnsFlag(name, res.netid, &(res.flags));
 
@@ -463,7 +463,8 @@ fake:
 
 int resolv_gethostbyaddr(const void* _Nonnull addr, socklen_t len, int af, hostent* hp, char* buf,
                          size_t buflen, const struct android_net_context* netcontext,
-                         hostent** result, NetworkDnsEventReported* event) {
+                         std::optional<int> app_socket, hostent** result,
+                         NetworkDnsEventReported* event) {
     const uint8_t* uaddr = (const uint8_t*)addr;
     socklen_t size;
     struct getnamaddr info;
@@ -503,7 +504,7 @@ int resolv_gethostbyaddr(const void* _Nonnull addr, socklen_t len, int af, hoste
     info.buf = buf;
     info.buflen = buflen;
     if (_hf_gethtbyaddr(uaddr, len, af, &info)) {
-        int error = dns_gethtbyaddr(uaddr, len, af, netcontext, &info, event);
+        int error = dns_gethtbyaddr(uaddr, len, af, netcontext, app_socket, &info, event);
         if (error != 0) return error;
     }
     *result = hp;
@@ -651,8 +652,8 @@ static int dns_gethtbyname(ResState* res, const char* name, int addr_type, getna
 }
 
 static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
-                           const android_net_context* netcontext, getnamaddr* info,
-                           NetworkDnsEventReported* event) {
+                           const android_net_context* netcontext, std::optional<int> app_socket,
+                           getnamaddr* info, NetworkDnsEventReported* event) {
     char qbuf[MAXDNAME + 1], *qp, *ep;
     int n;
     int advance;
@@ -696,7 +697,7 @@ static int dns_gethtbyaddr(const unsigned char* uaddr, int len, int af,
 
     auto buf = std::make_unique<querybuf>();
 
-    ResState res(netcontext, event);
+    ResState res(netcontext, app_socket, event);
     int he;
     n = res_nquery(&res, qbuf, C_IN, T_PTR, {buf->buf, (int)sizeof(buf->buf)}, &he);
     if (n < 0) {

@@ -19,7 +19,7 @@ void TestResolvGethostbyname(FuzzedDataProvider& fdp) {
     NetworkDnsEventReported event;
 
     resolv_gethostbyname(fdp.ConsumeBool() ? hostname.c_str() : nullptr, af, &hbuf, tmpbuf,
-                         sizeof(tmpbuf), &mNetContext, &hp, &event);
+                         sizeof(tmpbuf), &mNetContext, APP_SOCKET_NONE, &hp, &event);
 }
 
 }  // namespace

@@ -165,7 +165,7 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters) {
         addrinfo* result = nullptr;
         NetworkDnsEventReported event;
         int rv = resolv_getaddrinfo(nullptr /*hostname*/, nullptr /*servname*/, nullptr /*hints*/,
-                                    &mNetcontext, &result, &event);
+                                    &mNetcontext, APP_SOCKET_NONE, &result, &event);
         ScopedAddrinfo result_cleanup(result);
         EXPECT_EQ(EAI_NONAME, rv);
     }
@@ -220,7 +220,7 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters) {
         };
         NetworkDnsEventReported event;
         int rv = resolv_getaddrinfo("localhost", nullptr /*servname*/, &hints, &mNetcontext,
-                                    &result, &event);
+                                    APP_SOCKET_NONE, &result, &event);
         ScopedAddrinfo result_cleanup(result);
         EXPECT_EQ(config.expected_eai_error, rv);
     }
@@ -239,7 +239,7 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_Family) {
         };
         NetworkDnsEventReported event;
         int rv = resolv_getaddrinfo("localhost", nullptr /*servname*/, &hints, &mNetcontext,
-                                    &result, &event);
+                                    APP_SOCKET_NONE, &result, &event);
         ScopedAddrinfo result_cleanup(result);
         EXPECT_EQ(EAI_FAMILY, rv);
     }
@@ -266,8 +266,8 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_SocketType) {
                                              service ? service : "service is nullptr"));
                     addrinfo* result = nullptr;
                     NetworkDnsEventReported event;
-                    int rv = resolv_getaddrinfo("localhost", service, &hints, &mNetcontext, &result,
-                                                &event);
+                    int rv = resolv_getaddrinfo("localhost", service, &hints, &mNetcontext,
+                                                APP_SOCKET_NONE, &result, &event);
                     ScopedAddrinfo result_cleanup(result);
                     EXPECT_EQ(EAI_SOCKTYPE, rv);
                 }
@@ -316,7 +316,7 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_MeaningfulSocktypeAndProtocolCom
                 };
                 NetworkDnsEventReported event;
                 int rv = resolv_getaddrinfo("localhost", nullptr /*servname*/, &hints, &mNetcontext,
-                                            &result, &event);
+                                            APP_SOCKET_NONE, &result, &event);
                 ScopedAddrinfo result_cleanup(result);
                 EXPECT_EQ(EAI_BADHINTS, rv);
             }
@@ -391,8 +391,8 @@ TEST_F(ResolvGetAddrInfoTest, InvalidParameters_PortNameAndNumber) {
 
         addrinfo* result = nullptr;
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("localhost", config.servname, &hints, &mNetcontext, &result,
-                                    &event);
+        int rv = resolv_getaddrinfo("localhost", config.servname, &hints, &mNetcontext,
+                                    APP_SOCKET_NONE, &result, &event);
         ScopedAddrinfo result_cleanup(result);
         EXPECT_EQ(config.expected_eai_error, rv);
     }
@@ -469,7 +469,8 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname_NoData) {
     addrinfo* result = nullptr;
     const addrinfo hints = {.ai_family = AF_INET6};
     NetworkDnsEventReported event;
-    int rv = resolv_getaddrinfo("v4only", nullptr, &hints, &mNetcontext, &result, &event);
+    int rv = resolv_getaddrinfo("v4only", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE, &result,
+                                &event);
     EXPECT_THAT(event, NetworkDnsEventEq(fromNetworkDnsEventReportedStr(event_ipv6)));
     ScopedAddrinfo result_cleanup(result);
     EXPECT_LE(1U, GetNumQueries(dns, v4_host_name));
@@ -567,7 +568,8 @@ TEST_F(ResolvGetAddrInfoTest, AlphabeticalHostname) {
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = config.ai_family};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("sawadee", nullptr, &hints, &mNetcontext, &result, &event);
+        int rv = resolv_getaddrinfo("sawadee", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                    &result, &event);
         EXPECT_THAT(event,
                     NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         ScopedAddrinfo result_cleanup(result);
@@ -610,7 +612,8 @@ TEST_F(ResolvGetAddrInfoTest, IllegalHostname) {
             addrinfo* res = nullptr;
             const addrinfo hints = {.ai_family = family};
             NetworkDnsEventReported event;
-            int rv = resolv_getaddrinfo(hostname, nullptr, &hints, &mNetcontext, &res, &event);
+            int rv = resolv_getaddrinfo(hostname, nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                        &res, &event);
             ScopedAddrinfo result(res);
             EXPECT_EQ(nullptr, result);
             EXPECT_EQ(EAI_FAIL, rv);
@@ -649,7 +652,8 @@ TEST_F(ResolvGetAddrInfoTest, ServerResponseError) {
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = AF_UNSPEC};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo(host_name, nullptr, &hints, &mNetcontext, &result, &event);
+        int rv = resolv_getaddrinfo(host_name, nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                    &result, &event);
         EXPECT_EQ(config.expected_eai_error, rv);
     }
 }
@@ -855,7 +859,8 @@ TEST_F(ResolvGetAddrInfoTest, ServerTimeout) {
     addrinfo* result = nullptr;
     const addrinfo hints = {.ai_family = AF_UNSPEC};
     NetworkDnsEventReported event;
-    int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &result, &event);
+    int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE, &result,
+                                &event);
     EXPECT_THAT(event, NetworkDnsEventEq(fromNetworkDnsEventReportedStr(expected_event)));
     EXPECT_EQ(NETD_RESOLV_TIMEOUT, rv);
 }
@@ -965,7 +970,8 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = config.ai_family, .ai_socktype = SOCK_DGRAM};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("hello.local", nullptr, &hints, &mNetcontext, &result, &event);
+        int rv = resolv_getaddrinfo("hello.local", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                    &result, &event);
         EXPECT_THAT(event,
                     NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         ScopedAddrinfo result_cleanup(result);
@@ -1021,7 +1027,8 @@ TEST_F(ResolvGetAddrInfoTest, MdnsIllegalHostname) {
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = family};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("hello^.local", nullptr, &hints, &mNetcontext, &result, &event);
+        int rv = resolv_getaddrinfo("hello^.local", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                    &result, &event);
         ScopedAddrinfo result_cleanup(result);
         EXPECT_EQ(nullptr, result);
         EXPECT_EQ(EAI_FAIL, rv);
@@ -1047,7 +1054,8 @@ TEST_F(ResolvGetAddrInfoTest, MdnsResponderTimeout) {
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = family};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("hello.local", nullptr, &hints, &mNetcontext, &result, &event);
+        int rv = resolv_getaddrinfo("hello.local", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                    &result, &event);
         EXPECT_EQ(NETD_RESOLV_TIMEOUT, rv);
     }
 }
@@ -1082,7 +1090,8 @@ TEST_F(ResolvGetAddrInfoTest, CnamesNoIpAddress) {
         addrinfo* res = nullptr;
         const addrinfo hints = {.ai_family = config.family};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo(config.name, nullptr, &hints, &mNetcontext, &res, &event);
+        int rv = resolv_getaddrinfo(config.name, nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                    &res, &event);
         ScopedAddrinfo result(res);
         EXPECT_EQ(nullptr, result);
         EXPECT_EQ(EAI_FAIL, rv);
@@ -1132,7 +1141,8 @@ TEST_F(ResolvGetAddrInfoTest, CnamesBrokenChainByIllegalCname) {
             addrinfo* res = nullptr;
             const addrinfo hints = {.ai_family = family};
             NetworkDnsEventReported event;
-            int rv = resolv_getaddrinfo(config.name, nullptr, &hints, &mNetcontext, &res, &event);
+            int rv = resolv_getaddrinfo(config.name, nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                        &res, &event);
             ScopedAddrinfo result(res);
             EXPECT_EQ(nullptr, result);
             EXPECT_EQ(EAI_FAIL, rv);
@@ -1153,7 +1163,8 @@ TEST_F(ResolvGetAddrInfoTest, CnamesInfiniteLoop) {
         addrinfo* res = nullptr;
         const addrinfo hints = {.ai_family = family};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &res, &event);
+        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE, &res,
+                                    &event);
         ScopedAddrinfo result(res);
         EXPECT_EQ(nullptr, result);
         EXPECT_EQ(EAI_FAIL, rv);
@@ -1183,7 +1194,8 @@ TEST_F(ResolvGetAddrInfoTest, MultiAnswerSections) {
         // the second query of different socket type are responded by the cache.
         const addrinfo hints = {.ai_family = family, .ai_socktype = SOCK_STREAM};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &res, &event);
+        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE, &res,
+                                    &event);
         ScopedAddrinfo result(res);
         ASSERT_NE(nullptr, result);
         ASSERT_EQ(0, rv);
@@ -1320,7 +1332,8 @@ TEST_F(ResolvGetAddrInfoTest, TruncatedResponse) {
         addrinfo* result = nullptr;
         const addrinfo hints = {.ai_family = config.ai_family};
         NetworkDnsEventReported event;
-        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &result, &event);
+        int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                    &result, &event);
         EXPECT_THAT(event,
                     NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         ScopedAddrinfo result_cleanup(result);
@@ -1364,7 +1377,8 @@ TEST_F(ResolvGetAddrInfoTest, OverlengthResp) {
     addrinfo* result = nullptr;
     const addrinfo hints = {.ai_family = AF_INET};
     NetworkDnsEventReported event;
-    int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &result, &event);
+    int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE, &result,
+                                &event);
     ScopedAddrinfo result_cleanup(result);
     EXPECT_EQ(rv, EAI_FAIL);
     EXPECT_TRUE(result == nullptr);
@@ -1444,7 +1458,7 @@ TEST_F(GetHostByNameForNetContextTest, AlphabeticalHostname) {
         char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
         int rv = resolv_gethostbyname("jiababuei", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
-                                      &mNetcontext, &hp, &event);
+                                      &mNetcontext, APP_SOCKET_NONE, &hp, &event);
         EXPECT_THAT(event,
                     NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         EXPECT_EQ(0, rv);
@@ -1488,7 +1502,7 @@ TEST_F(GetHostByNameForNetContextTest, IllegalHostname) {
             char tmpbuf[MAXPACKET];
             NetworkDnsEventReported event;
             int rv = resolv_gethostbyname(hostname, family, &hbuf, tmpbuf, sizeof(tmpbuf),
-                                          &mNetcontext, &hp, &event);
+                                          &mNetcontext, APP_SOCKET_NONE, &hp, &event);
             EXPECT_EQ(nullptr, hp);
             EXPECT_EQ(EAI_FAIL, rv);
         }
@@ -1510,7 +1524,7 @@ TEST_F(GetHostByNameForNetContextTest, NoData) {
     char tmpbuf[MAXPACKET];
     NetworkDnsEventReported event;
     int rv = resolv_gethostbyname("v4only", AF_INET6, &hbuf, tmpbuf, sizeof tmpbuf, &mNetcontext,
-                                  &hp, &event);
+                                  APP_SOCKET_NONE, &hp, &event);
     EXPECT_LE(1U, GetNumQueries(dns, v4_host_name));
     EXPECT_EQ(nullptr, hp);
     EXPECT_EQ(EAI_NODATA, rv);
@@ -1551,7 +1565,7 @@ TEST_F(GetHostByNameForNetContextTest, ServerResponseError) {
         char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
         int rv = resolv_gethostbyname(host_name, AF_INET, &hbuf, tmpbuf, sizeof tmpbuf,
-                                      &mNetcontext, &hp, &event);
+                                      &mNetcontext, APP_SOCKET_NONE, &hp, &event);
         EXPECT_EQ(nullptr, hp);
         EXPECT_EQ(config.expected_eai_error, rv);
     }
@@ -1571,7 +1585,7 @@ TEST_F(GetHostByNameForNetContextTest, ServerTimeout) {
     char tmpbuf[MAXPACKET];
     NetworkDnsEventReported event;
     int rv = resolv_gethostbyname(host_name, AF_INET, &hbuf, tmpbuf, sizeof tmpbuf, &mNetcontext,
-                                  &hp, &event);
+                                  APP_SOCKET_NONE, &hp, &event);
     EXPECT_EQ(NETD_RESOLV_TIMEOUT, rv);
 }
 
@@ -1603,7 +1617,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesNoIpAddress) {
         char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
         int rv = resolv_gethostbyname(config.name, config.family, &hbuf, tmpbuf, sizeof tmpbuf,
-                                      &mNetcontext, &hp, &event);
+                                      &mNetcontext, APP_SOCKET_NONE, &hp, &event);
         EXPECT_EQ(nullptr, hp);
         EXPECT_EQ(EAI_FAIL, rv);
     }
@@ -1654,7 +1668,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesBrokenChainByIllegalCname) {
             char tmpbuf[MAXPACKET];
             NetworkDnsEventReported event;
             int rv = resolv_gethostbyname(config.name, family, &hbuf, tmpbuf, sizeof tmpbuf,
-                                          &mNetcontext, &hp, &event);
+                                          &mNetcontext, APP_SOCKET_NONE, &hp, &event);
             EXPECT_EQ(nullptr, hp);
             EXPECT_EQ(EAI_FAIL, rv);
         }
@@ -1676,7 +1690,7 @@ TEST_F(GetHostByNameForNetContextTest, CnamesInfiniteLoop) {
         char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
         int rv = resolv_gethostbyname("hello", family, &hbuf, tmpbuf, sizeof tmpbuf, &mNetcontext,
-                                      &hp, &event);
+                                      APP_SOCKET_NONE, &hp, &event);
         EXPECT_EQ(nullptr, hp);
         EXPECT_EQ(EAI_FAIL, rv);
     }
@@ -1757,8 +1771,9 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
         hostent hbuf;
         char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
-        int rv = resolv_gethostbyname("hello.local", config.ai_family, &hbuf, tmpbuf,
-                                      sizeof(tmpbuf), &mNetcontext, &result, &event);
+        int rv =
+                resolv_gethostbyname("hello.local", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
+                                     &mNetcontext, APP_SOCKET_NONE, &result, &event);
         EXPECT_THAT(event,
                     NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         EXPECT_EQ(0, rv);
@@ -1770,7 +1785,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
 
         // Ensure the query result is still cached.
         rv = resolv_gethostbyname("hello.local", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
-                                  &mNetcontext, &result, &event);
+                                  &mNetcontext, APP_SOCKET_NONE, &result, &event);
         EXPECT_EQ(0, rv);
         EXPECT_EQ(0U, GetNumQueries(mdns, host_name));
         result_strs = ToStrings(result);
@@ -1808,13 +1823,13 @@ TEST_F(GetHostByNameForNetContextTest, MdnsIllegalHostname) {
     char tmpbuf[MAXPACKET];
     NetworkDnsEventReported event;
     int rv = resolv_gethostbyname("hello^.local", AF_INET6, &hbuf, tmpbuf, sizeof(tmpbuf),
-                                  &mNetcontext, &result, &event);
+                                  &mNetcontext, APP_SOCKET_NONE, &result, &event);
     EXPECT_EQ(nullptr, result);
     EXPECT_EQ(EAI_FAIL, rv);
 
     SCOPED_TRACE(fmt::format("family: {}, illegalHostname: {}", AF_INET, illegalHostname));
     rv = resolv_gethostbyname("hello^.local", AF_INET, &hbuf, tmpbuf, sizeof(tmpbuf), &mNetcontext,
-                              &result, &event);
+                              APP_SOCKET_NONE, &result, &event);
     EXPECT_EQ(nullptr, result);
     EXPECT_EQ(EAI_FAIL, rv);
 }
@@ -1840,7 +1855,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsResponderTimeout) {
         char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
         int rv = resolv_gethostbyname("hello.local", family, &hbuf, tmpbuf, sizeof tmpbuf,
-                                      &mNetcontext, &result, &event);
+                                      &mNetcontext, APP_SOCKET_NONE, &result, &event);
         EXPECT_EQ(NETD_RESOLV_TIMEOUT, rv);
     }
 }

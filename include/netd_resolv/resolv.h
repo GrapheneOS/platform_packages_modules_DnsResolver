@@ -44,6 +44,13 @@
  */
 #define MARK_UNSET 0u
 
+/*
+ * Passing APP_SOCKET_NONE as the app_socket in getaddrinfo, gethostbyname,
+ * gethostbyaddr, res_nsend means that the query is not tied to a listening socket
+ * in a querying process, and it will not be cancellable based on a socket state.
+ */
+constexpr std::optional<int> APP_SOCKET_NONE = std::nullopt;
+
 #define NET_CONTEXT_INVALID_UID ((uid_t)-1)
 #define NET_CONTEXT_INVALID_PID ((pid_t)-1)
 

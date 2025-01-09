@@ -90,10 +90,12 @@ union sockaddr_union {
 constexpr int MAXPACKET = 8 * 1024;
 
 struct ResState {
-    ResState(const android_net_context* netcontext, android::net::NetworkDnsEventReported* dnsEvent)
+    ResState(const android_net_context* netcontext, std::optional<int> app_socket,
+             android::net::NetworkDnsEventReported* dnsEvent)
         : netid(netcontext->dns_netid),
           uid(netcontext->uid),
           pid(netcontext->pid),
+          app_socket(app_socket),
           mark(netcontext->dns_mark),
           event(dnsEvent),
           netcontext_flags(netcontext->flags) {}
@@ -105,6 +107,7 @@ struct ResState {
         copy.netid = netid;
         copy.uid = uid;
         copy.pid = pid;
+        copy.app_socket = app_socket;
         copy.search_domains = search_domains;
         copy.nsaddrs = nsaddrs;
         copy.udpsocks_ts = udpsocks_ts;
@@ -134,6 +137,7 @@ struct ResState {
     unsigned netid;                             // NetId: cache key and socket mark
     uid_t uid;                                  // uid of the app that sent the DNS lookup
     pid_t pid;                                  // pid of the app that sent the DNS lookup
+    std::optional<int> app_socket;              // Communication socket with the querier process
     std::vector<std::string> search_domains{};  // domains to search
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
     std::array<timespec, MAXNS> udpsocks_ts;    // The creation time of the UDP sockets

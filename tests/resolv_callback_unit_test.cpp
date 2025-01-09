@@ -156,7 +156,8 @@ TEST_F(CallbackTest, tagSocketCallback) {
     const addrinfo hints = {.ai_family = AF_INET};
     NetworkDnsEventReported event;
     // tagSocketCallback will be called.
-    const int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, &result, &event);
+    const int rv = resolv_getaddrinfo("hello", nullptr, &hints, &mNetcontext, APP_SOCKET_NONE,
+                                      &result, &event);
     ScopedAddrinfo result_cleanup(result);
     EXPECT_EQ(testUid, TEST_UID);
     EXPECT_EQ(rv, 0);

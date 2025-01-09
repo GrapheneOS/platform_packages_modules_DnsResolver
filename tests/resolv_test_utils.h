@@ -189,6 +189,7 @@ const std::string kDotValidationLatencyOffsetMsFlag(kFlagPrefix +
 const std::string kFailFastOnUidNetworkBlockingFlag(kFlagPrefix +
                                                     "fail_fast_on_uid_network_blocking");
 const std::string kKeepListeningUdpFlag(kFlagPrefix + "keep_listening_udp");
+const std::string kNoRetryAfterCancelFlag(kFlagPrefix + "no_retry_after_cancel");
 const std::string kParallelLookupSleepTimeFlag(kFlagPrefix + "parallel_lookup_sleep_time");
 const std::string kRetransIntervalFlag(kFlagPrefix + "retransmission_time_interval");
 const std::string kRetryCountFlag(kFlagPrefix + "retry_count");
