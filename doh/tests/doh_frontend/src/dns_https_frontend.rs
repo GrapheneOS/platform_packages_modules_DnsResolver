@@ -224,12 +224,11 @@ impl DohFrontend {
             self.command_tx.is_some(),
             "command_tx is None because worker thread not yet initialized"
         );
-        return self
-            .command_tx
+        self.command_tx
             .as_ref()
             .unwrap()
             .send(ControlCommand::StatsClearQueries)
-            .or_else(|e| bail!(e));
+            .or_else(|e| bail!(e))
     }
 
     fn init_worker_thread_params(&mut self) -> Result<WorkerParams> {
