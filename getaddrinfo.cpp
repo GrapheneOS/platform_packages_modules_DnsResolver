@@ -116,7 +116,6 @@ const Explore explore_options[] = {
 #define PTON_MAX 16
 
 struct res_target {
-    struct res_target* next;
     const char* name;                                                  // domain name
     int qclass, qtype;                                                 // class and type of query
     std::vector<uint8_t> answer = std::vector<uint8_t>(MAXPACKET, 0);  // buffer to put answer
@@ -152,9 +151,9 @@ static bool files_getaddrinfo(const size_t netid, const char* name, const addrin
 static int _find_src_addr(const struct sockaddr*, struct sockaddr*, unsigned, uid_t,
                           bool allow_v6_linklocal);
 
-static int res_searchN(const char* name, res_target* target, ResState* res, int* herrno);
-static int res_querydomainN(const char* name, const char* domain, res_target* target, ResState* res,
-                            int* herrno);
+static int res_searchN(const char* name, std::span<res_target> queries, ResState* res, int* herrno);
+static int res_querydomainN(const char* name, const char* domain, std::span<res_target> queries,
+                            ResState* res, int* herrno);
 
 const char* const ai_errlist[] = {
         "Success",
@@ -1390,53 +1389,49 @@ error:
 static int dns_getaddrinfo(const char* name, const addrinfo* pai,
                            const android_net_context* netcontext, std::optional<int> app_socket,
                            addrinfo** rv, NetworkDnsEventReported* event) {
-    res_target q = {};
-    res_target q2 = {};
+    std::vector<res_target> queries;
     ResState res(netcontext, app_socket, event);
     setMdnsFlag(name, res.netid, &(res.flags));
 
-    switch (pai->ai_family) {
-        case AF_UNSPEC: {
-            /* prefer IPv6 */
-            q.name = name;
-            q.qclass = C_IN;
-            int query_ipv6 = 1, query_ipv4 = 1;
-            if (pai->ai_flags & AI_ADDRCONFIG) {
-                query_ipv6 = have_ipv6(netcontext->app_mark, netcontext->uid,
-                                       isMdnsResolution(res.flags));
-                query_ipv4 = have_ipv4(netcontext->app_mark, netcontext->uid);
-            }
-            if (query_ipv6) {
-                q.qtype = T_AAAA;
-                if (query_ipv4) {
-                    q.next = &q2;
-                    q2.name = name;
-                    q2.qclass = C_IN;
-                    q2.qtype = T_A;
-                }
-            } else if (query_ipv4) {
-                q.qtype = T_A;
-            } else {
-                return EAI_NODATA;
-            }
-            break;
+    bool query_ipv6 = false;
+    bool query_ipv4 = false;
+
+    if (pai->ai_family == AF_UNSPEC) {
+        query_ipv6 = true;
+        query_ipv4 = true;
+        if (pai->ai_flags & AI_ADDRCONFIG) {
+            query_ipv6 =
+                    have_ipv6(netcontext->app_mark, netcontext->uid, isMdnsResolution(res.flags));
+            query_ipv4 = have_ipv4(netcontext->app_mark, netcontext->uid);
         }
-        case AF_INET:
-            q.name = name;
-            q.qclass = C_IN;
-            q.qtype = T_A;
-            break;
-        case AF_INET6:
-            q.name = name;
-            q.qclass = C_IN;
-            q.qtype = T_AAAA;
-            break;
-        default:
-            return EAI_FAMILY;
+    } else if (pai->ai_family == AF_INET) {
+        query_ipv4 = true;
+    } else if (pai->ai_family == AF_INET6) {
+        query_ipv6 = true;
+    } else {
+        return EAI_FAMILY;
+    }
+
+    if (query_ipv6) {
+        res_target ipv6_query;
+        ipv6_query.name = name;
+        ipv6_query.qclass = C_IN;
+        ipv6_query.qtype = T_AAAA;
+        queries.push_back(ipv6_query);
+    }
+    if (query_ipv4) {
+        res_target ipv4_query;
+        ipv4_query.name = name;
+        ipv4_query.qclass = C_IN;
+        ipv4_query.qtype = T_A;
+        queries.push_back(ipv4_query);
+    }
+    if (queries.empty()) {
+        return EAI_NODATA;
     }
 
     int he;
-    if (res_searchN(name, &q, &res, &he) < 0) {
+    if (res_searchN(name, queries, &res, &he) < 0) {
         // Return h_errno (he) to catch more detailed errors rather than EAI_NODATA.
         // Note that res_searchN() doesn't set the pair NETDB_INTERNAL and errno.
         // See also herrnoToAiErrno().
@@ -1445,15 +1440,14 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     addrinfo sentinel = {};
     addrinfo* cur = &sentinel;
-    addrinfo* ai = getanswer(q.answer, q.n, q.name, q.qtype, pai, &he);
-    if (ai) {
-        cur->ai_next = ai;
-        while (cur && cur->ai_next) cur = cur->ai_next;
+    for (const auto& query : queries) {
+        addrinfo* ai = getanswer(query.answer, query.n, query.name, query.qtype, pai, &he);
+        if (ai) {
+            cur->ai_next = ai;
+            while (cur && cur->ai_next) cur = cur->ai_next;
+        }
     }
-    if (q.next) {
-        ai = getanswer(q2.answer, q2.n, q2.name, q2.qtype, pai, &he);
-        if (ai) cur->ai_next = ai;
-    }
+
     if (sentinel.ai_next == NULL) {
         // Note that getanswer() doesn't set the pair NETDB_INTERNAL and errno.
         // See also herrnoToAiErrno().
@@ -1673,18 +1667,24 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
 
 // This function runs doQuery() for each res_target in parallel.
 // The `target`, which is set in dns_getaddrinfo(), contains at most two res_target.
-static int res_queryN_parallel(const char* name, res_target* target, ResState* res, int* herrno) {
+static int res_queryN_parallel(const char* name, std::span<res_target> queries, ResState* res,
+                               int* herrno) {
     std::vector<std::future<QueryResult>> results;
     results.reserve(2);
     std::chrono::milliseconds sleepTimeMs{};
-    for (res_target* t = target; t; t = t->next) {
-        results.emplace_back(std::async(std::launch::async, doQuery, name, t, res, sleepTimeMs));
-        // Avoiding gateways drop packets if queries are sent too close together
-        // Only needed if we have multiple queries in a row.
-        if (t->next) {
+    bool is_first_iteration = true;
+    for (auto& query : queries) {
+        results.emplace_back(
+                std::async(std::launch::async, doQuery, name, &query, res, sleepTimeMs));
+        if (is_first_iteration) {
+            // Avoiding gateways drop packets if queries are sent too close together
+            // Only needed if we have multiple queries in a row.
+            is_first_iteration = false;
             int sleepFlag = Experiments::getInstance()->getFlag("parallel_lookup_sleep_time",
                                                                 SLEEP_TIME_MS);
-            if (sleepFlag > 1000) sleepFlag = 1000;
+            if (sleepFlag > 1000) {
+                sleepFlag = 1000;
+            }
             sleepTimeMs = std::chrono::milliseconds(sleepFlag);
         }
     }
@@ -1718,7 +1718,8 @@ static int res_queryN_parallel(const char* name, res_target* target, ResState* r
  * If enabled, implement search rules until answer or unrecoverable failure
  * is detected.  Error code, if any, is left in *herrno.
  */
-static int res_searchN(const char* name, res_target* target, ResState* res, int* herrno) {
+static int res_searchN(const char* name, std::span<res_target> queries, ResState* res,
+                       int* herrno) {
     const char* cp;
     HEADER* hp;
     uint32_t dots;
@@ -1726,9 +1727,9 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
     int got_nodata = 0, got_servfail = 0, tried_as_is = 0;
 
     assert(name != NULL);
-    assert(target != NULL);
+    assert(!queries.empty());
 
-    hp = (HEADER*)(void*)target->answer.data();
+    hp = (HEADER*)(void*)queries.front().answer.data();
 
     errno = 0;
     *herrno = HOST_NOT_FOUND; /* default, if we never query */
@@ -1742,7 +1743,7 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
      */
     saved_herrno = -1;
     if (dots >= res->ndots) {
-        ret = res_querydomainN(name, NULL, target, res, herrno);
+        ret = res_querydomainN(name, NULL, queries, res, herrno);
         if (ret > 0) return (ret);
         saved_herrno = *herrno;
         tried_as_is++;
@@ -1762,7 +1763,7 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
         resolv_populate_res_for_net(res);
 
         for (const auto& domain : res->search_domains) {
-            ret = res_querydomainN(name, domain.c_str(), target, res, herrno);
+            ret = res_querydomainN(name, domain.c_str(), queries, res, herrno);
             if (ret > 0) return ret;
 
             /*
@@ -1806,7 +1807,7 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
      * name or whether it ends with a dot.
      */
     if (!tried_as_is) {
-        ret = res_querydomainN(name, NULL, target, res, herrno);
+        ret = res_querydomainN(name, NULL, queries, res, herrno);
         if (ret > 0) return ret;
     }
 
@@ -1829,8 +1830,8 @@ static int res_searchN(const char* name, res_target* target, ResState* res, int*
 
 // Perform a call on res_query on the concatenation of name and domain,
 // removing a trailing dot from name if domain is NULL.
-static int res_querydomainN(const char* name, const char* domain, res_target* target, ResState* res,
-                            int* herrno) {
+static int res_querydomainN(const char* name, const char* domain, std::span<res_target> queries,
+                            ResState* res, int* herrno) {
     char nbuf[MAXDNAME];
     const char* longname = nbuf;
     size_t n, d;
@@ -1858,5 +1859,5 @@ static int res_querydomainN(const char* name, const char* domain, res_target* ta
         }
         snprintf(nbuf, sizeof(nbuf), "%s.%s", name, domain);
     }
-    return res_queryN_parallel(longname, target, res, herrno);
+    return res_queryN_parallel(longname, queries, res, herrno);
 }
