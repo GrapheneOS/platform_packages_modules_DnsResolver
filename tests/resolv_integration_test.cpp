@@ -7359,6 +7359,74 @@ Result<std::shared_ptr<test::DNSResponder>> ResolverMultinetworkTest::setupDns(
     return dnsSvPair->dnsServer;
 }
 
+/* Setup a DnsResponder that can be queried (and will reply) via the TUN interface associated to the
+ * network. Returns the IP address that should be used when sending DNS queries, so that they will
+ * go through the TUN interface.
+ *
+ * This is done in the following way for the request:
+ *
+ * +--------------+
+ * |              |
+ * | DnsResponder |----> Listens on |real_responder_address|
+ * |              |      ^
+ * +--------------+      |
+ *                    +--+
+ *                    |
+ *                 +-----+
+ *                 |     |<----------------------------------------------------+
+ *                 |     |                                                     |
+ *                 |     |--> Swaps source address for |fake_resolver_address|-+
+ *                 | TUN |     this is necessary to make sure the response will
+ *                 |     |     also go through TUN (and not directly to
+ *                 |     |     DnsResolver)
+ *                 |     |    Swaps dest address for |real_responder_address|
+ *                 |     |     this is necessary for the query to reach
+ *                 |     |     DnsResponder once injected back into the kernel
+ *                 +-----+
+ *                    ^
+ *                    |
+ * +-------------+    +--+
+ * |             |       |
+ * |             |----> Sends queries
+ * | DnsResolver |        from |real_resolver_address|
+ * |             |        to   |fake_responder_address|
+ * |             |
+ * +-------------+
+ *
+ * While, for the response:
+ *
+ * +--------------+
+ * |              |
+ * |              |----> Sends reply
+ * | DnsResponder |        from |real_responder_address|
+ * |              |        to |fake_resolver_address|
+ * |              |        |
+ * +--------------+        |
+ *                    +----+
+ *                    |
+ *                    v
+ *                 +-----+
+ *                 |     |--> Swaps source address for |fake_responder_address|
+ *                 |     |     this is necessary to make sure the response will
+ *                 |     |     go to the socket where DnsResolver is waiting for
+ *                 |     |     the response
+ *                 | TUN |    Swaps dest address for |real_resolver_address|
+ *                 |     |     this is necessary to make sure the response will
+ *                 |     |     go to the socket where DnsResolver is waiting for
+ *                 |     |     the response
+ *                 |     |     |
+ *                 |     |<----+
+ *                 +-----+
+ *                    ^
+ *                    |
+ * +-------------+    +--+
+ * |             |       |
+ * |             |----> Sends query
+ * | DnsResolver |        from |real_resolver_address|
+ * |             |        to   |fake_responder_address|
+ * |             |
+ * +-------------+
+ */
 Result<ResolverMultinetworkTest::DnsServerPair> ResolverMultinetworkTest::ScopedNetwork::addDns(
         ConnectivityType type) {
     const int index = mDnsServerPairs.size();
@@ -7369,24 +7437,34 @@ Result<ResolverMultinetworkTest::DnsServerPair> ResolverMultinetworkTest::Scoped
                                                      : &ScopedNetwork::makeIpv6AddrString,
                       this, std::placeholders::_1);
 
-    std::string src1 = makeIpString(1);            // The address from which the resolver will send.
-    std::string dst1 = makeIpString(
-            index + 100 +
-            (mNetId - TEST_NETID_BASE));           // The address to which the resolver will send.
-    std::string src2 = dst1;                       // The address translated from src1.
-    std::string dst2 = makeIpString(
-            index + 200 + (mNetId - TEST_NETID_BASE));  // The address translated from dst2.
+    std::string real_resolver_address = makeIpString(1);
+    // |fake_responder_address| and |fake_resolver_address| are used only to make sure queries go
+    // through TUN, no entity is listening on them. As such, they can be mapped to the same IP
+    // address.
+    std::string fake_responder_address = makeIpString(index + 100 + (mNetId - TEST_NETID_BASE));
+    std::string fake_resolver_address = fake_responder_address;
+    std::string real_responder_address = makeIpString(index + 200 + (mNetId - TEST_NETID_BASE));
 
-    if (!mTunForwarder->addForwardingRule({src1, dst1}, {src2, dst2}) ||
-        !mTunForwarder->addForwardingRule({dst2, src2}, {dst1, src1})) {
-        return Errorf("Failed to add the rules ({}, {}, {}, {})", src1, dst1, src2, dst2);
+    if (!mTunForwarder->addForwardingRule({real_resolver_address, fake_responder_address},
+                                          {fake_resolver_address, real_responder_address})) {
+        return Errorf("Failed to add the rule - from:({}, {}), to: ({}, {})", real_resolver_address,
+                      fake_responder_address, fake_resolver_address, real_responder_address);
+    }
+    if (!mTunForwarder->addForwardingRule({real_responder_address, fake_resolver_address},
+                                          {fake_responder_address, real_resolver_address})) {
+        return Errorf("Failed to add the rule - from:({}, {}), to: ({}, {})",
+                      real_responder_address, fake_resolver_address, fake_responder_address,
+                      real_resolver_address);
     }
 
-    if (!mNetdSrv->interfaceAddAddress(mIfname, dst2, prefixLen).isOk()) {
-        return Errorf("interfaceAddAddress({}, {}, {}) failed", mIfname, dst2, prefixLen);
+    if (!mNetdSrv->interfaceAddAddress(mIfname, real_responder_address, prefixLen).isOk()) {
+        return Errorf("interfaceAddAddress({}, {}, {}) failed", mIfname, real_responder_address,
+                      prefixLen);
     }
 
-    return mDnsServerPairs.emplace_back(std::make_shared<test::DNSResponder>(mNetId, dst2), dst1);
+    return mDnsServerPairs.emplace_back(
+            std::make_shared<test::DNSResponder>(mNetId, real_responder_address),
+            fake_responder_address);
 }
 
 bool ResolverMultinetworkTest::ScopedNetwork::setDnsConfiguration() const {
