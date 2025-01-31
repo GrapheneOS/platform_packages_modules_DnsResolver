@@ -53,6 +53,12 @@ ResolverParams::Builder::Builder() {
     mParcel.caCertificate = kCaCert;
     mParcel.resolverOptions = ResolverOptionsParcel{};  // optional, must be explicitly set.
     mParcel.dohParams = std::nullopt;
+    // This is currently not configurable. Tests relying on DnsResponderClient, are currently
+    // creating a network with no interfaces. They then end up relying on local communication to
+    // receive and send DNS queries. Adding "lo" as an interface for |TEST_NETID| makes that
+    // dependency explicit, allowing mDNS multicast queries to be sent via
+    // IP_MULTICAST_IF/IPV6_MULTICAST_IF.
+    mParcel.interfaceNames = {"lo"};
 }
 
 void DnsResponderClient::SetupMappings(unsigned numHosts, const std::vector<std::string>& domains,
