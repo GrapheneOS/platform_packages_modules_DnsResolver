@@ -212,16 +212,7 @@ void freeaddrinfo(struct addrinfo* ai) {
     }
 }
 
-/*
- * The following functions determine whether IPv4 or IPv6 connectivity is
- * available in order to implement AI_ADDRCONFIG.
- *
- * Strictly speaking, AI_ADDRCONFIG should not look at whether connectivity is
- * available, but whether addresses of the specified family are "configured
- * on the local system". However, bionic doesn't currently support getifaddrs,
- * so checking for connectivity is the next best thing.
- */
-static int have_ipv6(unsigned mark, uid_t uid, bool mdns) {
+static bool have_global_ipv6_connectivity(unsigned mark, uid_t uid) {
     static const struct sockaddr_in6 sin6_test = {
             .sin6_family = AF_INET6,
             .sin6_addr.s6_addr = {// 2000::
@@ -229,10 +220,31 @@ static int have_ipv6(unsigned mark, uid_t uid, bool mdns) {
     sockaddr_union addr = {.sin6 = sin6_test};
     sockaddr_storage sa;
     return _find_src_addr(&addr.sa, (struct sockaddr*)&sa, mark, uid,
-                          /*allow_v6_linklocal=*/mdns) == 1;
+                          /*allow_v6_linklocal=*/false) == 1;
 }
 
-static int have_ipv4(unsigned mark, uid_t uid) {
+static bool have_local_ipv6_connectivity(unsigned mark, uid_t uid, int netid) {
+    // IPv6 link-local addresses require a scope identifier to be correctly defined. This forces us
+    // to loop through all interfaces included within |netid|.
+    std::vector<std::string> interface_names = resolv_get_interface_names(netid);
+    for (const auto& interface_name : interface_names) {
+        const struct sockaddr_in6 sin6_test = {
+                .sin6_family = AF_INET6,
+                .sin6_addr.s6_addr =
+                        {// fe80::
+                         0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                .sin6_scope_id = if_nametoindex(interface_name.c_str())};
+        sockaddr_union addr = {.sin6 = sin6_test};
+        sockaddr_storage sa;
+        if (_find_src_addr(&addr.sa, (struct sockaddr*)&sa, mark, uid,
+                           /*allow_v6_linklocal=*/true) == 1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool have_ipv4_connectivity(unsigned mark, uid_t uid) {
     static const struct sockaddr_in sin_test = {
             .sin_family = AF_INET,
             .sin_addr.s_addr = __constant_htonl(0x08080808L)  // 8.8.8.8
@@ -1400,9 +1412,15 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
         query_ipv6 = true;
         query_ipv4 = true;
         if (pai->ai_flags & AI_ADDRCONFIG) {
-            query_ipv6 =
-                    have_ipv6(netcontext->app_mark, netcontext->uid, isMdnsResolution(res.flags));
-            query_ipv4 = have_ipv4(netcontext->app_mark, netcontext->uid);
+            // Strictly speaking, AI_ADDRCONFIG should not look at whether connectivity is
+            // available, but whether addresses of the specified family are "configured on the local
+            // system". However, bionic doesn't currently support getifaddrs, so checking for
+            // connectivity is the next best thing.
+            query_ipv6 = have_global_ipv6_connectivity(netcontext->app_mark, netcontext->uid) ||
+                         (isMdnsResolution(res.flags) &&
+                          have_local_ipv6_connectivity(netcontext->app_mark, netcontext->uid,
+                                                       res.netid));
+            query_ipv4 = have_ipv4_connectivity(netcontext->app_mark, netcontext->uid);
         }
     } else if (pai->ai_family == AF_INET) {
         query_ipv4 = true;

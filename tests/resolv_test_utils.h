@@ -459,6 +459,12 @@ inline int resolv_set_nameservers(
     params.maxSamples = res_params.max_samples;
     params.baseTimeoutMsec = res_params.base_timeout_msec;
     params.retryCount = res_params.retry_count;
+    // This is currently not configurable. Tests relying on DnsResponderClient, are currently
+    // creating a network with no interfaces. They then end up relying on local communication to
+    // receive and send DNS queries. Adding "lo" as an interface for |TEST_NETID| makes that
+    // dependency explicit, allowing mDNS multicast queries to be sent via
+    // IP_MULTICAST_IF/IPV6_MULTICAST_IF.
+    params.interfaceNames = {"lo"};
 
     return resolv_set_nameservers(params);
 }
