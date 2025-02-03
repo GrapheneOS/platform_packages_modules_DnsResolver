@@ -1784,10 +1784,12 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
         EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray(config.expected_addr));
 
         // Ensure the query result is still cached.
+        // TODO(b/394031336): caching is currently disabled while we work on a cache that supports
+        // keying by interface. Update values once re-enabled.
         rv = resolv_gethostbyname("hello.local", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
                                   &mNetcontext, APP_SOCKET_NONE, &result, &event);
         EXPECT_EQ(0, rv);
-        EXPECT_EQ(0U, GetNumQueries(mdns, host_name));
+        EXPECT_EQ(1U, GetNumQueries(mdns, host_name));
         result_strs = ToStrings(result);
         EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray(config.expected_addr));
     }
