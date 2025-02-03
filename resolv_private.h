@@ -87,7 +87,11 @@ union sockaddr_union {
     struct sockaddr_in sin;
     struct sockaddr_in6 sin6;
 };
+
 constexpr int MAXPACKET = 8 * 1024;
+
+// Threshold for initial abs. query
+inline constexpr int NDOTS = 1;
 
 struct ResState {
     ResState(const android_net_context* netcontext, std::optional<int> app_socket,
@@ -111,7 +115,6 @@ struct ResState {
         copy.search_domains = search_domains;
         copy.nsaddrs = nsaddrs;
         copy.udpsocks_ts = udpsocks_ts;
-        copy.ndots = ndots;
         copy.mark = mark;
         copy.tcp_nssock_ts = tcp_nssock_ts;
         copy.flags = flags;
@@ -142,7 +145,6 @@ struct ResState {
     std::vector<android::netdutils::IPSockAddr> nsaddrs;
     std::array<timespec, MAXNS> udpsocks_ts;    // The creation time of the UDP sockets
     android::base::unique_fd udpsocks[MAXNS];   // UDP sockets to nameservers
-    unsigned ndots : 4 = 1;                     // threshold for initial abs. query
     unsigned mark;                              // Socket mark to be used by all DNS query sockets
     android::base::unique_fd tcp_nssock;        // TCP socket (but why not one per nameserver?)
     timespec tcp_nssock_ts = {};                // The creation time of the TCP socket

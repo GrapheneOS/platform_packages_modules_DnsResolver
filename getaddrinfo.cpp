@@ -1755,12 +1755,9 @@ static int res_searchN(const char* name, std::span<res_target> queries, ResState
     for (cp = name; *cp; cp++) dots += (*cp == '.');
     const bool trailing_dot = (cp > name && *--cp == '.') ? true : false;
 
-    /*
-     * If there are dots in the name already, let's just give it a try
-     * 'as is'.  The threshold can be set with the "ndots" option.
-     */
+    // If there are dots in the name already, let's just give it a try 'as is'.
     saved_herrno = -1;
-    if (dots >= res->ndots) {
+    if (dots >= NDOTS) {
         ret = res_querydomainN(name, NULL, queries, res, herrno);
         if (ret > 0) return (ret);
         saved_herrno = *herrno;
