@@ -1448,6 +1448,8 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
         return EAI_NODATA;
     }
 
+    resolv_populate_res_for_net(&res);
+
     int he;
     if (res_searchN(name, queries, &res, &he) < 0) {
         // Return h_errno (he) to catch more detailed errors rather than EAI_NODATA.
@@ -1771,12 +1773,6 @@ static int res_searchN(const char* name, std::span<res_target> queries, ResState
      * - this is not a .local mDNS lookup.
      */
     if ((!dots || (dots && !trailing_dot)) && !isMdnsResolution(res->flags)) {
-        /* Unfortunately we need to set stuff up before
-         * the domain stuff is tried.  Will have a better
-         * fix after thread pools are used.
-         */
-        resolv_populate_res_for_net(res);
-
         for (const auto& domain : res->search_domains) {
             ret = res_querydomainN(name, domain.c_str(), queries, res, herrno);
             if (ret > 0) return ret;
