@@ -320,6 +320,17 @@ int validateHints(const addrinfo* _Nonnull hints) {
     return 0;
 }
 
+void fill_sin6_scope_id_if_needed(const res_target& query, addrinfo* addr_info) {
+    if (addr_info->ai_family != AF_INET6) {
+        return;
+    }
+
+    sockaddr_in6* sin6 = reinterpret_cast<sockaddr_in6*>(addr_info->ai_addr);
+    if (IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
+        sin6->sin6_scope_id = query.res_state->target_interface_index_for_mdns;
+    }
+}
+
 }  // namespace
 
 int android_getaddrinfofornetcontext(const char* hostname, const char* servname,
@@ -1437,21 +1448,47 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
 
     resolv_populate_res_for_net(&res);
 
-    if (query_ipv6) {
-        res_target ipv6_query;
-        ipv6_query.name = name;
-        ipv6_query.qclass = C_IN;
-        ipv6_query.qtype = T_AAAA;
-        ipv6_query.res_state = &res;
-        queries.push_back(ipv6_query);
+    std::vector<ResState> res_states;
+    if (is_mdns) {
+        // resolv_get_interface_names is also called within have_local_ipv6_connectivity. This is
+        // racy and the two could return different values. Having said that, the race condition is
+        // benign for the following reasons:
+        // 1. The first call is to figure out whether to send out an AAAA query.
+        // 2. The second call is to figure out which interfaces to the queries to.
+        // With the above in mind, if these value don't match only the following can happen:
+        // 1. The second call returns interfaces that didn't exist before. In this scenario, we will
+        //    send the query onto this additional interface. This is a good thing.
+        // 2. The second call returns an interface that didn't exist before. In this scenario, we
+        //    will not send the query onto this interface anymore. This is a good thing.
+        // One could argue that whether we're sending out an AAAA query or not is also affected by
+        // these network topology changes. But that is a race condition that cannot be avoided, as
+        // it could also happen while this code is returning results to the caller.
+        std::vector<std::string> interface_names = resolv_get_interface_names(res.netid);
+        for (const auto& interface_name : interface_names) {
+            res_states.emplace_back(res.clone(event)).target_interface_index_for_mdns =
+                    if_nametoindex(interface_name.c_str());
+        }
+    } else {
+        res_states.emplace_back(res.clone(event));
     }
-    if (query_ipv4) {
-        res_target ipv4_query;
-        ipv4_query.name = name;
-        ipv4_query.qclass = C_IN;
-        ipv4_query.qtype = T_A;
-        ipv4_query.res_state = &res;
-        queries.push_back(ipv4_query);
+
+    for (auto& res_state : res_states) {
+        if (query_ipv6) {
+            res_target ipv6_query;
+            ipv6_query.name = name;
+            ipv6_query.qclass = C_IN;
+            ipv6_query.qtype = T_AAAA;
+            ipv6_query.res_state = &res_state;
+            queries.push_back(ipv6_query);
+        }
+        if (query_ipv4) {
+            res_target ipv4_query;
+            ipv4_query.name = name;
+            ipv4_query.qclass = C_IN;
+            ipv4_query.qtype = T_A;
+            ipv4_query.res_state = &res_state;
+            queries.push_back(ipv4_query);
+        }
     }
     if (queries.empty()) {
         return EAI_NODATA;
@@ -1472,7 +1509,10 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
         addrinfo* ai = getanswer(query.answer, query.n, query.name, query.qtype, pai, &he);
         if (ai) {
             cur->ai_next = ai;
-            while (cur && cur->ai_next) cur = cur->ai_next;
+            while (cur && cur->ai_next) {
+                cur = cur->ai_next;
+                fill_sin6_scope_id_if_needed(query, cur);
+            }
         }
     }
 
@@ -1694,11 +1734,9 @@ QueryResult doQuery(const char* name, res_target* t, ResState* res,
 }  // namespace
 
 // This function runs doQuery() for each res_target in parallel.
-// The `target`, which is set in dns_getaddrinfo(), contains at most two res_target.
 static int res_queryN_parallel(const char* name, std::span<res_target> queries,
                                android::net::NetworkDnsEventReported* event, int* herrno) {
     std::vector<std::future<QueryResult>> results;
-    results.reserve(2);
     std::chrono::milliseconds sleepTimeMs{};
     bool is_first_iteration = true;
     for (auto& query : queries) {

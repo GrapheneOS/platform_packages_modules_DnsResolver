@@ -123,6 +123,7 @@ struct ResState {
         copy.tc_mode = tc_mode;
         copy.enforce_dns_uid = enforce_dns_uid;
         copy.sort_nameservers = sort_nameservers;
+        copy.target_interface_index_for_mdns = target_interface_index_for_mdns;
         return copy;
     }
     void closeSockets() {
@@ -154,6 +155,7 @@ struct ResState {
     int tc_mode = 0;
     bool enforce_dns_uid = false;
     bool sort_nameservers = false;              // True if nsaddrs has been sorted.
+    int target_interface_index_for_mdns;
     // clang-format on
 
   private:

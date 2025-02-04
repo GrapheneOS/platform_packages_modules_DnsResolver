@@ -8072,6 +8072,83 @@ TEST_F(ResolverMultinetworkTest, AI_ADDRCONFIG_MdnsWithLinkLocalIPv6AndNoDefault
     EXPECT_EQ(GetNumQueries(*dnsPair->dnsServer, host_name), 0U);
 }
 
+TEST_F(ResolverMultinetworkTest, getaddrinfo_PopulatesScopeIDWhenMdnsReturnsLinkLocalResult) {
+    // Kernel 4.4 does not provide an IPv6 link-local address when an interface is added to a
+    // network. Skip it because v6 link-local address is a prerequisite for this test.
+    SKIP_IF_KERNEL_VERSION_LOWER_THAN(4, 9, 0);
+
+    constexpr char v6addr[] = "fe80::";
+    constexpr char v4addr[] = "127.0.0.3";
+    constexpr char host_name[] = "hello.local.";
+    ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::NONE);
+    ASSERT_RESULT_OK(network.init());
+
+    ASSERT_TRUE(network.setDnsConfiguration());
+    ASSERT_TRUE(network.startTunForwarder());
+
+    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
+    test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
+    mdnsv4.setNetwork(network.netId());
+    mdnsv6.setNetwork(network.netId());
+    StartDns(mdnsv4, {{host_name, ns_type::ns_t_a, v4addr}});
+    StartDns(mdnsv6, {{host_name, ns_type::ns_t_aaaa, v6addr}});
+
+    addrinfo* result = nullptr;
+    const addrinfo hints = {
+            .ai_family = AF_INET6,
+            .ai_socktype = SOCK_STREAM,
+    };
+    int rv = android_getaddrinfofornet("hello.local", nullptr, &hints, network.netId(), MARK_UNSET,
+                                       &result);
+    EXPECT_EQ(rv, 0);
+    EXPECT_NE(result, nullptr);
+    EXPECT_EQ(ToString(result), "fe80::%lo");
+    EXPECT_EQ(result->ai_family, AF_INET6);
+    const auto* sin6 = reinterpret_cast<sockaddr_in6*>(result->ai_addr);
+    EXPECT_NE(sin6->sin6_scope_id, 0U);
+    EXPECT_EQ(sin6->sin6_scope_id, if_nametoindex("lo"));
+}
+
+TEST_F(ResolverMultinetworkTest, getaddrinfo_DoesNotPopulateScopeIDWhenDnsReturnsLinkLocalResult) {
+    constexpr char v6addr[] = "fe80::";
+    constexpr char v4addr[] = "192.0.2.0";
+    constexpr char host_name[] = "ohayou.example.com.";
+    ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::NONE);
+    ASSERT_RESULT_OK(network.init());
+
+    ASSERT_TRUE(mDnsClient.netdService()
+                        ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
+                        .isOk());
+
+    const Result<DnsServerPair> dnsPair = network.addIpv6Dns();
+    ASSERT_RESULT_OK(dnsPair);
+    StartDns(*dnsPair->dnsServer,
+             {{host_name, ns_type::ns_t_aaaa, v4addr}, {host_name, ns_type::ns_t_aaaa, v6addr}});
+
+    ASSERT_TRUE(network.setDnsConfiguration());
+    ASSERT_TRUE(network.startTunForwarder());
+
+    const std::string v6Addr = network.makeIpv6AddrString(1);
+    EXPECT_TRUE(
+            mDnsClient.netdService()->interfaceAddAddress(network.ifname(), v6Addr, 128).isOk());
+    // Ensuring that address is applied. This is required for mainline test (b/249225311).
+    usleep(1000 * 1000);
+
+    addrinfo* result = nullptr;
+    const addrinfo hints = {
+            .ai_family = AF_INET6,
+            .ai_socktype = SOCK_STREAM,
+    };
+    int rv = android_getaddrinfofornet("ohayou.example.com", nullptr, &hints, network.netId(),
+                                       MARK_UNSET, &result);
+    EXPECT_EQ(rv, 0);
+    EXPECT_NE(result, nullptr);
+    EXPECT_EQ(ToString(result), "fe80::");
+    EXPECT_EQ(result->ai_family, AF_INET6);
+    const auto* sin6 = reinterpret_cast<sockaddr_in6*>(result->ai_addr);
+    EXPECT_EQ(sin6->sin6_scope_id, 0U);
+}
+
 TEST_F(ResolverTest, NegativeValueInExperimentFlag) {
     // Test setting up different retry count and BASE_TIMEOUT_MSEC in DNS server.
     const struct TestConfig {
