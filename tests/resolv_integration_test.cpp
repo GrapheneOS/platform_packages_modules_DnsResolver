@@ -6504,8 +6504,10 @@ TEST_F(ResolverTest, MdnsGetHostByName) {
             mdns.clearQueries();
 
             // Ensure the query result is still cached.
+            // TODO(b/394031336): caching is currently disabled while we work on a cache that
+            // supports keying by interface. Update values once re-enabled.
             result = gethostbyname2("hello.local", config.ai_family);
-            EXPECT_EQ(0U, GetNumQueries(mdnsv4, "hello.local."));
+            EXPECT_EQ(1U, GetNumQueries(mdnsv4, "hello.local."));
             ASSERT_FALSE(result == nullptr);
             EXPECT_EQ(config.expected_addr, ToString(result));
             ASSERT_TRUE(mDnsClient.resolvService()->flushNetworkCache(TEST_NETID).isOk());
@@ -6754,15 +6756,17 @@ TEST_F(ResolverTest, MdnsGetAddrInfo) {
                         testing::UnorderedElementsAreArray(config.expected_addr));
 
             // Ensure the query results are still cached.
+            // TODO(b/394031336): caching is currently disabled while we work on a cache that
+            // supports keying by interface. Update values once re-enabled.
             result = safe_getaddrinfo("hello.local", nullptr, &hints);
             EXPECT_TRUE(result != nullptr);
             if (config.ai_family == AF_INET)
-                EXPECT_EQ(0U, GetNumQueries(mdnsv4, host_name));
+                EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
             else if (config.ai_family == AF_INET6)
-                EXPECT_EQ(0U, GetNumQueries(mdnsv6, host_name));
+                EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
             else if (config.ai_family == AF_UNSPEC) {
-                EXPECT_EQ(0U, GetNumQueries(mdnsv4, host_name));
-                EXPECT_EQ(0U, GetNumQueries(mdnsv6, host_name));
+                EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+                EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
             }
             result_str = ToString(result);
             EXPECT_THAT(ToStrings(result),

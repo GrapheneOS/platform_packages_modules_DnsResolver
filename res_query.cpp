@@ -218,13 +218,10 @@ int res_nsearch(ResState* statp, const char* name, /* domain name */
     for (cp = name; *cp != '\0'; cp++) dots += (*cp == '.');
     const bool trailing_dot = (cp > name && *--cp == '.') ? true : false;
 
-    /*
-     * If there are enough dots in the name, let's just give it a
-     * try 'as is'. The threshold can be set with the "ndots" option.
-     * Also, query 'as is', if there is a trailing dot in the name.
-     */
+    // If there are enough dots in the name, let's just give it a try 'as is'.
+    // Also, query 'as is', if there is a trailing dot in the name.
     saved_herrno = -1;
-    if (dots >= statp->ndots || trailing_dot) {
+    if (dots >= NDOTS || trailing_dot) {
         ret = res_nquerydomain(statp, name, NULL, cl, type, answer, herrno);
         if (ret > 0 || trailing_dot) return ret;
         saved_herrno = *herrno;
