@@ -1240,6 +1240,24 @@ static int send_mdns(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans
 
     if (setupUdpSocket(statp, mdnsap, &fd, terrno) <= 0) return 0;
 
+    if (statp->target_interface_index_for_mdns != 0) {
+        if (mdnsap->sa_family == AF_INET) {
+            struct ip_mreqn mreqn = {};
+            mreqn.imr_ifindex = statp->target_interface_index_for_mdns;
+            if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &mreqn, sizeof(mreqn)) < 0) {
+                *terrno = errno;
+                return 0;
+            }
+        } else if (mdnsap->sa_family == AF_INET6) {
+            if (setsockopt(fd, IPPROTO_IPV6, IPV6_MULTICAST_IF,
+                           &statp->target_interface_index_for_mdns,
+                           sizeof(statp->target_interface_index_for_mdns)) < 0) {
+                *terrno = errno;
+                return 0;
+            }
+        }
+    }
+
     if (sendto(fd, msg.data(), msg.size(), 0, mdnsap, sockaddrSize(mdnsap)) !=
         static_cast<ptrdiff_t>(msg.size())) {
         *terrno = errno;
