@@ -503,8 +503,8 @@ TEST_P(TransportParameterizedTest, MdnsGetAddrInfo_fallback) {
     dns.clearQueries();
 
     EXPECT_NO_FAILURE(sendQueryAndCheckResult("hello.local"));
-    EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
-    EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+    EXPECT_EQ(2U, GetNumQueries(mdnsv4, host_name));
+    EXPECT_EQ(2U, GetNumQueries(mdnsv6, host_name));
     if (testParamHasDoh()) {
         EXPECT_NO_FAILURE(expectQueries(0 /* dns */, 0 /* dot */, 2 /* doh */));
     } else {
@@ -520,8 +520,8 @@ TEST_P(TransportParameterizedTest, MdnsGetAddrInfo_fallback) {
     mdnsv6.clearQueries();
 
     EXPECT_NO_FAILURE(sendQueryAndCheckResult("hello.local"));
-    EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
-    EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+    EXPECT_EQ(2U, GetNumQueries(mdnsv4, host_name));
+    EXPECT_EQ(2U, GetNumQueries(mdnsv6, host_name));
     if (testParamHasDoh()) {
         EXPECT_NO_FAILURE(expectQueries(2 /* dns */, 0 /* dot */, 2 /* doh */));
     } else {
