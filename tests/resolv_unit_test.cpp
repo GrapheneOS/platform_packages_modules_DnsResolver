@@ -882,7 +882,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
                  rcode: 0,
                  type: 1,
                  cache_hit: 1,
-                 ip_version: 1,
+                 ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
                  dns_server_index: 0,
@@ -933,7 +933,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
                  rcode: 0,
                  type: 1,
                  cache_hit: 1,
-                 ip_version: 1,
+                 ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
                  dns_server_index: 0,
@@ -944,11 +944,9 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
              }
         })Event";
 
-    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
     test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
-    mdnsv4.addMapping(host_name, ns_type::ns_t_a, v4addr);
+    mdnsv6.addMapping(host_name, ns_type::ns_t_a, v4addr);
     mdnsv6.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
-    ASSERT_TRUE(mdnsv4.startServer());
     ASSERT_TRUE(mdnsv6.startServer());
     ASSERT_EQ(0, SetResolvers());
 
@@ -964,7 +962,6 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
 
     for (const auto& config : testConfigs) {
         SCOPED_TRACE(fmt::format("family: {}", config.ai_family));
-        mdnsv4.clearQueries();
         mdnsv6.clearQueries();
 
         addrinfo* result = nullptr;
@@ -978,13 +975,12 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
 
         if (config.ai_family == AF_UNSPEC) {
             EXPECT_EQ(0, rv);
-            EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
-            EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
+            EXPECT_EQ(2U, GetNumQueries(mdnsv6, host_name));
             const std::vector<std::string> result_strs = ToStrings(result);
             EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray(config.expected_addr));
         } else if (config.ai_family == AF_INET) {
             EXPECT_EQ(0, rv);
-            EXPECT_EQ(1U, GetNumQueries(mdnsv4, host_name));
+            EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
             const std::vector<std::string> result_strs = ToStrings(result);
             EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray(config.expected_addr));
         } else if (config.ai_family == AF_INET6) {
@@ -1001,12 +997,9 @@ TEST_F(ResolvGetAddrInfoTest, MdnsIllegalHostname) {
     constexpr char v6addr[] = "::127.0.0.3";
     constexpr char v4addr[] = "127.0.0.3";
 
-    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
     test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
-    ASSERT_TRUE(mdnsv4.startServer());
     ASSERT_TRUE(mdnsv6.startServer());
     ASSERT_EQ(0, SetResolvers());
-    mdnsv4.clearQueries();
     mdnsv6.clearQueries();
 
     constexpr char illegalHostname[] = "hello^.local.";
@@ -1019,7 +1012,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsIllegalHostname) {
     //
     // In this example, querying "hello^.local" should get no address because
     // "hello^.local" has an illegal char '^' in the middle of label.
-    mdnsv4.addMapping(illegalHostname, ns_type::ns_t_a, v4addr);
+    mdnsv6.addMapping(illegalHostname, ns_type::ns_t_a, v4addr);
     mdnsv6.addMapping(illegalHostname, ns_type::ns_t_aaaa, v6addr);
 
     for (const auto& family : {AF_INET, AF_INET6, AF_UNSPEC}) {
@@ -1713,7 +1706,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
                  rcode: 0,
                  type: 1,
                  cache_hit: 1,
-                 ip_version: 1,
+                 ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
                  dns_server_index: 0,
@@ -1746,13 +1739,11 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
              }
         })Event";
 
-    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
     test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
 
-    mdnsv4.addMapping(host_name, ns_type::ns_t_a, v4addr);
+    mdnsv6.addMapping(host_name, ns_type::ns_t_a, v4addr);
     mdnsv6.addMapping(host_name, ns_type::ns_t_aaaa, v6addr);
 
-    ASSERT_TRUE(mdnsv4.startServer());
     ASSERT_TRUE(mdnsv6.startServer());
     ASSERT_EQ(0, SetResolvers());
 
@@ -1771,25 +1762,25 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
         hostent hbuf;
         char tmpbuf[MAXPACKET];
         NetworkDnsEventReported event;
+        mdnsv6.clearQueries();
         int rv =
                 resolv_gethostbyname("hello.local", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
                                      &mNetcontext, APP_SOCKET_NONE, &result, &event);
         EXPECT_THAT(event,
                     NetworkDnsEventEq(fromNetworkDnsEventReportedStr(config.expected_event)));
         EXPECT_EQ(0, rv);
-        test::DNSResponder& mdns = config.ai_family == AF_INET ? mdnsv4 : mdnsv6;
-        EXPECT_EQ(1U, GetNumQueries(mdns, host_name));
-        mdns.clearQueries();
+        EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
         std::vector<std::string> result_strs = ToStrings(result);
         EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray(config.expected_addr));
 
         // Ensure the query result is still cached.
         // TODO(b/394031336): caching is currently disabled while we work on a cache that supports
         // keying by interface. Update values once re-enabled.
+        mdnsv6.clearQueries();
         rv = resolv_gethostbyname("hello.local", config.ai_family, &hbuf, tmpbuf, sizeof(tmpbuf),
                                   &mNetcontext, APP_SOCKET_NONE, &result, &event);
         EXPECT_EQ(0, rv);
-        EXPECT_EQ(1U, GetNumQueries(mdns, host_name));
+        EXPECT_EQ(1U, GetNumQueries(mdnsv6, host_name));
         result_strs = ToStrings(result);
         EXPECT_THAT(result_strs, testing::UnorderedElementsAreArray(config.expected_addr));
     }
@@ -1798,12 +1789,9 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
 TEST_F(GetHostByNameForNetContextTest, MdnsIllegalHostname) {
     constexpr char v6addr[] = "::127.0.0.3";
     constexpr char v4addr[] = "127.0.0.3";
-    test::DNSResponder mdnsv4("127.0.0.3", test::kDefaultMdnsListenService);
     test::DNSResponder mdnsv6("::1", test::kDefaultMdnsListenService);
-    ASSERT_TRUE(mdnsv4.startServer());
     ASSERT_TRUE(mdnsv6.startServer());
     ASSERT_EQ(0, SetResolvers());
-    mdnsv4.clearQueries();
     mdnsv6.clearQueries();
 
     constexpr char illegalHostname[] = "hello^.local.";
@@ -1816,7 +1804,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsIllegalHostname) {
     //
     // In this example, querying "hello^.local" should get no address because
     // "hello^.local" has an illegal char '^' in the middle of label.
-    mdnsv4.addMapping(illegalHostname, ns_type::ns_t_a, v4addr);
+    mdnsv6.addMapping(illegalHostname, ns_type::ns_t_a, v4addr);
     mdnsv6.addMapping(illegalHostname, ns_type::ns_t_aaaa, v6addr);
 
     SCOPED_TRACE(fmt::format("family: {}, illegalHostname: {}", AF_INET6, illegalHostname));
