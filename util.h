@@ -62,6 +62,11 @@ inline bool isDebuggable() {
     return android::base::GetBoolProperty("ro.debuggable", false);
 }
 
+inline bool isAtLeastS() {
+    const static bool isAtLeastS = android::modules::sdklevel::IsAtLeastS();
+    return isAtLeastS;
+}
+
 inline bool isAtLeastT() {
     const static bool isAtLeastT = android::modules::sdklevel::IsAtLeastT();
     return isAtLeastT;

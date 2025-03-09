@@ -671,13 +671,14 @@ typedef int (*IsUidBlockedFn)(uid_t, bool);
 IsUidBlockedFn ADnsHelper_isUidNetworkingBlocked;
 
 IsUidBlockedFn resolveIsUidNetworkingBlockedFn() {
-    // Related BPF maps were mainlined from T.
-    if (!isAtLeastT()) return nullptr;
+    // Related BPF maps were mainlined from T, but we want to init on S too.
+    if (!isAtLeastS()) return nullptr;
 
     // TODO: Check whether it is safe to shared link the .so without using dlopen when the carrier
     // APEX module (tethering) is fully released.
     void* handle = dlopen("libcom.android.tethering.dns_helper.so", RTLD_NOW | RTLD_LOCAL);
     if (!handle) {
+        // Can happen if the tethering apex is ancient.
         LOG(WARNING) << __func__ << ": " << dlerror();
         return nullptr;
     }
@@ -685,14 +686,18 @@ IsUidBlockedFn resolveIsUidNetworkingBlockedFn() {
     InitFn ADnsHelper_init = reinterpret_cast<InitFn>(dlsym(handle, "ADnsHelper_init"));
     if (!ADnsHelper_init) {
         LOG(ERROR) << __func__ << ": " << dlerror();
-        // TODO: Change to abort() when NDK is finalized
-        return nullptr;
+        abort();
     }
     const int ret = (*ADnsHelper_init)();
     if (ret) {
+        // On S/Sv2 this can fail if tethering apex is too old, ignore it.
+        if (ret == -EOPNOTSUPP && !isAtLeastT()) return nullptr;
         LOG(ERROR) << __func__ << ": ADnsHelper_init failed " << strerror(-ret);
         abort();
     }
+
+    // Related BPF maps were only mainlined from T.
+    if (!isAtLeastT()) return nullptr;
 
     IsUidBlockedFn f =
             reinterpret_cast<IsUidBlockedFn>(dlsym(handle, "ADnsHelper_isUidNetworkingBlocked"));

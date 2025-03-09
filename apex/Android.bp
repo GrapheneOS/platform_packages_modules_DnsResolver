@@ -22,6 +22,14 @@ package {
     default_applicable_licenses: ["packages_modules_DnsResolver_license"],
 }
 
+prebuilt_root {
+    name: "NetBpfLoad-S.flag",
+    src: "NetBpfLoad-S.flag",
+    filename: "NetBpfLoad-S.flag",
+    install_in_root: true,  // ie. in root of apex, not under 'root'
+    installable: false,
+}
+
 apex {
     name: "com.android.resolv",
     manifest: "manifest.json",
@@ -39,6 +47,10 @@ apex {
     // Indicates that pre-installed version of this apex can be compressed.
     // Whether it actually will be compressed is controlled on per-device basis.
     compressible: true,
+
+    prebuilts: [
+        "NetBpfLoad-S.flag",
+    ],
 
     // IMPORTANT:  q-launched-apex-module enables the build system to make
     // sure the package compatible to Android 10 in two ways:
