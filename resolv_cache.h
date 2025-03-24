@@ -148,3 +148,11 @@ bool resolv_is_enforceDnsUid_enabled_network(unsigned netid);
 
 // Return true if the network is metered.
 bool resolv_is_metered_network(unsigned netid);
+
+// Return true if the private DNS rule can be bypassed by this specific uid on this
+// network.
+bool resolv_is_uid_allowed_bypass_private_dns_on_network(unsigned netid, uid_t uid);
+
+// Set whether or not to allow the UID to explicitly bypass the private DNS rule on a given
+// network.
+int resolv_set_allow_bypass_private_dns_on_network(unsigned netid, uid_t uid, bool allowed);
