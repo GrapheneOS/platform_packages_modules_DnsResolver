@@ -122,10 +122,14 @@ bool queryingViaTls(unsigned dns_netid) {
     }
 }
 
-bool hasPermissionToBypassPrivateDns(uid_t uid) {
+bool hasPermissionToBypassPrivateDns(unsigned netid, uid_t uid) {
     static_assert(AID_SYSTEM >= 0 && AID_SYSTEM < FIRST_APPLICATION_UID,
                   "Calls from AID_SYSTEM must not result in a permission check to avoid deadlock.");
     if (uid >= 0 && uid < FIRST_APPLICATION_UID) {
+        return true;
+    }
+
+    if (resolv_is_uid_allowed_bypass_private_dns_on_network(netid, uid)) {
         return true;
     }
 
@@ -140,7 +144,8 @@ bool hasPermissionToBypassPrivateDns(uid_t uid) {
 }
 
 void maybeFixupNetContext(android_net_context* ctx, pid_t pid) {
-    if (requestingUseLocalNameservers(ctx->flags) && !hasPermissionToBypassPrivateDns(ctx->uid)) {
+    if (requestingUseLocalNameservers(ctx->flags) &&
+        !hasPermissionToBypassPrivateDns(ctx->dns_netid, ctx->uid)) {
         // Not permitted; clear the flag.
         ctx->flags &= ~NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS;
     }
