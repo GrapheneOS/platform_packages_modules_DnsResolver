@@ -246,4 +246,19 @@ interface IDnsResolver {
      *         unix errno.
      */
     void setResolverOptions(int netId, in ResolverOptionsParcel optionParams);
+
+    /**
+     * Set whether to allow the UID to explicitly bypass the private DNS rule on a given network.
+     *
+     * Throws ServiceSpecificException with error code EEXISTS when trying to add a bypass rule
+     * that already exists, and ENOENT when trying to remove a bypass rule that does not exist or
+     * when there is no known network with this netId.
+     *
+     * @param netId the netId where the UID is allowed or disallowed to bypass private DNS.
+     * @param uid the UID.
+     * @param allowed whether to allow or disallow the operation.
+     * @throws ServiceSpecificException in case of failure, with an error code indicating the
+     *         cause of the failure.
+     */
+    void setAllowBypassPrivateDnsOnNetwork(int netId, int uid, boolean allowed);
 }
