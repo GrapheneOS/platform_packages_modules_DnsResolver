@@ -43,6 +43,8 @@ class DnsResolverService : public aidl::android::net::BnDnsResolver {
             const std::shared_ptr<
                     aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener>&
                     listener) override;
+    ::ndk::ScopedAStatus setAllowBypassPrivateDnsOnNetwork(int32_t netId, int uid,
+                                                           bool allowed) override;
 
     // Resolver commands.
     ::ndk::ScopedAStatus setResolverConfiguration(
