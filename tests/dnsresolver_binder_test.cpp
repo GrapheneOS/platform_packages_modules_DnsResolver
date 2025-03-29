@@ -65,6 +65,8 @@ using android::netdutils::Stopwatch;
 // TODO: make this dynamic and stop depending on implementation details.
 // Sync from TEST_NETID in dns_responder_client.cpp as resolv_integration_test.cpp does.
 constexpr int TEST_NETID = 30;
+constexpr int TEST_NETID_2 = 31;  // not created yet
+constexpr int TEST_UID = 99999;
 
 class DnsResolverBinderTest : public NetNativeTestBase {
   public:
@@ -670,4 +672,42 @@ TEST_F(DnsResolverBinderTest, InterfaceNamesInDumpsys) {
     ret = dumpService(netdBinder, /*args=*/nullptr, /*num_args=*/0, lines);
     ASSERT_EQ(android::OK, ret) << "Error dumping service: " << android::statusToString(ret);
     EXPECT_EQ("[myinterface0, myinterface1]", getNetworkInterfaceNames(TEST_NETID, lines));
+}
+
+TEST_F(DnsResolverBinderTest, SetAllowBypassPrivateDnsOnNetwork) {
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsResolver.get(), 16);
+
+    // Allow bypassing the private DNS rule for a UID on a nonexistent network.
+    ::ndk::ScopedAStatus status = mDnsResolver->setAllowBypassPrivateDnsOnNetwork(
+            TEST_NETID_2, TEST_UID, true /* allowed */);
+    ASSERT_FALSE(status.isOk());
+    ASSERT_EQ(ENOENT, status.getServiceSpecificError());
+
+    // Disallow bypassing the private DNS rule for a UID on a nonexistent network.
+    status = mDnsResolver->setAllowBypassPrivateDnsOnNetwork(TEST_NETID_2, TEST_UID,
+                                                             false /* allowed */);
+    ASSERT_FALSE(status.isOk());
+    ASSERT_EQ(ENOENT, status.getServiceSpecificError());
+
+    // Allow bypassing the private DNS rule for a UID on a created network.
+    status = mDnsResolver->setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID,
+                                                             true /* allowed */);
+    ASSERT_TRUE(status.isOk()) << status.getMessage();
+
+    // Allow bypassing the private DNS rule for a existent UID again.
+    status = mDnsResolver->setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID,
+                                                             true /* allowed */);
+    ASSERT_FALSE(status.isOk());
+    ASSERT_EQ(EEXIST, status.getServiceSpecificError());
+
+    // Disallow bypassing the private DNS rule for a existent UID.
+    status = mDnsResolver->setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID,
+                                                             false /* allowed */);
+    ASSERT_TRUE(status.isOk()) << status.getMessage();
+
+    // Disallow bypassing the private DNS rule for a nonexistent UID.
+    status = mDnsResolver->setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID,
+                                                             false /* allowed */);
+    ASSERT_FALSE(status.isOk());
+    ASSERT_EQ(ENOENT, status.getServiceSpecificError());
 }

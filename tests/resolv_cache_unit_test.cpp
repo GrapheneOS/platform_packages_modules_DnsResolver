@@ -217,6 +217,14 @@ class ResolvCacheTest : public NetNativeTestBase {
 
     int cacheFlush(uint32_t netId) { return resolv_flush_cache_for_net(netId); }
 
+    bool isUidAllowedBypassPrivateDnsOnNetwork(int netid, unsigned uid) {
+        return resolv_is_uid_allowed_bypass_private_dns_on_network(netid, uid);
+    }
+
+    int setAllowBypassPrivateDnsOnNetwork(int netid, unsigned uid, bool allowed) {
+        return resolv_set_allow_bypass_private_dns_on_network(netid, uid, allowed);
+    }
+
     void expectCacheStats(const std::string& msg, uint32_t netId, const CacheStats& expected) {
         int nscount = -1;
         sockaddr_storage servers[MAXNS];
@@ -993,6 +1001,36 @@ TEST_F(ResolvCacheTest, IsNetworkMetered) {
 
     // Returns false on non-existent network
     EXPECT_FALSE(resolv_is_metered_network(TEST_NETID + 2));
+}
+
+TEST_F(ResolvCacheTest, setAllowBypassingPrivateDnsOnNetwork) {
+    // Create the cache for the test network.
+    EXPECT_EQ(0, cacheCreate(TEST_NETID));
+    EXPECT_TRUE(has_named_cache(TEST_NETID));
+
+    // Allow bypassing the private DNS rule for a UID on a nonexistent network.
+    EXPECT_EQ(-ENOENT,
+              setAllowBypassPrivateDnsOnNetwork(TEST_NETID_2, TEST_UID, true /* allowed */));
+    EXPECT_FALSE(isUidAllowedBypassPrivateDnsOnNetwork(TEST_NETID_2, TEST_UID));
+
+    // Allow bypassing the private DNS rule for a UID on a created network.
+    EXPECT_EQ(0, setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID, true /* allowed */));
+    EXPECT_TRUE(isUidAllowedBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID));
+
+    // Allow bypassing the private DNS rule for a UID on a created network
+    // again.
+    EXPECT_EQ(-EEXIST, setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID, true /* allowed */));
+    EXPECT_TRUE(isUidAllowedBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID));
+
+    // Disallow bypassing the private DNS rule for a UID on a created network.
+    EXPECT_EQ(0, setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID, false /* allowed */));
+    EXPECT_FALSE(isUidAllowedBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID));
+
+    // Disallow bypassing the private DNS rule for a UID on a created network
+    // again.
+    EXPECT_EQ(-ENOENT,
+              setAllowBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID, false /* allowed */));
+    EXPECT_FALSE(isUidAllowedBypassPrivateDnsOnNetwork(TEST_NETID, TEST_UID));
 }
 
 namespace {

@@ -54,7 +54,7 @@ cc_library_headers {
     ],
 }
 
-dnsresolver_aidl_interface_lateststable_version = "V15"
+dnsresolver_aidl_interface_lateststable_version = "V16"
 
 cc_library_static {
     name: "dnsresolver_aidl_interface-lateststable-ndk",
@@ -160,6 +160,10 @@ aidl_interface {
         },
         {
             version: "15",
+            imports: ["netd_event_listener_interface-V1"],
+        },
+        {
+            version: "16",
             imports: ["netd_event_listener_interface-V1"],
         },
 

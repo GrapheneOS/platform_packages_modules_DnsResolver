@@ -1066,6 +1066,10 @@ struct NetConfig {
     std::vector<int32_t> transportTypes;
     bool metered = false;
     std::vector<std::string> interfaceNames;
+
+    // A set of UIDs which are allowed to bypass the private DNS rule on this
+    // given network.
+    std::set<uid_t> uids_allow_bypass_private_dns_set;
 };
 
 /* gets cache associated with a network, or NULL if none exists */
@@ -2139,4 +2143,26 @@ bool resolv_is_metered_network(unsigned netid) {
         return info->metered;
     }
     return false;
+}
+
+bool resolv_is_uid_allowed_bypass_private_dns_on_network(unsigned netid, uid_t uid) {
+    std::lock_guard guard(cache_mutex);
+    const auto config = find_netconfig_locked(netid);
+
+    if (config == nullptr) return false;
+    return config->uids_allow_bypass_private_dns_set.find(uid) !=
+           config->uids_allow_bypass_private_dns_set.cend();
+}
+
+int resolv_set_allow_bypass_private_dns_on_network(unsigned netid, uid_t uid, bool allowed) {
+    std::lock_guard guard(cache_mutex);
+    const auto config = find_netconfig_locked(netid);
+
+    if (config == nullptr) return -ENOENT;
+
+    if (allowed) {
+        return config->uids_allow_bypass_private_dns_set.emplace(uid).second ? 0 : -EEXIST;
+    } else {
+        return config->uids_allow_bypass_private_dns_set.erase(uid) ? 0 : -ENOENT;
+    }
 }

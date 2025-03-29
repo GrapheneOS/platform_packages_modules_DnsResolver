@@ -309,5 +309,15 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     return statusFromErrcode(resolv_set_options(netId, options));
 }
 
+::ndk::ScopedAStatus DnsResolverService::setAllowBypassPrivateDnsOnNetwork(int32_t netId, int uid,
+                                                                           bool allowed) {
+    // Locking happens in res_cache.cpp functions.
+    ENFORCE_NETWORK_STACK_PERMISSIONS();
+
+    int res = resolv_set_allow_bypass_private_dns_on_network(netId, uid, allowed);
+
+    return statusFromErrcode(res);
+}
+
 }  // namespace net
 }  // namespace android
