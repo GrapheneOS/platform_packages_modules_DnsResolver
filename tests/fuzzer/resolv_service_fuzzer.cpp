@@ -36,6 +36,8 @@ extern "C" int LLVMFuzzerInitialize(int /**argc*/, char /****argv*/) {
 }
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+    // TODO(b/183141167): need to rewrite 'dump' to avoid SIGPIPE.
+    signal(SIGPIPE, SIG_IGN);
     auto resolverService = ::ndk::SharedRefBase::make<DnsResolverService>();
     fuzzService(resolverService->asBinder().get(), FuzzedDataProvider(data, size));
 
