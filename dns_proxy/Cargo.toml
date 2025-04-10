@@ -41,3 +41,9 @@ android-ffi = ["dep:android_logger", "dep:cxx"]
 [lib]
 name = "android_dns_proxy"
 path = "lib.rs"
+
+# It follows the default Rust lints on Android. (Ref: build/soong/rust/config/lints.go)
+[lints.rust]
+missing_docs = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+warnings = "deny"

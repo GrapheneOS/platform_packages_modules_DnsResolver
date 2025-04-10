@@ -33,6 +33,36 @@ pub enum PacketError {
 /// Result type for packet
 pub type PacketResult<T> = std::result::Result<T, PacketError>;
 
+/// A DnsPacket is a wrapping of a DNS packet in bytes with its header parsed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DnsPacket {
+    /// DNS Header
+    header: DnsHeader,
+    /// The raw packet, including the header
+    raw: Vec<u8>,
+}
+
+/// Parse raw as DNS packet. Only the validity of the header is checked.
+impl TryFrom<Vec<u8>> for DnsPacket {
+    type Error = PacketError;
+    fn try_from(raw: Vec<u8>) -> PacketResult<Self> {
+        let header: DnsHeader = raw.as_slice().try_into()?;
+        Ok(Self { header, raw })
+    }
+}
+
+impl DnsPacket {
+    /// Get the raw packet.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.raw
+    }
+
+    /// Gets the header.
+    pub fn header(&self) -> &DnsHeader {
+        &self.header
+    }
+}
+
 /// A DnsHeader is parsed from the first 12 bytes of a packet datagram with
 /// the following fields:
 ///
@@ -190,8 +220,34 @@ pub(crate) enum Rcode {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// A valid DNS query for test.
+    pub const TEST_VALID_DNS_QUERY: [u8; 49] = [
+        0x3b, 0x1e, // ID
+        0x01,
+        0x20, // flags (QR=0, opcode=Query, AA=0, TC=0, RD=1, RA=0, AD=1, CD=0, RCODE=NOERROR)
+        0x00, 0x01, // query count
+        0x00, 0x00, // answer count
+        0x00, 0x00, // name server resource records count
+        0x00, 0x01, // additional records count
+        0x04, 0x63, 0x73, 0x64, 0x6e, 0x03, 0x6e, 0x65, 0x74, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+        0x00, 0x29, 0x04, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x0a, 0x00, 0x08, 0x4f,
+        0x51, 0x32, 0x69, 0x09, 0x11, 0x9e, 0x21,
+    ];
+
+    #[test]
+    fn test_query_packet_parse() {
+        let test_query_packet = DnsPacket::try_from(TEST_VALID_DNS_QUERY.to_vec()).unwrap();
+        assert_eq!(test_query_packet.as_bytes(), TEST_VALID_DNS_QUERY.as_slice());
+    }
+
+    #[test]
+    fn test_too_short_packet_parse() {
+        let short_packet = TEST_VALID_DNS_QUERY[0..11].to_vec();
+        assert_eq!(DnsPacket::try_from(short_packet).unwrap_err(), PacketError::PacketTooShort);
+    }
 
     // Tests that for a valid DnsHeader, it is invariant after a serialization and parse cycle.
     #[test]
