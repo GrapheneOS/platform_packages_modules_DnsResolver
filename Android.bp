@@ -517,3 +517,34 @@ rust_ffi_static {
 
     whole_static_libs: ["libunwind"],
 }
+
+rust_defaults {
+    name: "libdns_proxy_defaults",
+    rlibs: [
+        "libbytes",
+        "libfutures",
+        "liblog_rust",
+        "libnix",
+        "libsocket2",
+        "libthiserror",
+        "libtokio",
+    ],
+    proc_macros: [
+        "libasync_trait",
+    ],
+}
+
+rust_test {
+    name: "libdns_proxy_host_tests",
+    srcs: ["dns_proxy/lib.rs"],
+    edition: "2021",
+    device_supported: false,
+    host_supported: true,
+    defaults: ["libdns_proxy_defaults"],
+    rlibs: [
+        "libmockall",
+    ],
+    test_options: {
+        unit_test: true,
+    },
+}
