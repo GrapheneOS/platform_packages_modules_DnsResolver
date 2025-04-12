@@ -3040,9 +3040,15 @@ void ResolverTest::runCancelledQueryTest(bool expectCancelled) {
 
     test::DNSResponder dns(listen_addr);
     StartDns(dns, records);
+    // Set the server to unresponsive
     dns.setResponseProbability(0.0);
-    std::vector<std::string> servers = {listen_addr};
-    ASSERT_TRUE(mDnsClient.SetResolversForNetwork(servers));
+    dns.setErrorRcode(static_cast<ns_rcode>(-1));
+
+    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    setupParams.retryCount = 2;
+    setupParams.baseTimeoutMsec = 50;
+    setupParams.servers = {listen_addr};
+    ASSERT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
 
     int fd1 = resNetworkQuery(TEST_NETID, host_name_1, ns_c_in, ns_t_aaaa, 0);
     int fd2 = resNetworkQuery(TEST_NETID, host_name_2, ns_c_in, ns_t_aaaa, 0);
@@ -3053,8 +3059,8 @@ void ResolverTest::runCancelledQueryTest(bool expectCancelled) {
     expectAnswersNotValid(fd2, -ETIMEDOUT);
 
     if (expectCancelled) {
-        // Expect multiple retries on the second query, but only one attempt on the first one
-        EXPECT_GT(GetNumQueries(dns, host_name_2), 1U);
+        // Expect 2 retries on the second query, but only one attempt on the first one
+        EXPECT_EQ(2U, GetNumQueries(dns, host_name_2));
         EXPECT_EQ(1U, GetNumQueries(dns, host_name_1));
     } else {
         // The queries are not actually cancelled and multiple are sent. Poll as in some cases the

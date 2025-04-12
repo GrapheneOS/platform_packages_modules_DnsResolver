@@ -807,7 +807,7 @@ static bool sendLenAndData(SocketClient* c, const int len, const void* data) {
 }
 
 // Returns true on success
-static bool sendhostent(SocketClient* c, hostent* hp) {
+static bool sendhostent(SocketClient* c, const hostent* hp) {
     bool success = true;
     int i;
     if (hp->h_name != nullptr) {
@@ -1294,6 +1294,23 @@ int DnsProxyListener::GetHostByNameCmd::runCommand(SocketClient* cli, int argc, 
 
     if (useLocalNameservers) {
         netcontext.flags |= NET_CONTEXT_FLAG_USE_LOCAL_NAMESERVERS;
+    }
+
+    // Hardcode / fastpath 'localhost' resolution (ignores netid and network blocks).
+    if (name == "localhost" && af == AF_INET) {
+        static const char * const alias_list[] = { nullptr };
+        static const char loopback4[16] = { 127,0,0,1, 0,0,0,0, 0,0,0,0, 0,0,0,0 };  // 0-pad to v6
+        static const char * const addr_list[] = { loopback4, nullptr };
+        static const hostent hbuf = {
+            .h_name = const_cast<char*>("localhost"),
+            .h_aliases = const_cast<char**>(alias_list),
+            .h_addrtype = AF_INET,
+            .h_length = 4, // length of AF_INET address
+            .h_addr_list = const_cast<char**>(addr_list),
+        };
+        cli->sendCode(ResponseCode::DnsProxyQueryResult);  // returns 0 on success, but ignored
+        sendhostent(cli, &hbuf);  // returns 'true' on success, but ignored
+        return 0;
     }
 
     (new GetHostByNameHandler(cli, name, af, netcontext))->spawn();
