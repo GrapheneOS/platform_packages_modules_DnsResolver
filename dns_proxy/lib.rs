@@ -13,3 +13,9 @@
 // limitations under the License.
 
 //! DNS proxy for the Android DnsResolver module.
+
+// Some code may not be used during the development.
+// TODO (b/379992903): Remove this after library is completed.
+#![allow(dead_code)]
+
+pub(crate) mod packet;
