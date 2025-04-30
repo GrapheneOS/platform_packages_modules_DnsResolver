@@ -64,9 +64,10 @@
 #include "Experiments.h"
 #include "NetdClient.h"
 #include "ResolverStats.h"
-#include "netid_client.h"  // NETID_UNSET
-#include "params.h"        // MAXNS
-#include "stats.h"         // RCODE_TIMEOUT
+#include "netd_resolv/resolv.h"  // RESOLV_TRY_ALL_USABLE_SERVERS
+#include "netid_client.h"        // NETID_UNSET
+#include "params.h"              // MAXNS
+#include "stats.h"               // RCODE_TIMEOUT
 #include "tests/dns_metrics_listener/dns_metrics_listener.h"
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_responder_client_ndk.h"
@@ -410,6 +411,9 @@ class ResolverTest : public NetNativeTestBase {
     }
 
     void runCancelledQueryTest(bool expectCancelled);
+
+    int runTryAllServersTest(const test::DNSResponder& server_1, const test::DNSResponder& server_2,
+                             std::string* answer);
 
     DnsResponderClient mDnsClient;
 
@@ -3077,6 +3081,168 @@ TEST_F(ResolverTest, Async_CancelledQuery) {
 TEST_F(ResolverTest, Async_CancelledQueryWithFlagDisabled) {
     ScopedSystemProperties sp(kNoRetryAfterCancelFlag, "0");
     ASSERT_NO_FATAL_FAILURE(runCancelledQueryTest(/*expectCancelled=*/false));
+}
+
+int ResolverTest::runTryAllServersTest(const test::DNSResponder& server_1,
+                                       const test::DNSResponder& server_2, std::string* answer) {
+    ResolverParamsParcel setupParams = DnsResponderClient::GetDefaultResolverParamsParcel();
+    setupParams.retryCount = 2;
+    setupParams.baseTimeoutMsec = 50;
+    setupParams.servers = {server_1.listen_address(), server_2.listen_address()};
+    setupParams.tlsServers.clear();
+    EXPECT_TRUE(mDnsClient.SetResolversFromParcel(setupParams));
+
+    int fd = resNetworkQuery(TEST_NETID, kHelloExampleCom, ns_c_in, ns_t_a,
+                             RESOLV_TRY_ALL_USABLE_SERVERS);
+    int rcode;
+    uint8_t buf[MAXPACKET] = {};
+    int res = getAsyncResponse(fd, &rcode, buf, MAXPACKET);
+    if (res < 0) {
+        return res;
+    }
+    if (res > 0 && answer) {
+        *answer = toString(buf, res, AF_INET);
+    }
+    return rcode;
+}
+
+TEST_F(ResolverTest, TryAllServers_OneServerSucceeds_Success) {
+    test::DNSResponder nxdomain_server("127.0.0.4");
+    nxdomain_server.setResponseProbability(0.0);
+    nxdomain_server.setErrorRcode(ns_rcode::ns_r_nxdomain);
+    StartDns(nxdomain_server, {});
+    test::DNSResponder noerror_server("127.0.0.5");
+    const std::vector<DnsRecord> records = {
+            {kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4},
+    };
+    StartDns(noerror_server, records);
+
+    ASSERT_NO_FATAL_FAILURE({
+        std::string answer;
+        int rcode = runTryAllServersTest(nxdomain_server, noerror_server, &answer);
+        EXPECT_EQ(ns_rcode::ns_r_noerror, rcode);
+        EXPECT_EQ(kHelloExampleComAddrV4, answer);
+        EXPECT_EQ(1U, GetNumQueriesForType(nxdomain_server, ns_type::ns_t_a, kHelloExampleCom));
+        EXPECT_EQ(1U, GetNumQueriesForType(noerror_server, ns_type::ns_t_a, kHelloExampleCom));
+    });
+}
+
+TEST_F(ResolverTest, TryAllServers_AllError_ReturnFirstError) {
+    test::DNSResponder nxdomain_server("127.0.0.4");
+    nxdomain_server.setResponseProbability(0.0);
+    nxdomain_server.setErrorRcode(ns_rcode::ns_r_nxdomain);
+    StartDns(nxdomain_server, {});
+    test::DNSResponder notauth_server("127.0.0.5");
+    notauth_server.setResponseProbability(0.0);
+    notauth_server.setErrorRcode(ns_rcode::ns_r_notauth);
+    StartDns(notauth_server, {});
+
+    ASSERT_NO_FATAL_FAILURE({
+        int rcode = runTryAllServersTest(nxdomain_server, notauth_server, nullptr);
+        EXPECT_EQ(ns_rcode::ns_r_nxdomain, rcode);
+        EXPECT_EQ(1U, GetNumQueriesForType(nxdomain_server, ns_type::ns_t_a, kHelloExampleCom));
+        EXPECT_EQ(1U, GetNumQueriesForType(notauth_server, ns_type::ns_t_a, kHelloExampleCom));
+    });
+}
+
+TEST_F(ResolverTest, TryAllServers_OneServerTimesOut_ReturnTimeout) {
+    test::DNSResponder nxdomain_server("127.0.0.4");
+    nxdomain_server.setResponseProbability(0.0);
+    nxdomain_server.setErrorRcode(ns_rcode::ns_r_nxdomain);
+    StartDns(nxdomain_server, {});
+    test::DNSResponder timeout_server("127.0.0.5");
+    timeout_server.setResponseProbability(0.0);
+    timeout_server.setErrorRcode(static_cast<ns_rcode>(-1));
+    StartDns(timeout_server, {});
+
+    ASSERT_NO_FATAL_FAILURE({
+        int rcode = runTryAllServersTest(nxdomain_server, timeout_server, nullptr);
+        EXPECT_EQ(-ETIMEDOUT, rcode);
+        EXPECT_EQ(1U, GetNumQueriesForType(nxdomain_server, ns_type::ns_t_a, kHelloExampleCom));
+        EXPECT_EQ(2U, GetNumQueriesForType(timeout_server, ns_type::ns_t_a, kHelloExampleCom));
+    });
+}
+
+TEST_F(ResolverTest, TryAllServers_NoData_QueriesNextServer) {
+    test::DNSResponder nodata_server("127.0.0.4", test::kDefaultListenService,
+                                     test::kDefaultErrorCode,
+                                     test::DNSResponder::MappingType::DNS_HEADER);
+    test::DNSHeader header(kDefaultDnsHeader);
+    nodata_server.addMappingDnsHeader(kHelloExampleCom, ns_type::ns_t_a, header);
+    StartDns(nodata_server, {});
+    test::DNSResponder noerror_server("127.0.0.5");
+    const std::vector<DnsRecord> records = {
+            {kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4},
+    };
+    StartDns(noerror_server, records);
+
+    ASSERT_NO_FATAL_FAILURE({
+        std::string answer;
+        int rcode = runTryAllServersTest(nodata_server, noerror_server, &answer);
+        EXPECT_EQ(ns_rcode::ns_r_noerror, rcode);
+        EXPECT_EQ(kHelloExampleComAddrV4, answer);
+        EXPECT_EQ(1U, GetNumQueriesForType(nodata_server, ns_type::ns_t_a, kHelloExampleCom));
+        EXPECT_EQ(1U, GetNumQueriesForType(noerror_server, ns_type::ns_t_a, kHelloExampleCom));
+    });
+}
+
+TEST_F(ResolverTest, TryAllServers_OnlyTcpFails_UdpSucceedsOnNextServer) {
+    test::DNSResponder truncated_server("127.0.0.4");
+    truncated_server.setResponseProbability(1, IPPROTO_UDP);
+    truncated_server.setResponseProbability(0, IPPROTO_TCP);
+    truncated_server.setErrorRcode(ns_rcode::ns_r_nxdomain);
+    StartDns(truncated_server, kLargeCnameChainRecords);
+    test::DNSResponder noerror_server("127.0.0.5");
+    const std::vector<DnsRecord> records = {
+            {kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4},
+    };
+    StartDns(noerror_server, records);
+
+    ASSERT_NO_FATAL_FAILURE({
+        std::string answer;
+        int rcode = runTryAllServersTest(truncated_server, noerror_server, &answer);
+        EXPECT_EQ(ns_rcode::ns_r_noerror, rcode);
+        EXPECT_EQ(kHelloExampleComAddrV4, answer);
+        EXPECT_EQ(2U, GetNumQueriesForType(truncated_server, ns_type::ns_t_a, kHelloExampleCom));
+        EXPECT_EQ(1U, GetNumQueriesForType(noerror_server, ns_type::ns_t_a, kHelloExampleCom));
+    });
+}
+
+TEST_F(ResolverTest, TryAllServers_TcpFailsFirst_ReturnFirstError) {
+    test::DNSResponder truncated_server("127.0.0.4");
+    truncated_server.setResponseProbability(1.0, IPPROTO_UDP);
+    truncated_server.setResponseProbability(0.0, IPPROTO_TCP);
+    truncated_server.setErrorRcode(ns_rcode::ns_r_nxdomain);
+    StartDns(truncated_server, kLargeCnameChainRecords);
+    test::DNSResponder notauth_server("127.0.0.5");
+    notauth_server.setResponseProbability(0.0);
+    notauth_server.setErrorRcode(ns_rcode::ns_r_notauth);
+    StartDns(notauth_server, {});
+
+    ASSERT_NO_FATAL_FAILURE({
+        std::string answer;
+        int rcode = runTryAllServersTest(truncated_server, notauth_server, &answer);
+        EXPECT_EQ(ns_rcode::ns_r_nxdomain, rcode);
+        EXPECT_EQ(2U, GetNumQueriesForType(truncated_server, ns_type::ns_t_a, kHelloExampleCom));
+        EXPECT_EQ(1U, GetNumQueriesForType(notauth_server, ns_type::ns_t_a, kHelloExampleCom));
+    });
+}
+
+TEST_F(ResolverTest, TryAllServers_TcpFallbackSucceeds_Success) {
+    test::DNSResponder nxdomain_server("127.0.0.4");
+    nxdomain_server.setResponseProbability(0.0);
+    nxdomain_server.setErrorRcode(ns_rcode::ns_r_nxdomain);
+    StartDns(nxdomain_server, {});
+    test::DNSResponder truncated_server("127.0.0.5");
+    StartDns(truncated_server, kLargeCnameChainRecords);
+
+    ASSERT_NO_FATAL_FAILURE({
+        std::string answer;
+        int rcode = runTryAllServersTest(nxdomain_server, truncated_server, &answer);
+        EXPECT_EQ(ns_rcode::ns_r_noerror, rcode);
+        EXPECT_EQ(1U, GetNumQueriesForType(nxdomain_server, ns_type::ns_t_a, kHelloExampleCom));
+        EXPECT_EQ(2U, GetNumQueriesForType(truncated_server, ns_type::ns_t_a, kHelloExampleCom));
+    });
 }
 
 // This test checks that the resolver should not generate the request containing OPT RR when using
