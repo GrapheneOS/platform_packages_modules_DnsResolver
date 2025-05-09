@@ -21,20 +21,29 @@ use std::thread;
 
 use thiserror::Error;
 use tokio::runtime::Builder as RuntimeBuilder;
+use tokio::sync::mpsc;
+
+mod driver;
+use driver::Driver;
+
+/// Commands for controlling Server
+#[derive(Debug)]
+pub enum Command {}
 
 /// Interface class for operating with DNS Proxy Server.
-pub struct Server {}
+pub struct Server {
+    command_tx: mpsc::Sender<Command>,
+}
 
 impl Server {
     /// Creates a server running a current thread runtime.
     pub fn new() -> Result<Server> {
         let runtime = RuntimeBuilder::new_current_thread().enable_all().build()?;
+        let (command_tx, command_rx) = mpsc::channel(100 /* capacity */);
         thread::spawn(move || {
-            runtime.block_on(async {
-                todo!();
-            });
+            runtime.block_on(async { Driver::new(command_rx).drive().await });
         });
-        Ok(Server {})
+        Ok(Server { command_tx })
     }
 }
 
