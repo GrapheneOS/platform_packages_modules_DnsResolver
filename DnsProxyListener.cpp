@@ -166,7 +166,7 @@ uint32_t maybeFixupFlags(int flags, uid_t uid) {
         // Restrict non-public flags to privileged applications
         flags &= ~RESOLV_TRY_ALL_USABLE_SERVERS;
     }
-    if ((flags & ANDROID_RESOLV_NO_RETRY)) {
+    if (flags & ANDROID_RESOLV_NO_RETRY) {
         // Trying all usable servers does not make sense with no retry
         flags &= ~RESOLV_TRY_ALL_USABLE_SERVERS;
     }

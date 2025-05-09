@@ -701,7 +701,7 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
             if (tryAllServers && isErrorOrNoDataAnswer(*rcode, ans)) {
                 // Do not query this server again, but continue querying
                 usable_servers[ns] = false;
-                if (!firstErrorAns.size()) {
+                if (firstErrorAns.empty()) {
                     firstErrorRcode = *rcode;
                     firstErrorAns.assign(ans.data(), ans.data() + resplen);
                 }
