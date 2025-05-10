@@ -161,6 +161,18 @@ void maybeFixupNetContext(android_net_context* ctx, pid_t pid) {
     ctx->pid = pid;
 }
 
+uint32_t maybeFixupFlags(int flags, uid_t uid) {
+    if (uid >= FIRST_APPLICATION_UID) {
+        // Restrict non-public flags to privileged applications
+        flags &= ~RESOLV_TRY_ALL_USABLE_SERVERS;
+    }
+    if (flags & ANDROID_RESOLV_NO_RETRY) {
+        // Trying all usable servers does not make sense with no retry
+        flags &= ~RESOLV_TRY_ALL_USABLE_SERVERS;
+    }
+    return flags;
+}
+
 void addIpAddrWithinLimit(std::vector<std::string>* ip_addrs, const sockaddr* addr,
                           socklen_t addrlen);
 
@@ -1086,6 +1098,7 @@ int DnsProxyListener::ResNSendCommand::runCommand(SocketClient* cli, int argc, c
         sendBE32(cli, -EINVAL);
         return -1;
     }
+    flags = maybeFixupFlags(flags, uid);
 
     const bool useLocalNameservers = checkAndClearUseLocalNameserversFlag(&netId);
 
