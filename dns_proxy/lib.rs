@@ -18,5 +18,6 @@
 // TODO (b/379992903): Remove this after library is completed.
 #![allow(dead_code)]
 
+mod ffi;
 pub(crate) mod packet;
 mod server;

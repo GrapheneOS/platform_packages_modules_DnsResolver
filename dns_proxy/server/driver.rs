@@ -16,6 +16,7 @@
 
 //! Provides a backing task to implement a Server
 
+use log::info;
 use tokio::sync::mpsc;
 
 use super::Command;
@@ -38,9 +39,10 @@ impl Driver {
     /// Drive the event once. Returns `Some(())` if the loop shall continue,
     /// None if it shall terminate.
     async fn drive_once(&mut self) -> Option<()> {
-        if let Some(_command) = self.command_rx.recv().await {
-            todo!();
+        if let Some(command) = self.command_rx.recv().await {
+            match command {}
         } else {
+            info!("Exit DnsProxy due to all DnsProxyCommand transceiver out of scope");
             None
         }
     }

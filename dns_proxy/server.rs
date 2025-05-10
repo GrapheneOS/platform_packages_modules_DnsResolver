@@ -31,8 +31,10 @@ use driver::Driver;
 pub enum Command {}
 
 /// Interface class for operating with DNS Proxy Server.
+#[derive(Debug)]
 pub struct Server {
     command_tx: mpsc::Sender<Command>,
+    join_handle: thread::JoinHandle<()>,
 }
 
 impl Server {
@@ -40,10 +42,16 @@ impl Server {
     pub fn new() -> Result<Server> {
         let runtime = RuntimeBuilder::new_current_thread().enable_all().build()?;
         let (command_tx, command_rx) = mpsc::channel(100 /* capacity */);
-        thread::spawn(move || {
+        let join_handle = thread::spawn(move || {
             runtime.block_on(async { Driver::new(command_rx).drive().await });
         });
-        Ok(Server { command_tx })
+        Ok(Server { command_tx, join_handle })
+    }
+
+    /// Stops Server, return after the Driver stops.
+    pub fn stop(self) {
+        drop(self.command_tx);
+        let _ = self.join_handle.join();
     }
 }
 
@@ -57,3 +65,15 @@ pub enum Error {
 
 /// Result type for server
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Checks that the server can be created and deleted.
+    #[test]
+    fn server_new_delete() {
+        let server = Server::new().unwrap();
+        server.stop();
+    }
+}
