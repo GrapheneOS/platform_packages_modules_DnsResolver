@@ -95,6 +95,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <numeric>
 #include <span>
 
 #include <android-base/logging.h>
@@ -450,6 +451,14 @@ static bool isClientStreamSocketClosed(std::optional<int> fd) {
     return (poll(&fds, 1, /* timeout=*/0) > 0) && (fds.revents & POLLHUP);
 }
 
+static bool isErrorOrNoDataAnswer(int rcode, span<uint8_t> ans) {
+    if (rcode != NOERROR) {
+        return true;
+    }
+    // NODATA responses have NOERROR rcode but no answer record (NODATA is not a rcode).
+    return reinterpret_cast<const HEADER*>(ans.data())->ancount == 0;
+}
+
 int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* rcode,
               uint32_t flags, std::chrono::milliseconds sleepTimeMs) {
     LOG(DEBUG) << __func__;
@@ -584,8 +593,11 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
 
     // Send request, RETRY times, or until successful.
     int retryTimes = (flags & ANDROID_RESOLV_NO_RETRY) ? 1 : params.retry_count;
+    bool tryAllServers = (flags & RESOLV_TRY_ALL_USABLE_SERVERS);
     int useTcp = msg.size() > PACKETSZ;
     int gotsomewhere = 0;
+    int firstErrorRcode = NOERROR;
+    std::vector<uint8_t> firstErrorAns;
 
     // Use an impossible error code as default value
     int terrno = ETIME;
@@ -686,6 +698,15 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
                 statp->closeSockets();
                 return -terrno;
             }
+            if (tryAllServers && isErrorOrNoDataAnswer(*rcode, ans)) {
+                // Do not query this server again, but continue querying
+                usable_servers[ns] = false;
+                if (firstErrorAns.empty()) {
+                    firstErrorRcode = *rcode;
+                    firstErrorAns.assign(ans.data(), ans.data() + resplen);
+                }
+                continue;
+            }
 
             LOG(DEBUG) << __func__ << ": got answer:";
             res_pquery(ans.first(resplen));
@@ -697,6 +718,20 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
             return (resplen);
         }  // for each ns
     }  // for each retry
+
+    bool tryAllServersGotError =
+            firstErrorAns.size() &&
+            std::accumulate(usable_servers, usable_servers + statp->nsaddrs.size(), 0) == 0;
+    if (tryAllServersGotError) {
+        std::copy(firstErrorAns.begin(), firstErrorAns.end(), ans.data());
+        int resplen = firstErrorAns.size();
+        *rcode = firstErrorRcode;
+
+        LOG(DEBUG) << __func__ << ": returning first error after trying all servers:";
+        res_pquery(ans.first(resplen));
+        return resplen;
+    }
+
     statp->closeSockets();
     terrno = useTcp ? terrno : gotsomewhere ? ETIMEDOUT : ECONNREFUSED;
     // TODO: Remove errno once callers stop using it

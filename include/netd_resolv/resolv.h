@@ -44,6 +44,19 @@
  */
 #define MARK_UNSET 0u
 
+/**
+ * Internal ResNsendFlags to query every configured DNS server to find an answer, even
+ * if some servers indicate the name cannot be resolved.
+ *
+ * Any reply that is not NOERROR, such as NXDOMAIN, or does not have answer records
+ * (NODATA), will cause the resolver to try other usable servers (servers that do not
+ * have a high failure rate), instead of returning the error immediately.
+ *
+ * This is not expected to be used by apps (it is currently restricted to UIDs below
+ * FIRST_APP_UID), so it is not part of the NDK.
+ */
+constexpr int RESOLV_TRY_ALL_USABLE_SERVERS = 1 << 31;
+
 /*
  * Passing APP_SOCKET_NONE as the app_socket in getaddrinfo, gethostbyname,
  * gethostbyaddr, res_nsend means that the query is not tied to a listening socket
