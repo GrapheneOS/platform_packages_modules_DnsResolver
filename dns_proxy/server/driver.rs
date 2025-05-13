@@ -16,18 +16,25 @@
 
 //! Provides a backing task to implement a Server
 
+use std::collections::HashMap;
+
 use log::info;
 use tokio::sync::mpsc;
 
 use super::Command;
+use super::DownstreamIndexPort;
+use super::Result;
+use super::UpstreamParam;
 
 pub(super) struct Driver {
     command_rx: mpsc::Receiver<Command>,
+    /// Map of DownstreamIndexPort pair to the upstream parameters.
+    upstream_map: HashMap<DownstreamIndexPort, UpstreamParam>,
 }
 
 impl Driver {
     pub fn new(command_rx: mpsc::Receiver<Command>) -> Self {
-        Self { command_rx }
+        Self { command_rx, upstream_map: HashMap::new() }
     }
 
     pub async fn drive(mut self) -> Option<()> {
@@ -40,10 +47,29 @@ impl Driver {
     /// None if it shall terminate.
     async fn drive_once(&mut self) -> Option<()> {
         if let Some(command) = self.command_rx.recv().await {
-            match command {}
+            self.handle_cmd(command)
         } else {
             info!("Exit DnsProxy due to all DnsProxyCommand transceiver out of scope");
             None
         }
+    }
+
+    fn handle_cmd(&mut self, cmd: Command) -> Option<()> {
+        match cmd {
+            Command::ConfigureDnsProxy { index_port, upstream_param, response_tx } => {
+                let _ = response_tx
+                    .send(self.handle_configure_dns_proxy_cmd(index_port, upstream_param));
+                Some(())
+            }
+        }
+    }
+
+    fn handle_configure_dns_proxy_cmd(
+        &mut self,
+        index_port: DownstreamIndexPort,
+        upstream_param: UpstreamParam,
+    ) -> Result<()> {
+        self.upstream_map.insert(index_port, upstream_param);
+        Ok(())
     }
 }
