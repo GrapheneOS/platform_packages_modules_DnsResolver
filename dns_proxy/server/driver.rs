@@ -61,6 +61,10 @@ impl Driver {
                     .send(self.handle_configure_dns_proxy_cmd(index_port, upstream_param));
                 Some(())
             }
+            Command::StopDnsProxy { index_port, response_tx } => {
+                let _ = response_tx.send(self.handle_stop_dns_proxy_cmd(&index_port));
+                Some(())
+            }
         }
     }
 
@@ -70,6 +74,11 @@ impl Driver {
         upstream_param: UpstreamParam,
     ) -> Result<()> {
         self.upstream_map.insert(index_port, upstream_param);
+        Ok(())
+    }
+
+    fn handle_stop_dns_proxy_cmd(&mut self, index_port: &DownstreamIndexPort) -> Result<()> {
+        self.upstream_map.remove(index_port);
         Ok(())
     }
 }
