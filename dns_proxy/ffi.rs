@@ -17,20 +17,17 @@
 //! DNS Proxy C FFI .
 
 use std::ptr;
-use std::sync::Mutex;
 
 use log::error;
 
 use crate::server::Server;
 
-pub struct ServerDispatcher(Mutex<Server>);
-
 /// Constructs the DNS proxy server.
 /// Returns a pointer to the DNS proxy instance.
 #[no_mangle]
-pub extern "C" fn proxy_server_new() -> *mut ServerDispatcher {
+pub extern "C" fn proxy_server_new() -> *mut Server {
     match Server::new() {
-        Ok(server) => Box::into_raw(Box::new(ServerDispatcher(Mutex::new(server)))),
+        Ok(server) => Box::into_raw(Box::new(server)),
         Err(e) => {
             error!("proxy_server_new failed: {:?}", e);
             ptr::null_mut()
@@ -44,10 +41,30 @@ pub extern "C" fn proxy_server_new() -> *mut ServerDispatcher {
 /// |server| must be a non-null pointer previously created by proxy_server_new
 /// and not yet deleted by proxy_server_delete.
 #[no_mangle]
-pub unsafe extern "C" fn proxy_server_delete(server: *mut ServerDispatcher) {
+pub unsafe extern "C" fn proxy_server_delete(server: *mut Server) {
     // SAFETY: the caller guarantees that server was created from proxy_server_new and
     // proxy_server_delete is only called once for this instance of server.
-    unsafe { Box::from_raw(server) }.0.into_inner().unwrap().stop();
+    unsafe { Box::from_raw(server) }.stop();
+}
+
+/// Starts or updates the DNS proxy for an interface on a port.
+///
+/// returns 0 on success, a posix errno with a fallback to
+/// DNS_PROXY_INTERNAL_ERROR on failure.
+#[no_mangle]
+pub extern "C" fn proxy_server_configure_dns_proxy(
+    server: &Server,
+    upstream_net_id: u32,
+    uid: u32,
+    downstream_if_index: u32,
+    downstream_port: u16,
+) {
+    if let Err(e) =
+        server.configure_dns_proxy(upstream_net_id, uid, downstream_if_index, downstream_port)
+    {
+        error!("Error configure DNS proxy: {}", e);
+        panic!();
+    }
 }
 
 #[cfg(test)]
@@ -58,6 +75,22 @@ mod tests {
     fn test_proxy_server_new_delete() {
         let server = proxy_server_new();
         assert!(!server.is_null());
+        // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
+        unsafe {
+            proxy_server_delete(server);
+        }
+    }
+
+    #[test]
+    fn test_proxy_server_start_proxy() {
+        let server = proxy_server_new();
+        assert!(!server.is_null());
+        // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
+        let server_ref = unsafe { server.as_ref() }.unwrap();
+        proxy_server_configure_dns_proxy(
+            server_ref, /*upstream_net_id*/ 1, /*uid*/ 1000,
+            /*downstream_if_index*/ 1, /*downstream_port*/ 53,
+        );
         // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
         unsafe {
             proxy_server_delete(server);
