@@ -77,6 +77,13 @@ pub(crate) enum Command {
         /// Sender for the result of the command.
         response_tx: oneshot::Sender<Result<()>>,
     },
+    /// Stops the DNS proxy on the DownstreamIndexPort pair.
+    StopDnsProxy {
+        /// The interface index and port number pair of the downstream.
+        index_port: DownstreamIndexPort,
+        /// Sender for the result of the command.
+        response_tx: oneshot::Sender<Result<()>>,
+    },
 }
 
 /// Parameters to configure upstream, which is used to retrieve net context when
@@ -132,6 +139,16 @@ impl Server {
         self.command_tx.blocking_send(Command::ConfigureDnsProxy {
             index_port: DownstreamIndexPort::new(downstream_if_index, downstream_port),
             upstream_param: UpstreamParam::new(uid, upstream_net_id),
+            response_tx,
+        })?;
+        response_rx.blocking_recv()?
+    }
+
+    // Stops DNS proxy on the interface-port pair.
+    pub fn stop_dns_proxy(&self, downstream_if_index: u32, downstream_port: u16) -> Result<()> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.command_tx.blocking_send(Command::StopDnsProxy {
+            index_port: DownstreamIndexPort::new(downstream_if_index, downstream_port),
             response_tx,
         })?;
         response_rx.blocking_recv()?

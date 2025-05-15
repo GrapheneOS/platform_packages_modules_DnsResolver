@@ -67,6 +67,22 @@ pub extern "C" fn proxy_server_configure_dns_proxy(
     }
 }
 
+/// Stops the DNS proxy for an interface on a port.
+///
+/// returns 0 on success, a posix errno with a fallback to
+/// DNS_PROXY_INTERNAL_ERROR on failure.
+#[no_mangle]
+pub extern "C" fn proxy_server_stop_dns_proxy(
+    server: &Server,
+    downstream_if_index: u32,
+    downstream_port: u16,
+) {
+    if let Err(e) = server.stop_dns_proxy(downstream_if_index, downstream_port) {
+        error!("Error stop DNS proxy: {}", e);
+        panic!();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,7 +98,7 @@ mod tests {
     }
 
     #[test]
-    fn test_proxy_server_start_proxy() {
+    fn test_proxy_server_start_stop_proxy() {
         let server = proxy_server_new();
         assert!(!server.is_null());
         // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
@@ -90,6 +106,9 @@ mod tests {
         proxy_server_configure_dns_proxy(
             server_ref, /*upstream_net_id*/ 1, /*uid*/ 1000,
             /*downstream_if_index*/ 1, /*downstream_port*/ 53,
+        );
+        proxy_server_stop_dns_proxy(
+            server_ref, /*downstream_if_index*/ 1, /*downstream_port*/ 53,
         );
         // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
         unsafe {
