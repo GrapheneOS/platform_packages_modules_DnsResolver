@@ -20,13 +20,34 @@ use std::ptr;
 
 use log::error;
 
+use crate::server::NetContextClient;
 use crate::server::Server;
+use crate::server::UpstreamParam;
+
+#[derive(Debug)]
+struct AndroidNetContextClient;
+
+impl AndroidNetContextClient {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl NetContextClient for AndroidNetContextClient {
+    fn get_dns_mark(&self, _upstream_param: &UpstreamParam) -> Option<u32> {
+        todo!();
+    }
+
+    fn get_name_servers(&self, _upstream_param: &UpstreamParam) -> Vec<std::net::IpAddr> {
+        todo!();
+    }
+}
 
 /// Constructs the DNS proxy server.
 /// Returns a pointer to the DNS proxy instance.
 #[no_mangle]
 pub extern "C" fn proxy_server_new() -> *mut Server {
-    match Server::new() {
+    match Server::new(AndroidNetContextClient::new()) {
         Ok(server) => Box::into_raw(Box::new(server)),
         Err(e) => {
             error!("proxy_server_new failed: {:?}", e);
@@ -62,8 +83,8 @@ pub extern "C" fn proxy_server_configure_dns_proxy(
     if let Err(e) =
         server.configure_dns_proxy(upstream_net_id, uid, downstream_if_index, downstream_port)
     {
-        error!("Error configure DNS proxy: {}", e);
-        panic!();
+        error!("Error configure DNS proxy: {}", &e);
+        panic!("Error configure DNS proxy: {}", e);
     }
 }
 
@@ -78,8 +99,8 @@ pub extern "C" fn proxy_server_stop_dns_proxy(
     downstream_port: u16,
 ) {
     if let Err(e) = server.stop_dns_proxy(downstream_if_index, downstream_port) {
-        error!("Error stop DNS proxy: {}", e);
-        panic!();
+        error!("Error stop DNS proxy: {}", &e);
+        panic!("Error stop DNS proxy: {}", e);
     }
 }
 
