@@ -85,6 +85,8 @@ pub extern "C" fn proxy_server_stop_dns_proxy(
 
 #[cfg(test)]
 mod tests {
+    use crate::server::tests::next_test_port;
+
     use super::*;
 
     #[test]
@@ -103,12 +105,13 @@ mod tests {
         assert!(!server.is_null());
         // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
         let server_ref = unsafe { server.as_ref() }.unwrap();
+        let test_port = next_test_port();
         proxy_server_configure_dns_proxy(
             server_ref, /*upstream_net_id*/ 1, /*uid*/ 1000,
-            /*downstream_if_index*/ 1, /*downstream_port*/ 53,
+            /*downstream_if_index*/ 1, /*downstream_port*/ test_port,
         );
         proxy_server_stop_dns_proxy(
-            server_ref, /*downstream_if_index*/ 1, /*downstream_port*/ 53,
+            server_ref, /*downstream_if_index*/ 1, /*downstream_port*/ test_port,
         );
         // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
         unsafe {

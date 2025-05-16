@@ -156,8 +156,17 @@ impl Server {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::sync::atomic::AtomicU16;
+
     use super::*;
+
+    static TEST_PORT: AtomicU16 = AtomicU16::new(10000);
+
+    /// Gets the next port number to be used by the unit test
+    pub fn next_test_port() -> u16 {
+        TEST_PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
 
     /// Checks that the server can be created and deleted.
     #[test]
