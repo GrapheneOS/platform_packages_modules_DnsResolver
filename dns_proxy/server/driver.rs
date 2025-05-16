@@ -24,8 +24,10 @@ use std::net::SocketAddr;
 use std::net::UdpSocket as SyncUdpSocket;
 use std::os::fd::AsFd;
 use std::os::fd::AsRawFd;
-use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::Weak;
 
+use log::error;
 use log::info;
 use nix::libc::c_int;
 use nix::libc::setsockopt;
@@ -35,27 +37,66 @@ use socket2::Socket;
 use socket2::Type;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+use crate::packet::DnsPacket;
 
 use super::Command;
 use super::DownstreamIndexPort;
+use super::Error;
 use super::Result;
 use super::UpstreamParam;
 
 // TODO(b/409455084): workaround while waiting for upstream changes.
 const SO_BINDTOIFINDEX: c_int = 62;
 
+/// UdpDnsQuery is a DNS query packet with client address and downstream information attached.
+#[derive(Debug)]
+pub(crate) struct UdpDnsQuery {
+    /// The query packet received from the client.
+    query_packet: DnsPacket,
+    /// the interface and port of downstream from where query is received.
+    index_port: DownstreamIndexPort,
+    /// The address of the client, used to send reply back to client.
+    client_addr: SocketAddr,
+    /// A weak reference to the socket to be used to send reply back to client.
+    resp_socket: Weak<UdpSocket>,
+}
+
+impl UdpDnsQuery {
+    fn new(
+        query_packet: DnsPacket,
+        index_port: DownstreamIndexPort,
+        client_addr: SocketAddr,
+        resp_socket: Weak<UdpSocket>,
+    ) -> Self {
+        UdpDnsQuery { query_packet, index_port, client_addr, resp_socket }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct Driver {
+    /// Weak Command sender
+    weak_command_tx: mpsc::WeakSender<Command>,
+    /// Command receiver.
     command_rx: mpsc::Receiver<Command>,
     /// Map of DownstreamIndexPort pair to the upstream parameters.
     upstream_map: HashMap<DownstreamIndexPort, UpstreamParam>,
-    /// Map of DownstreamIndexPort pair to the UDP socket it is listening to.
-    downstream_socket_map: HashMap<DownstreamIndexPort, DownstreamUdpSocket>,
+    /// Map of DownstreamIndexPort pair to the handle of UDP socket it is listening to.
+    downstream_task_handles_map: HashMap<DownstreamIndexPort, JoinHandle<Result<()>>>,
 }
 
 impl Driver {
-    pub fn new(command_rx: mpsc::Receiver<Command>) -> Self {
-        Self { command_rx, upstream_map: HashMap::new(), downstream_socket_map: HashMap::new() }
+    pub fn new(
+        weak_command_tx: mpsc::WeakSender<Command>,
+        command_rx: mpsc::Receiver<Command>,
+    ) -> Self {
+        Self {
+            weak_command_tx,
+            command_rx,
+            upstream_map: HashMap::new(),
+            downstream_task_handles_map: HashMap::new(),
+        }
     }
 
     pub async fn drive(mut self) -> Option<()> {
@@ -68,14 +109,15 @@ impl Driver {
     /// None if it shall terminate.
     async fn drive_once(&mut self) -> Option<()> {
         if let Some(command) = self.command_rx.recv().await {
-            self.handle_cmd(command)
+            self.handle_cmd(command).await
         } else {
             info!("Exit DnsProxy due to all DnsProxyCommand transceiver out of scope");
+            self.stop_listen_on_all_ports().await;
             None
         }
     }
 
-    fn handle_cmd(&mut self, cmd: Command) -> Option<()> {
+    async fn handle_cmd(&mut self, cmd: Command) -> Option<()> {
         match cmd {
             Command::ConfigureDnsProxy { index_port, upstream_param, response_tx } => {
                 let _ = response_tx
@@ -83,7 +125,13 @@ impl Driver {
                 Some(())
             }
             Command::StopDnsProxy { index_port, response_tx } => {
-                let _ = response_tx.send(self.handle_stop_dns_proxy_cmd(&index_port));
+                let _ = response_tx.send(self.handle_stop_dns_proxy_cmd(&index_port).await);
+                Some(())
+            }
+            Command::ForwardUdpQuery(udp_dns_query) => {
+                if let Err(e) = self.handle_udp_dns_query(udp_dns_query).await {
+                    error!("Error handling UDP query: {}", e);
+                }
                 Some(())
             }
         }
@@ -95,10 +143,16 @@ impl Driver {
         upstream_param: UpstreamParam,
     ) -> Result<()> {
         self.upstream_map.insert(index_port, upstream_param);
-        if let HashMapEntry::Vacant(vacant_entry) = self.downstream_socket_map.entry(index_port) {
-            let sync_socket = Driver::build_udp_socket(&index_port)?;
-            let socket = DownstreamUdpSocket::new(Rc::new(UdpSocket::from_std(sync_socket)?));
-            vacant_entry.insert(socket);
+        if let HashMapEntry::Vacant(vacant_entry) =
+            self.downstream_task_handles_map.entry(index_port)
+        {
+            let socket = Driver::build_udp_socket(&index_port)?;
+            let handle = spawn_downstream_udp_socket(
+                self.weak_command_tx.clone(),
+                Arc::new(UdpSocket::from_std(socket)?),
+                index_port,
+            );
+            vacant_entry.insert(handle);
         }
         Ok(())
     }
@@ -129,22 +183,54 @@ impl Driver {
         Ok(())
     }
 
-    fn handle_stop_dns_proxy_cmd(&mut self, index_port: &DownstreamIndexPort) -> Result<()> {
+    async fn handle_stop_dns_proxy_cmd(&mut self, index_port: &DownstreamIndexPort) -> Result<()> {
         self.upstream_map.remove(index_port);
+        if let Some(handle) = self.downstream_task_handles_map.remove(index_port) {
+            handle.abort();
+            let _ = handle.await;
+        }
         Ok(())
     }
-}
 
-/// Downstream UDP socket
-#[derive(Debug)]
-struct DownstreamUdpSocket {
-    /// Reference-counted socket
-    socket: Rc<UdpSocket>,
-}
-
-impl DownstreamUdpSocket {
-    /// Constructor
-    fn new(socket: Rc<UdpSocket>) -> Self {
-        Self { socket }
+    async fn stop_listen_on_all_ports(&mut self) {
+        let handles: Vec<_> =
+            self.downstream_task_handles_map.drain().map(|(_, handle)| handle).collect();
+        for handle in handles {
+            handle.abort();
+            let _ = handle.await;
+        }
     }
+
+    async fn handle_udp_dns_query(&mut self, _query: UdpDnsQuery) -> Result<()> {
+        todo!("Send query");
+    }
+}
+
+/// Create downstream UDP socket that sends `UdpDnsQuery` through |query_tx|.
+fn spawn_downstream_udp_socket(
+    weak_command_tx: mpsc::WeakSender<Command>,
+    socket: Arc<UdpSocket>,
+    index_port: DownstreamIndexPort,
+) -> JoinHandle<Result<()>> {
+    tokio::spawn(async move {
+        let mut buf = [0u8; 0xffff];
+        loop {
+            let (packet_size, client_addr) = socket.recv_from(&mut buf).await?;
+            if let Ok(query_packet) = DnsPacket::try_from(buf[0..packet_size].to_vec()) {
+                let command_tx = match weak_command_tx.upgrade() {
+                    Some(t) => t,
+                    None => return Err(Error::ServerStopped),
+                };
+
+                let _ = command_tx
+                    .send(Command::ForwardUdpQuery(UdpDnsQuery::new(
+                        query_packet,
+                        index_port,
+                        client_addr,
+                        Arc::downgrade(&socket),
+                    )))
+                    .await;
+            }
+        }
+    })
 }
