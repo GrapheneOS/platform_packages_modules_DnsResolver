@@ -249,6 +249,9 @@ cc_test {
     host_required: [
         "net-tests-utils-host-common",
     ],
+    host_common_data: [
+        ":net-tests-utils-host-common",
+    ],
 }
 
 cc_test {
@@ -370,6 +373,9 @@ cc_test {
     ],
     host_required: [
         "net-tests-utils-host-common",
+    ],
+    host_common_data: [
+        ":net-tests-utils-host-common",
     ],
     data: [":ConnectivityTestPreparer"],
 }
