@@ -28,6 +28,7 @@ use tokio::sync::oneshot::error::RecvError;
 
 mod driver;
 use driver::Driver;
+use driver::UdpDnsQuery;
 
 /// Indicates the error is not an OS error, but due to DNS proxy itself.
 pub const DNS_PROXY_INTERNAL_ERRNO: i32 = 1000;
@@ -41,9 +42,22 @@ pub enum Error {
     /// Command send error:
     #[error(transparent)]
     CommandSend(#[from] SendError<Command>),
+    /// Query send error:
+    #[error("Query send error: {0}")]
+    QuerySend(String),
     /// Receive response error:
     #[error(transparent)]
     ReceiveResponse(#[from] RecvError),
+    /// Server already stopped
+    #[error("Server already stopped")]
+    ServerStopped,
+}
+
+// Manual implementation required since UdpDnsQuery is not `Send`.
+impl From<SendError<UdpDnsQuery>> for Error {
+    fn from(e: SendError<UdpDnsQuery>) -> Self {
+        Error::QuerySend(e.to_string())
+    }
 }
 
 /// Result type for server
@@ -84,6 +98,8 @@ pub(crate) enum Command {
         /// Sender for the result of the command.
         response_tx: oneshot::Sender<Result<()>>,
     },
+    /// Forwards the UDP query
+    ForwardUdpQuery(UdpDnsQuery),
 }
 
 /// Parameters to configure upstream, which is used to retrieve net context when
@@ -115,8 +131,9 @@ impl Server {
     pub fn new() -> Result<Server> {
         let runtime = RuntimeBuilder::new_current_thread().enable_all().build()?;
         let (command_tx, command_rx) = mpsc::channel(100 /* capacity */);
+        let weak_command_tx = command_tx.clone().downgrade();
         let join_handle = thread::spawn(move || {
-            runtime.block_on(async { Driver::new(command_rx).drive().await });
+            runtime.block_on(async { Driver::new(weak_command_tx, command_rx).drive().await });
         });
         Ok(Server { command_tx, join_handle })
     }
@@ -156,13 +173,36 @@ impl Server {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::sync::atomic::AtomicU16;
+
     use super::*;
+
+    static TEST_PORT: AtomicU16 = AtomicU16::new(10000);
+
+    /// Gets the next port number to be used by the unit test
+    pub fn next_test_port() -> u16 {
+        TEST_PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
 
     /// Checks that the server can be created and deleted.
     #[test]
     fn server_new_delete() {
         let server = Server::new().unwrap();
+        server.stop();
+    }
+
+    /// Checks that the server can be created, added with a downstream, and deleted.
+    #[test]
+    fn server_new_listen_delete() {
+        let server = Server::new().unwrap();
+        let test_port = next_test_port();
+        server
+            .configure_dns_proxy(
+                /*upstream_net_id*/ 1, /*uid*/ 1000, /*downstream_if_index*/ 1,
+                test_port,
+            )
+            .unwrap();
         server.stop();
     }
 }
