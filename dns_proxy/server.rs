@@ -36,9 +36,6 @@ mod driver;
 use driver::Driver;
 use driver::UdpDnsQuery;
 
-/// Indicates the error is not an OS error, but due to DNS proxy itself.
-pub const DNS_PROXY_INTERNAL_ERRNO: i32 = 1000;
-
 // TODO: clean up and reduce the number of error types.
 /// Error type for server
 #[derive(Debug, Error)]
