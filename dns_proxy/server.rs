@@ -22,6 +22,7 @@ use std::thread;
 
 #[cfg(test)]
 use mockall::automock;
+use nix::errno::Errno;
 use thiserror::Error;
 use tokio::runtime::Builder as RuntimeBuilder;
 use tokio::sync::mpsc;
@@ -38,12 +39,15 @@ use driver::UdpDnsQuery;
 /// Indicates the error is not an OS error, but due to DNS proxy itself.
 pub const DNS_PROXY_INTERNAL_ERRNO: i32 = 1000;
 
+// TODO: clean up and reduce the number of error types.
 /// Error type for server
 #[derive(Debug, Error)]
 pub enum Error {
     /// Io Errors:
     #[error(transparent)]
     Io(#[from] IoError),
+    #[error(transparent)]
+    Errno(#[from] Errno),
     /// Command send error:
     #[error(transparent)]
     CommandSend(#[from] SendError<Command>),
