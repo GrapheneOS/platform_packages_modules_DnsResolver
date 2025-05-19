@@ -21,7 +21,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
-use std::net::UdpSocket as SyncUdpSocket;
 use std::os::fd::AsFd;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
@@ -31,6 +30,8 @@ use log::error;
 use log::info;
 use nix::libc::c_int;
 use nix::libc::setsockopt;
+use rand::rngs::ThreadRng;
+use rand::seq::SliceRandom;
 use socket2::Domain;
 use socket2::Protocol;
 use socket2::Socket;
@@ -44,6 +45,7 @@ use crate::packet::DnsPacket;
 use super::Command;
 use super::DownstreamIndexPort;
 use super::Error;
+use super::NetContextClient;
 use super::Result;
 use super::UpstreamParam;
 
@@ -75,7 +77,9 @@ impl UdpDnsQuery {
 }
 
 #[derive(Debug)]
-pub(super) struct Driver {
+pub(super) struct Driver<C: NetContextClient> {
+    /// NetContext client
+    net_context_client: C,
     /// Weak Command sender
     weak_command_tx: mpsc::WeakSender<Command>,
     /// Command receiver.
@@ -84,18 +88,23 @@ pub(super) struct Driver {
     upstream_map: HashMap<DownstreamIndexPort, UpstreamParam>,
     /// Map of DownstreamIndexPort pair to the handle of UDP socket it is listening to.
     downstream_task_handles_map: HashMap<DownstreamIndexPort, JoinHandle<Result<()>>>,
+    /// Random number generator
+    rng: ThreadRng,
 }
 
-impl Driver {
+impl<C: NetContextClient> Driver<C> {
     pub fn new(
+        net_context_client: C,
         weak_command_tx: mpsc::WeakSender<Command>,
         command_rx: mpsc::Receiver<Command>,
     ) -> Self {
         Self {
+            net_context_client,
             weak_command_tx,
             command_rx,
             upstream_map: HashMap::new(),
             downstream_task_handles_map: HashMap::new(),
+            rng: rand::thread_rng(),
         }
     }
 
@@ -129,7 +138,7 @@ impl Driver {
                 Some(())
             }
             Command::ForwardUdpQuery(udp_dns_query) => {
-                if let Err(e) = self.handle_udp_dns_query(udp_dns_query).await {
+                if let Err(e) = self.handle_udp_dns_query(udp_dns_query) {
                     error!("Error handling UDP query: {}", e);
                 }
                 Some(())
@@ -146,39 +155,13 @@ impl Driver {
         if let HashMapEntry::Vacant(vacant_entry) =
             self.downstream_task_handles_map.entry(index_port)
         {
-            let socket = Driver::build_udp_socket(&index_port)?;
+            let socket = build_udp_socket(&index_port)?;
             let handle = spawn_downstream_udp_socket(
                 self.weak_command_tx.clone(),
-                Arc::new(UdpSocket::from_std(socket)?),
+                Arc::new(socket),
                 index_port,
             );
             vacant_entry.insert(handle);
-        }
-        Ok(())
-    }
-
-    fn build_udp_socket(index_port: &DownstreamIndexPort) -> Result<SyncUdpSocket> {
-        let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
-        Driver::set_downstream_sockopts(&socket, index_port.if_index)?;
-        socket
-            .bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), index_port.port).into())?;
-        Ok(socket.into())
-    }
-
-    fn set_downstream_sockopts(socket: &Socket, if_index: u32) -> Result<()> {
-        socket.set_nonblocking(true)?;
-        if if_index > 0 {
-            // TODO(409455084): workaround while waiting for upstream changes.
-            // Safety: setting if_index is safe since we own the FD and if_index is fixed length.
-            unsafe {
-                setsockopt(
-                    socket.as_fd().as_raw_fd(),
-                    nix::libc::SOL_SOCKET,
-                    SO_BINDTOIFINDEX,
-                    &if_index as *const _ as *const nix::libc::c_void,
-                    std::mem::size_of::<c_int>() as nix::libc::socklen_t,
-                );
-            }
         }
         Ok(())
     }
@@ -201,9 +184,81 @@ impl Driver {
         }
     }
 
-    async fn handle_udp_dns_query(&mut self, _query: UdpDnsQuery) -> Result<()> {
-        todo!("Send query");
+    fn handle_udp_dns_query(&mut self, query: UdpDnsQuery) -> Result<()> {
+        let upstream_param = match self.upstream_map.get(&query.index_port) {
+            Some(p) => p.to_owned(),
+            None => return Ok(()),
+        };
+        let socket = self.configure_upstream_udp_socket(&upstream_param)?;
+        tokio::spawn(async move {
+            if let Err(e) = resolve_and_send_udp(socket, query).await {
+                error!("Error resolving and sending UDP query: {}", e);
+            }
+        });
+        Ok(())
     }
+
+    fn configure_upstream_udp_socket(
+        &mut self,
+        upstream_param: &UpstreamParam,
+    ) -> Result<UdpSocket> {
+        let name_servers = self.net_context_client.get_name_servers(upstream_param);
+        let name_server = name_servers.choose(&mut self.rng).ok_or(Error::NoNameServer)?;
+        let domain = if name_server.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+        let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_nonblocking(true)?;
+        if let Some(mark) = self.net_context_client.get_dns_mark(upstream_param) {
+            socket.set_mark(mark)?;
+        }
+        // TODO(b:379992903): randomize port selection.
+        socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), 0).into())?;
+        socket.connect(&SocketAddr::new(*name_server, 53).into())?;
+        Ok(UdpSocket::from_std(socket.into())?)
+    }
+}
+
+fn build_udp_socket(index_port: &DownstreamIndexPort) -> Result<UdpSocket> {
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    set_downstream_sockopts(&socket, index_port.if_index)?;
+    socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), index_port.port).into())?;
+    Ok(UdpSocket::from_std(socket.into())?)
+}
+
+fn set_downstream_sockopts(socket: &Socket, if_index: u32) -> Result<()> {
+    socket.set_nonblocking(true)?;
+    if if_index > 0 {
+        // TODO(409455084): workaround while waiting for upstream changes.
+        // Safety: setting if_index is safe since we own the FD and if_index is fixed length.
+        unsafe {
+            setsockopt(
+                socket.as_fd().as_raw_fd(),
+                nix::libc::SOL_SOCKET,
+                SO_BINDTOIFINDEX,
+                &if_index as *const _ as *const nix::libc::c_void,
+                std::mem::size_of::<c_int>() as nix::libc::socklen_t,
+            );
+        }
+    }
+    Ok(())
+}
+
+async fn resolve_and_send_udp(socket: UdpSocket, query: UdpDnsQuery) -> Result<()> {
+    // TODO (b:379992903): randomize DNS ID.
+    let query_dns_id = query.query_packet.header().id;
+    socket.send(query.query_packet.as_bytes()).await?;
+    // RFC 6891 6.2.3: UDP payload between 1280 and 1410 reasonable for EDNS.
+    // Fallback to TCP otherwise.
+    let mut buf = [0u8; 1410];
+    let size = socket.recv(&mut buf).await?;
+    let bytes = buf[0..size].to_vec();
+    let response = DnsPacket::try_from(bytes)?;
+    if response.header().id != query_dns_id {
+        return Err(Error::DnsResponseMismatch);
+    }
+    if let Some(resp_socket) = query.resp_socket.upgrade() {
+        resp_socket.send_to(response.as_bytes(), query.client_addr).await?;
+    }
+    Ok(())
 }
 
 /// Create downstream UDP socket that sends `UdpDnsQuery` through |query_tx|.
