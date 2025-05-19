@@ -134,6 +134,16 @@ impl UpstreamParam {
     }
 }
 
+/// NetContextClient gets the net context for upstream configuration.
+#[cfg_attr(test, automock)]
+pub(crate) trait NetContextClient: Send + Sync + std::fmt::Debug {
+    /// Returns the name servers given |upstream_param|.
+    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr>;
+
+    /// Returns the DNS fwmark for the upstream sockets. Returns None if none is available.
+    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> Option<u32>;
+}
+
 /// Interface class for operating with DNS Proxy Server.
 #[derive(Debug)]
 pub struct Server {
@@ -187,16 +197,6 @@ impl Server {
         })?;
         response_rx.blocking_recv()?
     }
-}
-
-/// NetContextClient gets the net context for upstream configuration.
-#[cfg_attr(test, automock)]
-pub(crate) trait NetContextClient: Send + Sync + std::fmt::Debug {
-    /// Returns the name servers given |upstream_param|.
-    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr>;
-
-    /// Returns the DNS fwmark for the upstream sockets. Returns None if none is available.
-    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> Option<u32>;
 }
 
 #[cfg(test)]
