@@ -30,6 +30,8 @@ use log::error;
 use log::info;
 use nix::libc::c_int;
 use nix::libc::setsockopt;
+use nix::sys::socket::recv;
+use nix::sys::socket::MsgFlags;
 use rand::rngs::ThreadRng;
 use rand::seq::SliceRandom;
 use socket2::Domain;
@@ -246,12 +248,15 @@ async fn resolve_and_send_udp(socket: UdpSocket, query: UdpDnsQuery) -> Result<(
     // TODO (b:379992903): randomize DNS ID.
     let query_dns_id = query.query_packet.header().id;
     socket.send(query.query_packet.as_bytes()).await?;
-    // RFC 6891 6.2.3: UDP payload between 1280 and 1410 reasonable for EDNS.
-    // Fallback to TCP otherwise.
-    let mut buf = [0u8; 1410];
-    let size = socket.recv(&mut buf).await?;
-    let bytes = buf[0..size].to_vec();
-    let response = DnsPacket::try_from(bytes)?;
+
+    // Properly supporting EDNS(0) requires query parsing. Instead, use MSG_PEEK|MSG_TRUNC to
+    // figure out the size of the incoming packet before reading it.
+    socket.readable().await?;
+    let size = recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC)?;
+    let mut buf = vec![0u8; size];
+    socket.recv(&mut buf).await?;
+
+    let response = DnsPacket::try_from(buf)?;
     if response.header().id != query_dns_id {
         return Err(Error::DnsResponseMismatch);
     }

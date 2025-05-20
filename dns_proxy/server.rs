@@ -22,6 +22,7 @@ use std::thread;
 
 #[cfg(test)]
 use mockall::automock;
+use nix::errno::Errno;
 use thiserror::Error;
 use tokio::runtime::Builder as RuntimeBuilder;
 use tokio::sync::mpsc;
@@ -35,15 +36,15 @@ mod driver;
 use driver::Driver;
 use driver::UdpDnsQuery;
 
-/// Indicates the error is not an OS error, but due to DNS proxy itself.
-pub const DNS_PROXY_INTERNAL_ERRNO: i32 = 1000;
-
+// TODO: clean up and reduce the number of error types.
 /// Error type for server
 #[derive(Debug, Error)]
 pub enum Error {
     /// Io Errors:
     #[error(transparent)]
     Io(#[from] IoError),
+    #[error(transparent)]
+    Errno(#[from] Errno),
     /// Command send error:
     #[error(transparent)]
     CommandSend(#[from] SendError<Command>),
@@ -133,6 +134,16 @@ impl UpstreamParam {
     }
 }
 
+/// NetContextClient gets the net context for upstream configuration.
+#[cfg_attr(test, automock)]
+pub(crate) trait NetContextClient: Send + Sync + std::fmt::Debug {
+    /// Returns the name servers given |upstream_param|.
+    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr>;
+
+    /// Returns the DNS fwmark for the upstream sockets. Returns None if none is available.
+    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> Option<u32>;
+}
+
 /// Interface class for operating with DNS Proxy Server.
 #[derive(Debug)]
 pub struct Server {
@@ -186,16 +197,6 @@ impl Server {
         })?;
         response_rx.blocking_recv()?
     }
-}
-
-/// NetContextClient gets the net context for upstream configuration.
-#[cfg_attr(test, automock)]
-pub(crate) trait NetContextClient: Send + Sync + std::fmt::Debug {
-    /// Returns the name servers given |upstream_param|.
-    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr>;
-
-    /// Returns the DNS fwmark for the upstream sockets. Returns None if none is available.
-    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> Option<u32>;
 }
 
 #[cfg(test)]
