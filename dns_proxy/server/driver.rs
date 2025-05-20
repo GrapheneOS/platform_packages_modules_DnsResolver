@@ -276,21 +276,25 @@ fn spawn_downstream_udp_socket(
         let mut buf = [0u8; 0xffff];
         loop {
             let (packet_size, client_addr) = socket.recv_from(&mut buf).await?;
-            if let Ok(query_packet) = DnsPacket::try_from(buf[0..packet_size].to_vec()) {
-                let command_tx = match weak_command_tx.upgrade() {
-                    Some(t) => t,
-                    None => return Err(Error::ServerStopped),
-                };
+            let query_packet = match DnsPacket::try_from(buf[0..packet_size].to_vec()) {
+                Ok(query_packet) => query_packet,
+                // The received packet is not a DnsPacket. Continue.
+                Err(_) => continue,
+            };
 
-                let _ = command_tx
-                    .send(Command::ForwardUdpQuery(UdpDnsQuery::new(
-                        query_packet,
-                        index_port,
-                        client_addr,
-                        Arc::downgrade(&socket),
-                    )))
-                    .await;
-            }
+            let command_tx = match weak_command_tx.upgrade() {
+                Some(t) => t,
+                None => return Err(Error::ServerStopped),
+            };
+
+            let _ = command_tx
+                .send(Command::ForwardUdpQuery(UdpDnsQuery::new(
+                    query_packet,
+                    index_port,
+                    client_addr,
+                    Arc::downgrade(&socket),
+                )))
+                .await;
         }
     })
 }
