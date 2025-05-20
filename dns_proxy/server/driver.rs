@@ -254,7 +254,7 @@ async fn resolve_and_send_udp(socket: UdpSocket, query: UdpDnsQuery) -> Result<(
     socket.readable().await?;
     let size = recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC)?;
     let mut buf = vec![0u8; size];
-    socket.recv(&mut buf).await?;
+    socket.try_recv(&mut buf)?;
 
     let response = DnsPacket::try_from(buf)?;
     if response.header().id != query_dns_id {
