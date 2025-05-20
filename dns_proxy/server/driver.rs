@@ -279,9 +279,9 @@ fn spawn_downstream_udp_socket(
             let resp_socket = Arc::downgrade(&socket);
             let query = UdpDnsQuery { query_packet, index_port, client_addr, resp_socket };
 
-            // TODO: should this break the loop if an error is encountered? This can only happen if
-            // the receive half is closed.
-            let _ = command_tx.send(Command::ForwardUdpQuery(query)).await;
+            // If command_tx.send() fails, it means that the receiver half has been closed (i.e.
+            // the server is being stopped)..
+            command_tx.send(Command::ForwardUdpQuery(query)).await?;
         }
     })
 }
