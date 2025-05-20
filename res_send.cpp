@@ -1269,6 +1269,13 @@ static int send_dg(ResState* statp, res_params* params, span<const uint8_t> msg,
 // return 0      - when mdns packets transfer error.
 static int send_mdns(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* terrno,
                      int* rcode, IPSockAddr* receivedMdnsAddr) {
+    // Always query the IPv6 multicast address for mDNS first, regardless of
+    // the state of IPv4/IPv6 connectivity.
+    // This works for IPv4 only networks since we won't receive a "successful"
+    // mDNS answer (either sendto will fail, or we won't receive a response),
+    // in which case we will fallback onto IPv4.
+    // This won't always lead to the best performance, but it was deemed
+    // preferable due to the much simpler code.
     for (const auto& mdns_addr : mdns_addrs) {
         const sockaddr_storage ss = mdns_addr;
         *receivedMdnsAddr = mdns_addr;
