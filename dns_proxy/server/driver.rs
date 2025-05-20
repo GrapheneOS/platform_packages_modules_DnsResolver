@@ -67,17 +67,6 @@ pub(crate) struct UdpDnsQuery {
     resp_socket: Weak<UdpSocket>,
 }
 
-impl UdpDnsQuery {
-    fn new(
-        query_packet: DnsPacket,
-        index_port: DownstreamIndexPort,
-        client_addr: SocketAddr,
-        resp_socket: Weak<UdpSocket>,
-    ) -> Self {
-        UdpDnsQuery { query_packet, index_port, client_addr, resp_socket }
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct Driver<C: NetContextClient> {
     /// NetContext client
@@ -287,14 +276,12 @@ fn spawn_downstream_udp_socket(
                 None => return Err(Error::ServerStopped),
             };
 
-            let _ = command_tx
-                .send(Command::ForwardUdpQuery(UdpDnsQuery::new(
-                    query_packet,
-                    index_port,
-                    client_addr,
-                    Arc::downgrade(&socket),
-                )))
-                .await;
+            let resp_socket = Arc::downgrade(&socket);
+            let query = UdpDnsQuery { query_packet, index_port, client_addr, resp_socket };
+
+            // TODO: should this break the loop if an error is encountered? This can only happen if
+            // the receive half is closed.
+            let _ = command_tx.send(Command::ForwardUdpQuery(query)).await;
         }
     })
 }
