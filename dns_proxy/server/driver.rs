@@ -67,17 +67,6 @@ pub(crate) struct UdpDnsQuery {
     resp_socket: Weak<UdpSocket>,
 }
 
-impl UdpDnsQuery {
-    fn new(
-        query_packet: DnsPacket,
-        index_port: DownstreamIndexPort,
-        client_addr: SocketAddr,
-        resp_socket: Weak<UdpSocket>,
-    ) -> Self {
-        UdpDnsQuery { query_packet, index_port, client_addr, resp_socket }
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct Driver<C: NetContextClient> {
     /// NetContext client
@@ -254,7 +243,7 @@ async fn resolve_and_send_udp(socket: UdpSocket, query: UdpDnsQuery) -> Result<(
     socket.readable().await?;
     let size = recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC)?;
     let mut buf = vec![0u8; size];
-    socket.recv(&mut buf).await?;
+    socket.try_recv(&mut buf)?;
 
     let response = DnsPacket::try_from(buf)?;
     if response.header().id != query_dns_id {
@@ -276,21 +265,23 @@ fn spawn_downstream_udp_socket(
         let mut buf = [0u8; 0xffff];
         loop {
             let (packet_size, client_addr) = socket.recv_from(&mut buf).await?;
-            if let Ok(query_packet) = DnsPacket::try_from(buf[0..packet_size].to_vec()) {
-                let command_tx = match weak_command_tx.upgrade() {
-                    Some(t) => t,
-                    None => return Err(Error::ServerStopped),
-                };
+            let query_packet = match DnsPacket::try_from(buf[0..packet_size].to_vec()) {
+                Ok(query_packet) => query_packet,
+                // The received packet is not a DnsPacket. Continue.
+                Err(_) => continue,
+            };
 
-                let _ = command_tx
-                    .send(Command::ForwardUdpQuery(UdpDnsQuery::new(
-                        query_packet,
-                        index_port,
-                        client_addr,
-                        Arc::downgrade(&socket),
-                    )))
-                    .await;
-            }
+            let command_tx = match weak_command_tx.upgrade() {
+                Some(t) => t,
+                None => return Err(Error::ServerStopped),
+            };
+
+            let resp_socket = Arc::downgrade(&socket);
+            let query = UdpDnsQuery { query_packet, index_port, client_addr, resp_socket };
+
+            // If command_tx.send() fails, it means that the receiver half has been closed (i.e.
+            // the server is being stopped)..
+            command_tx.send(Command::ForwardUdpQuery(query)).await?;
         }
     })
 }

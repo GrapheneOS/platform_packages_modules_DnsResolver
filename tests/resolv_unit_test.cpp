@@ -869,10 +869,12 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
     constexpr char v4addr[] = "127.0.0.3";
     constexpr char v6addr[] = "::127.0.0.3";
     constexpr char host_name[] = "hello.local.";
+
     // Following fields will not be verified during the test in proto NetworkDnsEventReported.
     // So don't need to config those values: event_type, return_code, latency_micros,
     // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
-
+    // TODO(b/394031336): mDNS currently disables caching, cache_hit is set
+    // accordingly to RESOLV_CACHE_UNSUPPORTED == 0
     constexpr char event_ipv4[] = R"Event(
              NetworkDnsEventReported {
              dns_query_events:
@@ -881,7 +883,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
                 {
                  rcode: 0,
                  type: 1,
-                 cache_hit: 1,
+                 cache_hit: 0,
                  ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
@@ -893,6 +895,8 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
              }
         })Event";
 
+    // TODO(b/394031336): mDNS currently disables caching, cache_hit is set
+    // accordingly to RESOLV_CACHE_UNSUPPORTED == 0
     constexpr char event_ipv6[] = R"Event(
              NetworkDnsEventReported {
              dns_query_events:
@@ -901,7 +905,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
                 {
                  rcode: 0,
                  type: 28,
-                 cache_hit: 1,
+                 cache_hit: 0,
                  ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
@@ -913,6 +917,8 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
              }
         })Event";
 
+    // TODO(b/394031336): mDNS currently disables caching, cache_hit is set
+    // accordingly to RESOLV_CACHE_UNSUPPORTED == 0
     constexpr char event_ipv4v6[] = R"Event(
              NetworkDnsEventReported {
              dns_query_events:
@@ -921,7 +927,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
                 {
                  rcode: 0,
                  type: 28,
-                 cache_hit: 1,
+                 cache_hit: 0,
                  ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
@@ -932,7 +938,7 @@ TEST_F(ResolvGetAddrInfoTest, MdnsAlphabeticalHostname) {
                 {
                  rcode: 0,
                  type: 1,
-                 cache_hit: 1,
+                 cache_hit: 0,
                  ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
@@ -1697,6 +1703,8 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
     // Following fields will not be verified during the test in proto NetworkDnsEventReported.
     // So don't need to config those values: event_type, return_code, latency_micros,
     // hints_ai_flags, res_nsend_flags, network_type, private_dns_modes.
+    // TODO(b/394031336): mDNS currently disables caching, cache_hit is set
+    // accordingly to RESOLV_CACHE_UNSUPPORTED == 0
     constexpr char event_ipv4[] = R"Event(
              NetworkDnsEventReported {
              dns_query_events:
@@ -1705,7 +1713,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
                 {
                  rcode: 0,
                  type: 1,
-                 cache_hit: 1,
+                 cache_hit: 0,
                  ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
@@ -1718,6 +1726,8 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
              }
         })Event";
 
+    // TODO(b/394031336): mDNS currently disables caching, cache_hit is set
+    // accordingly to RESOLV_CACHE_UNSUPPORTED == 0
     constexpr char event_ipv6[] = R"Event(
              NetworkDnsEventReported {
              dns_query_events:
@@ -1726,7 +1736,7 @@ TEST_F(GetHostByNameForNetContextTest, MdnsAlphabeticalHostname) {
                 {
                  rcode: 0,
                  type: 28,
-                 cache_hit: 1,
+                 cache_hit: 0,
                  ip_version: 2,
                  protocol: 5,
                  retry_times: 0,
