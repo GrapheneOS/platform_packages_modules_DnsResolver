@@ -487,7 +487,7 @@ int res_nsend(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans, int* 
         IPSockAddr receivedMdnsAddr;
         resplen = send_mdns(statp, msg, ans, &terrno, rcode, &receivedMdnsAddr);
         DnsQueryEvent* mDnsQueryEvent = addDnsQueryEvent(statp->event);
-        mDnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(RESOLV_CACHE_NOTFOUND));
+        mDnsQueryEvent->set_cache_hit(static_cast<CacheStatus>(RESOLV_CACHE_UNSUPPORTED));
         mDnsQueryEvent->set_latency_micros(saturate_cast<int32_t>(queryStopwatch.timeTakenUs()));
         mDnsQueryEvent->set_ip_version(ipFamilyToIPVersion(receivedMdnsAddr.family()));
         mDnsQueryEvent->set_rcode(static_cast<NsRcode>(*rcode));
