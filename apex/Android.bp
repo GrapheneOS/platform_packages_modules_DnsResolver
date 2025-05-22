@@ -69,6 +69,6 @@ apex_key {
 
 android_app_certificate {
     name: "com.android.resolv.certificate",
-    // will use cert.pk8 and cert.x509.pem
-    certificate: "testcert",
+    // will use com.android.resolv.pk8 and com.android.resolv.x509.pem
+    certificate: "com.android.resolv",
 }
