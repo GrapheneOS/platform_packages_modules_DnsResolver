@@ -21,7 +21,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
-use std::net::UdpSocket as SyncUdpSocket;
 use std::os::fd::AsFd;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
@@ -29,8 +28,13 @@ use std::sync::Weak;
 
 use log::error;
 use log::info;
+use nix::errno::Errno;
 use nix::libc::c_int;
 use nix::libc::setsockopt;
+use nix::sys::socket::recv;
+use nix::sys::socket::MsgFlags;
+use rand::rngs::ThreadRng;
+use rand::seq::SliceRandom;
 use socket2::Domain;
 use socket2::Protocol;
 use socket2::Socket;
@@ -44,6 +48,7 @@ use crate::packet::DnsPacket;
 use super::Command;
 use super::DownstreamIndexPort;
 use super::Error;
+use super::NetContextClient;
 use super::Result;
 use super::UpstreamParam;
 
@@ -63,19 +68,10 @@ pub(crate) struct UdpDnsQuery {
     resp_socket: Weak<UdpSocket>,
 }
 
-impl UdpDnsQuery {
-    fn new(
-        query_packet: DnsPacket,
-        index_port: DownstreamIndexPort,
-        client_addr: SocketAddr,
-        resp_socket: Weak<UdpSocket>,
-    ) -> Self {
-        UdpDnsQuery { query_packet, index_port, client_addr, resp_socket }
-    }
-}
-
 #[derive(Debug)]
-pub(super) struct Driver {
+pub(super) struct Driver<C: NetContextClient> {
+    /// NetContext client
+    net_context_client: C,
     /// Weak Command sender
     weak_command_tx: mpsc::WeakSender<Command>,
     /// Command receiver.
@@ -84,18 +80,23 @@ pub(super) struct Driver {
     upstream_map: HashMap<DownstreamIndexPort, UpstreamParam>,
     /// Map of DownstreamIndexPort pair to the handle of UDP socket it is listening to.
     downstream_task_handles_map: HashMap<DownstreamIndexPort, JoinHandle<Result<()>>>,
+    /// Random number generator
+    rng: ThreadRng,
 }
 
-impl Driver {
+impl<C: NetContextClient> Driver<C> {
     pub fn new(
+        net_context_client: C,
         weak_command_tx: mpsc::WeakSender<Command>,
         command_rx: mpsc::Receiver<Command>,
     ) -> Self {
         Self {
+            net_context_client,
             weak_command_tx,
             command_rx,
             upstream_map: HashMap::new(),
             downstream_task_handles_map: HashMap::new(),
+            rng: rand::thread_rng(),
         }
     }
 
@@ -129,7 +130,7 @@ impl Driver {
                 Some(())
             }
             Command::ForwardUdpQuery(udp_dns_query) => {
-                if let Err(e) = self.handle_udp_dns_query(udp_dns_query).await {
+                if let Err(e) = self.handle_udp_dns_query(udp_dns_query) {
                     error!("Error handling UDP query: {}", e);
                 }
                 Some(())
@@ -146,39 +147,13 @@ impl Driver {
         if let HashMapEntry::Vacant(vacant_entry) =
             self.downstream_task_handles_map.entry(index_port)
         {
-            let socket = Driver::build_udp_socket(&index_port)?;
+            let socket = build_udp_socket(&index_port)?;
             let handle = spawn_downstream_udp_socket(
                 self.weak_command_tx.clone(),
-                Arc::new(UdpSocket::from_std(socket)?),
+                Arc::new(socket),
                 index_port,
             );
             vacant_entry.insert(handle);
-        }
-        Ok(())
-    }
-
-    fn build_udp_socket(index_port: &DownstreamIndexPort) -> Result<SyncUdpSocket> {
-        let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
-        Driver::set_downstream_sockopts(&socket, index_port.if_index)?;
-        socket
-            .bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), index_port.port).into())?;
-        Ok(socket.into())
-    }
-
-    fn set_downstream_sockopts(socket: &Socket, if_index: u32) -> Result<()> {
-        socket.set_nonblocking(true)?;
-        if if_index > 0 {
-            // TODO(409455084): workaround while waiting for upstream changes.
-            // Safety: setting if_index is safe since we own the FD and if_index is fixed length.
-            unsafe {
-                setsockopt(
-                    socket.as_fd().as_raw_fd(),
-                    nix::libc::SOL_SOCKET,
-                    SO_BINDTOIFINDEX,
-                    &if_index as *const _ as *const nix::libc::c_void,
-                    std::mem::size_of::<c_int>() as nix::libc::socklen_t,
-                );
-            }
         }
         Ok(())
     }
@@ -201,9 +176,111 @@ impl Driver {
         }
     }
 
-    async fn handle_udp_dns_query(&mut self, _query: UdpDnsQuery) -> Result<()> {
-        todo!("Send query");
+    fn handle_udp_dns_query(&mut self, query: UdpDnsQuery) -> Result<()> {
+        let upstream_param = match self.upstream_map.get(&query.index_port) {
+            Some(p) => p.to_owned(),
+            None => return Ok(()),
+        };
+        let socket = self.configure_upstream_udp_socket(&upstream_param)?;
+        tokio::spawn(async move {
+            if let Err(e) = resolve_and_send_udp(socket, query).await {
+                error!("Error resolving and sending UDP query: {}", e);
+            }
+        });
+        Ok(())
     }
+
+    fn configure_upstream_udp_socket(
+        &mut self,
+        upstream_param: &UpstreamParam,
+    ) -> Result<UdpSocket> {
+        let name_servers = self.net_context_client.get_name_servers(upstream_param);
+        let name_server = name_servers.choose(&mut self.rng).ok_or(Error::NoNameServer)?;
+        let domain = if name_server.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+        let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
+        socket.set_nonblocking(true)?;
+        if let Some(mark) = self.net_context_client.get_dns_mark(upstream_param) {
+            socket.set_mark(mark)?;
+        }
+        // TODO(b:379992903): randomize port selection.
+        socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), 0).into())?;
+        socket.connect(&SocketAddr::new(*name_server, 53).into())?;
+        Ok(UdpSocket::from_std(socket.into())?)
+    }
+}
+
+fn build_udp_socket(index_port: &DownstreamIndexPort) -> Result<UdpSocket> {
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    set_downstream_sockopts(&socket, index_port.if_index)?;
+    socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), index_port.port).into())?;
+    Ok(UdpSocket::from_std(socket.into())?)
+}
+
+fn set_downstream_sockopts(socket: &Socket, if_index: u32) -> Result<()> {
+    socket.set_nonblocking(true)?;
+    if if_index > 0 {
+        // TODO(409455084): workaround while waiting for upstream changes.
+        // Safety: setting if_index is safe since we own the FD and if_index is fixed length.
+        unsafe {
+            setsockopt(
+                socket.as_fd().as_raw_fd(),
+                nix::libc::SOL_SOCKET,
+                SO_BINDTOIFINDEX,
+                &if_index as *const _ as *const nix::libc::c_void,
+                std::mem::size_of::<c_int>() as nix::libc::socklen_t,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Receives an arbitrarily-sized UDP packet into an appropriately sized buffer and returns it.
+///
+/// Note that this function does not currently return DnsPacket directly as DnsPacket::try_from()
+/// errors are handled differently (i.e. they are ignored) from recv errors.
+async fn udp_recv(socket: &UdpSocket) -> Result<(Vec<u8>, SocketAddr)> {
+    // Properly supporting EDNS(0) requires query parsing. Instead, use MSG_PEEK|MSG_TRUNC to
+    // figure out the size of the incoming packet before reading it.
+    // Note that there is no async version of recv() that allows passing in flags in
+    // tokio::net::UdpSocket.
+    // TODO: move this code into a socket wrapper struct.
+    let len = loop {
+        // It is possible for readable().await? to return but for the arriving packet to fail
+        // checksum validation. As without checksum offload, validation happens only when recv() is
+        // called (usually while the packet is being copied from the skb to the user buffer). If
+        // this happens, recv() returns EAGAIN or EWOULDBLOCK.
+        socket.readable().await?;
+        match recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC) {
+            Ok(len) => break len,
+            Err(Errno::EAGAIN) => continue,
+            Err(e) => return Err(e.into()),
+        }
+    };
+    let mut buf = vec![0u8; len];
+    // At this point, try_recv_from() is guaranteed to pass checksum validation, as it has already
+    // been performed by recv() above.
+    // TODO: consider logging (or dropping the packet) if the actual size did not match size.
+    let (_, from) = socket.try_recv_from(&mut buf)?;
+    Ok((buf, from))
+}
+
+async fn resolve_and_send_udp(socket: UdpSocket, query: UdpDnsQuery) -> Result<()> {
+    // TODO (b:379992903): randomize DNS ID.
+    let query_dns_id = query.query_packet.header().id;
+    socket.send(query.query_packet.as_bytes()).await?;
+
+    let (buf, _) = udp_recv(&socket).await?;
+    // TODO: if try_from() or the subsequent ID comparison fails, udp_recv() should be called again
+    // until the packet is received or some timeout occurs.
+    // Alternatively, consider responding with a ServFail.
+    let response = DnsPacket::try_from(buf)?;
+    if response.header().id != query_dns_id {
+        return Err(Error::DnsResponseMismatch);
+    }
+    if let Some(resp_socket) = query.resp_socket.upgrade() {
+        resp_socket.send_to(response.as_bytes(), query.client_addr).await?;
+    }
+    Ok(())
 }
 
 /// Create downstream UDP socket that sends `UdpDnsQuery` through |query_tx|.
@@ -213,24 +290,25 @@ fn spawn_downstream_udp_socket(
     index_port: DownstreamIndexPort,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
-        let mut buf = [0u8; 0xffff];
         loop {
-            let (packet_size, client_addr) = socket.recv_from(&mut buf).await?;
-            if let Ok(query_packet) = DnsPacket::try_from(buf[0..packet_size].to_vec()) {
-                let command_tx = match weak_command_tx.upgrade() {
-                    Some(t) => t,
-                    None => return Err(Error::ServerStopped),
-                };
+            let (buf, client_addr) = udp_recv(&socket).await?;
+            let query_packet = match DnsPacket::try_from(buf) {
+                Ok(query_packet) => query_packet,
+                // The received packet is not a DnsPacket. Continue.
+                Err(_) => continue,
+            };
 
-                let _ = command_tx
-                    .send(Command::ForwardUdpQuery(UdpDnsQuery::new(
-                        query_packet,
-                        index_port,
-                        client_addr,
-                        Arc::downgrade(&socket),
-                    )))
-                    .await;
-            }
+            let command_tx = match weak_command_tx.upgrade() {
+                Some(t) => t,
+                None => return Err(Error::ServerStopped),
+            };
+
+            let resp_socket = Arc::downgrade(&socket);
+            let query = UdpDnsQuery { query_packet, index_port, client_addr, resp_socket };
+
+            // If command_tx.send() fails, it means that the receiver half has been closed (i.e.
+            // the server is being stopped)..
+            command_tx.send(Command::ForwardUdpQuery(query)).await?;
         }
     })
 }

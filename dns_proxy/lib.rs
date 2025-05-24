@@ -18,6 +18,7 @@
 // TODO (b/379992903): Remove this after library is completed.
 #![allow(dead_code)]
 
+#[cfg(feature = "android-ffi")]
 mod ffi;
 pub(crate) mod packet;
 mod server;
