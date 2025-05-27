@@ -199,9 +199,8 @@ impl<C: NetContextClient> Driver<C> {
         let domain = if name_server.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
         let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_nonblocking(true)?;
-        if let Some(mark) = self.net_context_client.get_dns_mark(upstream_param) {
-            socket.set_mark(mark)?;
-        }
+        let mark = self.net_context_client.get_dns_mark(upstream_param);
+        socket.set_mark(mark)?;
         // TODO(b:379992903): randomize port selection.
         socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), 0).into())?;
         socket.connect(&SocketAddr::new(*name_server, 53).into())?;

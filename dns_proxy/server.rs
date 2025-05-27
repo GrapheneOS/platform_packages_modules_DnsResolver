@@ -140,8 +140,8 @@ pub(crate) trait NetContextClient: Send + Sync + std::fmt::Debug {
     /// Returns the name servers given |upstream_param|.
     fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr>;
 
-    /// Returns the DNS fwmark for the upstream sockets. Returns None if none is available.
-    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> Option<u32>;
+    /// Returns the DNS fwmark for the upstream sockets.
+    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> u32;
 }
 
 /// Interface class for operating with DNS Proxy Server.
