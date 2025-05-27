@@ -28,6 +28,8 @@ use crate::server::UpstreamParam;
 #[allow(clippy::needless_maybe_sized)]
 mod cpp2rust {
     unsafe extern "C++" {
+        include!("dns_proxy/net_context_client.h");
+
         type DnsMarkCallback;
         type NameServersCallback;
 
