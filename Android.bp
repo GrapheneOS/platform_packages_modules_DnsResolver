@@ -526,7 +526,7 @@ rust_defaults {
         "liblog_rust",
         "libnix",
         "libnum_enum",
-        "librand",
+        "librand-0.8",
         "libsocket2",
         "libthiserror",
         "libtokio",

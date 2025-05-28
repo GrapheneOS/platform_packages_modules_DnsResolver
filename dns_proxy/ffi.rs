@@ -16,13 +16,37 @@
 
 //! DNS Proxy C FFI .
 
-use std::ptr;
-
-use log::error;
-
 use crate::server::NetContextClient;
 use crate::server::Server;
 use crate::server::UpstreamParam;
+
+#[cxx::bridge(namespace = "android::net::dns_proxy_ffi")]
+#[allow(clippy::needless_maybe_sized)]
+mod cpp2rust {
+    extern "Rust" {
+        type DnsProxyServer;
+
+        /// Constructs the DNS proxy server.
+        /// Returns a pointer to the DNS proxy instance.
+        fn proxy_server_new() -> Box<DnsProxyServer>;
+
+        /// Starts or updates the DNS proxy for an interface on a port.
+        fn configure_dns_proxy_ffi(
+            self: &DnsProxyServer,
+            upstream_net_id: u32,
+            uid: u32,
+            downstream_if_index: u32,
+            downstream_port: u16,
+        );
+
+        /// Stops the DNS proxy for an interface on a port.
+        fn stop_dns_proxy_ffi(
+            self: &DnsProxyServer,
+            downstream_if_index: u32,
+            downstream_port: u16,
+        );
+    }
+}
 
 #[derive(Debug)]
 struct AndroidNetContextClient;
@@ -43,100 +67,27 @@ impl NetContextClient for AndroidNetContextClient {
     }
 }
 
-/// Constructs the DNS proxy server.
-/// Returns a pointer to the DNS proxy instance.
-#[no_mangle]
-pub extern "C" fn proxy_server_new() -> *mut Server {
-    match Server::new(AndroidNetContextClient::new()) {
-        Ok(server) => Box::into_raw(Box::new(server)),
-        Err(e) => {
-            error!("proxy_server_new failed: {:?}", e);
-            ptr::null_mut()
-        }
-    }
+type DnsProxyServer = Server; // Opaque type required for FFI.
+
+fn proxy_server_new() -> Box<DnsProxyServer> {
+    Box::new(
+        Server::new(AndroidNetContextClient::new()).expect("DNS proxy server constructor failed"),
+    )
 }
 
-/// Deletes the DNS proxy server instance created by proxy_server_new.
-///
-/// # Safety
-/// |server| must be a non-null pointer previously created by proxy_server_new
-/// and not yet deleted by proxy_server_delete.
-#[no_mangle]
-pub unsafe extern "C" fn proxy_server_delete(server: *mut Server) {
-    // SAFETY: the caller guarantees that server was created from proxy_server_new and
-    // proxy_server_delete is only called once for this instance of server.
-    unsafe { Box::from_raw(server) }.stop();
-}
-
-/// Starts or updates the DNS proxy for an interface on a port.
-///
-/// returns 0 on success, a posix errno with a fallback to
-/// DNS_PROXY_INTERNAL_ERROR on failure.
-#[no_mangle]
-pub extern "C" fn proxy_server_configure_dns_proxy(
-    server: &Server,
-    upstream_net_id: u32,
-    uid: u32,
-    downstream_if_index: u32,
-    downstream_port: u16,
-) {
-    if let Err(e) =
-        server.configure_dns_proxy(upstream_net_id, uid, downstream_if_index, downstream_port)
-    {
-        error!("Error configure DNS proxy: {}", &e);
-        panic!("Error configure DNS proxy: {}", e);
-    }
-}
-
-/// Stops the DNS proxy for an interface on a port.
-///
-/// returns 0 on success, a posix errno with a fallback to
-/// DNS_PROXY_INTERNAL_ERROR on failure.
-#[no_mangle]
-pub extern "C" fn proxy_server_stop_dns_proxy(
-    server: &Server,
-    downstream_if_index: u32,
-    downstream_port: u16,
-) {
-    if let Err(e) = server.stop_dns_proxy(downstream_if_index, downstream_port) {
-        error!("Error stop DNS proxy: {}", &e);
-        panic!("Error stop DNS proxy: {}", e);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::server::tests::next_test_port;
-
-    use super::*;
-
-    #[test]
-    fn test_proxy_server_new_delete() {
-        let server = proxy_server_new();
-        assert!(!server.is_null());
-        // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
-        unsafe {
-            proxy_server_delete(server);
-        }
+impl DnsProxyServer {
+    fn configure_dns_proxy_ffi(
+        &self,
+        upstream_net_id: u32,
+        uid: u32,
+        downstream_if_index: u32,
+        downstream_port: u16,
+    ) {
+        self.configure_dns_proxy(upstream_net_id, uid, downstream_if_index, downstream_port)
+            .expect("Configure DNS proxy failed")
     }
 
-    #[test]
-    fn test_proxy_server_start_stop_proxy() {
-        let server = proxy_server_new();
-        assert!(!server.is_null());
-        // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
-        let server_ref = unsafe { server.as_ref() }.unwrap();
-        let test_port = next_test_port();
-        proxy_server_configure_dns_proxy(
-            server_ref, /*upstream_net_id*/ 1, /*uid*/ 1000,
-            /*downstream_if_index*/ 1, /*downstream_port*/ test_port,
-        );
-        proxy_server_stop_dns_proxy(
-            server_ref, /*downstream_if_index*/ 1, /*downstream_port*/ test_port,
-        );
-        // SAFETY: The caller owns the pointer passed, which is created by proxy_server_new.
-        unsafe {
-            proxy_server_delete(server);
-        }
+    fn stop_dns_proxy_ffi(&self, downstream_if_index: u32, downstream_port: u16) {
+        self.stop_dns_proxy(downstream_if_index, downstream_port).expect("Stop DNS proxy failed")
     }
 }
