@@ -19,6 +19,7 @@ package android.net;
 import android.net.ResolverOptionsParcel;
 import android.net.ResolverParamsParcel;
 import android.net.metrics.INetdEventListener;
+import android.net.resolv.aidl.DnsForwardingParamsParcel;
 import android.net.resolv.aidl.IDnsResolverUnsolicitedEventListener;
 
 /** {@hide} */
@@ -261,4 +262,17 @@ interface IDnsResolver {
      *         cause of the failure.
      */
     void setAllowBypassPrivateDnsOnNetwork(int netId, int uid, boolean allowed);
+
+    /**
+    *  Sets DNS forwarding from a downstream interface with the specified parameters. Repeated calls
+    *  on the same interface will update its upstream configuration with new parameters. When a null
+    *  upstream parameter is passed, the forwarding on the downstream interface is stopped.
+    *
+    *  @param downstreamIfIndex the interface index of the interface of the downstream network.
+    *  @param upstreamParams the parameter of the upstream for sending DNS queries.
+    *  @throws ServiceSpecificException in case of failure, with an error code corresponding to the
+    *          unix errno or a specific value defined for each error variant.
+    */
+    void setDnsForwarding(
+            int downstreamIfIndex, in @nullable DnsForwardingParamsParcel upstreamParams);
 }
