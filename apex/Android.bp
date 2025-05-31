@@ -59,6 +59,11 @@ apex {
     // - build artifacts (lib/javalib/bin) against Android 10 SDK
     //   so that the artifacts can run.
     defaults: ["q-launched-dcla-enabled-apex-module"],
+
+    licenses: [
+        "packages_modules_DnsResolver_license",
+        "opensourcerequest",
+    ],
 }
 
 apex_key {
@@ -69,6 +74,6 @@ apex_key {
 
 android_app_certificate {
     name: "com.android.resolv.certificate",
-    // will use cert.pk8 and cert.x509.pem
-    certificate: "testcert",
+    // will use com.android.resolv.pk8 and com.android.resolv.x509.pem
+    certificate: "com.android.resolv",
 }
