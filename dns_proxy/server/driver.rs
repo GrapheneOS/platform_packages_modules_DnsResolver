@@ -34,7 +34,7 @@ use nix::libc::setsockopt;
 use nix::sys::socket::recv;
 use nix::sys::socket::MsgFlags;
 use rand::rngs::ThreadRng;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use socket2::Domain;
 use socket2::Protocol;
 use socket2::Socket;
