@@ -257,6 +257,11 @@ cc_library {
         symbol_file: "libnetd_resolv.map.txt",
     },
     defaults: ["netd_defaults"],
+    generated_headers: [
+        "cxx-bridge-header",
+        "libdns_proxy_cxx_bridge_header",
+    ],
+    generated_sources: ["libdns_proxy_cxx_bridge_source"],
     srcs: [
         "getaddrinfo.cpp",
         "gethnamaddr.cpp",
@@ -285,6 +290,7 @@ cc_library {
         "PrivateDnsConfiguration.cpp",
         "ResolverController.cpp",
         "ResolverEventReporter.cpp",
+        "dns_proxy/net_context_client.cpp",
     ],
     // Link most things statically to minimize our dependence on system ABIs.
     stl: "libc++_static",
@@ -293,6 +299,7 @@ cc_library {
         "libbase",
         "libcutils",
         "libnetdutils",
+        "libdns_proxy_ffi",
         "libdoh_ffi",
         "libmodules-utils-build",
         "libprotobuf-cpp-lite",
@@ -534,6 +541,44 @@ rust_defaults {
     proc_macros: [
         "libasync_trait",
     ],
+}
+
+genrule {
+    name: "libdns_proxy_cxx_bridge_header",
+    tools: ["cxxbridge"],
+    cmd: "$(location cxxbridge) $(in) --header >> $(out)",
+    srcs: ["dns_proxy/ffi.rs"],
+    out: ["dns_proxy_cxx_bridge.rs.h"],
+}
+
+genrule {
+    name: "libdns_proxy_cxx_bridge_source",
+    tools: ["cxxbridge"],
+    cmd: "$(location cxxbridge) $(in) >> $(out)",
+    srcs: ["dns_proxy/ffi.rs"],
+    out: ["dns_proxy_cxx_bridge.rs.cpp"],
+}
+
+rust_ffi_static {
+    name: "libdns_proxy_ffi",
+    crate_name: "dns_proxy",
+    srcs: ["dns_proxy/lib.rs"],
+    edition: "2021",
+
+    defaults: ["libdns_proxy_defaults"],
+    features: [
+        "android-ffi",
+    ],
+    rlibs: [
+        "libandroid_logger",
+        "libcxx",
+    ],
+    prefer_rlib: true,
+
+    apex_available: [
+        "com.android.resolv",
+    ],
+    min_sdk_version: "30",
 }
 
 rust_test {
