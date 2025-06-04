@@ -19,9 +19,11 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "DnsResolver.h"
+#include "rust/cxx.h"
 
 namespace android {
 namespace net {
@@ -33,6 +35,25 @@ using DnsMarkCallback = std::function<uint32_t(uint32_t netId, uint32_t uid)>;
 // between threads, and may be concurrently accessed.
 using NameServersCallback =
         std::function<std::unique_ptr<std::vector<std::string>>(uint32_t netId)>;
+
+struct DnsProxyServer;
+
+class DnsProxy {
+  public:
+    // Default constructor depending on DnsResolver global variables.
+    DnsProxy();
+    DnsProxy(DnsMarkCallback&& dnsMarkCallback, NameServersCallback&& nameServersCallback);
+
+    DnsProxy(DnsProxy const&) = delete;
+    void operator=(DnsProxy const&) = delete;
+
+    void configureDnsProxy(uint32_t upstreamNetId, uint32_t uid, uint32_t downstreamIfIndex,
+                           uint16_t downstreamPort);
+    void stopDnsProxy(uint32_t downstreamIfIndex, uint16_t downstreamPort);
+
+  private:
+    rust::Box<DnsProxyServer> mServer;
+};
 }  // namespace dns_proxy_ffi
 }  // namespace net
 }  // namespace android
