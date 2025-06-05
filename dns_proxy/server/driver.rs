@@ -96,7 +96,7 @@ impl<C: NetContextClient> Driver<C> {
             command_rx,
             upstream_map: HashMap::new(),
             downstream_task_handles_map: HashMap::new(),
-            rng: rand::thread_rng(),
+            rng: rand::rng(),
         }
     }
 
