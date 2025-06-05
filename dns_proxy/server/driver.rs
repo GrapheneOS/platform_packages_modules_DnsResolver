@@ -28,7 +28,6 @@ use std::sync::Weak;
 
 use log::error;
 use log::info;
-use nix::errno::Errno;
 use nix::libc::c_int;
 use nix::libc::setsockopt;
 use nix::sys::socket::recv;
@@ -247,11 +246,15 @@ async fn udp_recv(socket: &UdpSocket) -> Result<(Vec<u8>, SocketAddr)> {
         // It is possible for readable().await? to return but for the arriving packet to fail
         // checksum validation. As without checksum offload, validation happens only when recv() is
         // called (usually while the packet is being copied from the skb to the user buffer). If
-        // this happens, recv() returns EAGAIN or EWOULDBLOCK.
+        // this happens, recv() returns POSIX error EAGAIN, equivalent to io::ErrorKind::WouldBlock.
+        // UdpSocket::try_io() method clears the readable readiness of the UdpSocket.
         socket.readable().await?;
-        match recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC) {
+        match socket.try_io(tokio::io::Interest::READABLE, || {
+            recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC)
+                .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
+        }) {
             Ok(len) => break len,
-            Err(Errno::EAGAIN) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(e) => return Err(e.into()),
         }
     };
