@@ -232,6 +232,26 @@ fn set_downstream_sockopts(socket: &Socket, if_index: u32) -> Result<()> {
     Ok(())
 }
 
+/// UdpSocket extension trait for implementing UdpSocket functionality that is missing in
+/// tokio::net::UdpSocket.
+trait UdpSocketExt {
+    /// A version of try_recv that accepts flags.
+    ///
+    /// This function is usually paired with readable(). See UdpSocket::try_recv for details.
+    fn try_recv_flags(&self, buf: &mut [u8], flags: MsgFlags) -> std::io::Result<usize>;
+}
+
+impl UdpSocketExt for UdpSocket {
+    fn try_recv_flags(&self, buf: &mut [u8], flags: MsgFlags) -> std::io::Result<usize> {
+        // UdpSocket::try_io() is required to consume the readable readiness event of the
+        // UdpSocket. See notes on "Cancel safety" in UdpSocket::readable().
+        self.try_io(tokio::io::Interest::READABLE, || {
+            let fd = self.as_raw_fd();
+            recv(fd, buf, flags).map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
+        })
+    }
+}
+
 /// Receives an arbitrarily-sized UDP packet into an appropriately sized buffer and returns it.
 ///
 /// Note that this function does not currently return DnsPacket directly as DnsPacket::try_from()
@@ -247,12 +267,8 @@ async fn udp_recv(socket: &UdpSocket) -> Result<(Vec<u8>, SocketAddr)> {
         // checksum validation. As without checksum offload, validation happens only when recv() is
         // called (usually while the packet is being copied from the skb to the user buffer). If
         // this happens, recv() returns POSIX error EAGAIN, equivalent to io::ErrorKind::WouldBlock.
-        // UdpSocket::try_io() method clears the readable readiness of the UdpSocket.
         socket.readable().await?;
-        match socket.try_io(tokio::io::Interest::READABLE, || {
-            recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC)
-                .map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
-        }) {
+        match socket.try_recv_flags(&mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC) {
             Ok(len) => break len,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(e) => return Err(e.into()),
