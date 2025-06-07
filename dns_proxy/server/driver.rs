@@ -28,13 +28,12 @@ use std::sync::Weak;
 
 use log::error;
 use log::info;
-use nix::errno::Errno;
 use nix::libc::c_int;
 use nix::libc::setsockopt;
 use nix::sys::socket::recv;
 use nix::sys::socket::MsgFlags;
 use rand::rngs::ThreadRng;
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use socket2::Domain;
 use socket2::Protocol;
 use socket2::Socket;
@@ -96,7 +95,7 @@ impl<C: NetContextClient> Driver<C> {
             command_rx,
             upstream_map: HashMap::new(),
             downstream_task_handles_map: HashMap::new(),
-            rng: rand::thread_rng(),
+            rng: rand::rng(),
         }
     }
 
@@ -199,9 +198,8 @@ impl<C: NetContextClient> Driver<C> {
         let domain = if name_server.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
         let socket = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_nonblocking(true)?;
-        if let Some(mark) = self.net_context_client.get_dns_mark(upstream_param) {
-            socket.set_mark(mark)?;
-        }
+        let mark = self.net_context_client.get_dns_mark(upstream_param);
+        socket.set_mark(mark)?;
         // TODO(b:379992903): randomize port selection.
         socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), 0).into())?;
         socket.connect(&SocketAddr::new(*name_server, 53).into())?;
@@ -234,6 +232,26 @@ fn set_downstream_sockopts(socket: &Socket, if_index: u32) -> Result<()> {
     Ok(())
 }
 
+/// UdpSocket extension trait for implementing UdpSocket functionality that is missing in
+/// tokio::net::UdpSocket.
+trait UdpSocketExt {
+    /// A version of try_recv that accepts flags.
+    ///
+    /// This function is usually paired with readable(). See UdpSocket::try_recv for details.
+    fn try_recv_flags(&self, buf: &mut [u8], flags: MsgFlags) -> std::io::Result<usize>;
+}
+
+impl UdpSocketExt for UdpSocket {
+    fn try_recv_flags(&self, buf: &mut [u8], flags: MsgFlags) -> std::io::Result<usize> {
+        // UdpSocket::try_io() is required to consume the readable readiness event of the
+        // UdpSocket. See notes on "Cancel safety" in UdpSocket::readable().
+        self.try_io(tokio::io::Interest::READABLE, || {
+            let fd = self.as_raw_fd();
+            recv(fd, buf, flags).map_err(|errno| std::io::Error::from_raw_os_error(errno as i32))
+        })
+    }
+}
+
 /// Receives an arbitrarily-sized UDP packet into an appropriately sized buffer and returns it.
 ///
 /// Note that this function does not currently return DnsPacket directly as DnsPacket::try_from()
@@ -248,11 +266,11 @@ async fn udp_recv(socket: &UdpSocket) -> Result<(Vec<u8>, SocketAddr)> {
         // It is possible for readable().await? to return but for the arriving packet to fail
         // checksum validation. As without checksum offload, validation happens only when recv() is
         // called (usually while the packet is being copied from the skb to the user buffer). If
-        // this happens, recv() returns EAGAIN or EWOULDBLOCK.
+        // this happens, recv() returns POSIX error EAGAIN, equivalent to io::ErrorKind::WouldBlock.
         socket.readable().await?;
-        match recv(socket.as_raw_fd(), &mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC) {
+        match socket.try_recv_flags(&mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC) {
             Ok(len) => break len,
-            Err(Errno::EAGAIN) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(e) => return Err(e.into()),
         }
     };
