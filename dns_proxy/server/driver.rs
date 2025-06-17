@@ -19,6 +19,7 @@
 use std::collections::hash_map::Entry as HashMapEntry;
 use std::collections::HashMap;
 use std::net::IpAddr;
+use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::net::SocketAddr;
 use std::os::fd::AsFd;
@@ -201,7 +202,12 @@ impl<C: NetContextClient> Driver<C> {
         let mark = self.net_context_client.get_dns_mark(upstream_param);
         socket.set_mark(mark)?;
         // TODO(b:379992903): randomize port selection.
-        socket.bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::from_bits(0)), 0).into())?;
+        let any_addr = if name_server.is_ipv4() {
+            IpAddr::V4(Ipv4Addr::from_bits(0))
+        } else {
+            IpAddr::V6(Ipv6Addr::from_bits(0))
+        };
+        socket.bind(&SocketAddr::new(any_addr, 0).into())?;
         socket.connect(&SocketAddr::new(*name_server, 53).into())?;
         Ok(UdpSocket::from_std(socket.into())?)
     }
