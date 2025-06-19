@@ -166,6 +166,10 @@ aidl_interface {
             version: "16",
             imports: ["netd_event_listener_interface-V1"],
         },
+        {
+            version: "17",
+            imports: ["netd_event_listener_interface-V1"],
+        },
 
     ],
     frozen: true,
