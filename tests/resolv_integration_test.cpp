@@ -8914,3 +8914,101 @@ TEST_F(ResolverMultinetworkTest, UidAllowedNetworks) {
         }
     }
 }
+
+// TetheringDnsForwardingTest is an end-to-end test for DNS proxy in tethering.
+// Test setup: A tethering client makes a DNS query. The traffic reaches the tethering device on the
+// downstream network. The DnsProxy listens on the tethering downstream network, forwards the query
+// to the test Name server DnsResponder on the upstream, and forwards the answer back to the
+// tethering client.
+// The networks are configured as follows: (exact IP address may vary)
+//       | tetheredNetworks                             |          | upstreamNetwork               |
+//       |                                              |          |                               |
+// NIC:  | clienttun                       downstreamtun|          | testtun                       |
+// addr: | 192.168.0.1/24                 192.168.1.1/24|Tethering | 192.168.2.1/32                |
+// serv: |                TunForwarder                  | DnsProxy |   TunForwarder    DnsResponder|
+// DNS:  | 192.168.0.2(fake neighbor)         N.A.      |          | 192.168.2.101(fake responder) |
+TEST_F(ResolverMultinetworkTest, TetheringDnsForwardingTest) {
+    SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 17);
+    // b/433358124: DNS proxy works only on Baklava (API level 36) or later due to NET_BIND_SERVICE
+    // privilege requirement.
+    if (getApiLevel() <= 35) {
+        GTEST_SKIP() << "Skipping test on V or earlier builds.";
+    }
+    constexpr int16_t DNS_PORT = 53;
+    /*
+     * Tethering downstream always support IPV4, and may support IPV6 if the upstream supports it.
+     * Therefore, the following connectivity pairs are possible:
+     * Upstream V4: Downstream V4.
+     * Upstream V6: Downstream V4 or V4V6.
+     * Upstream V4V6: Downstream V4 or V4V6.
+     */
+    const ConnectivityType connectivityTypePairs[][2] = {
+            {ConnectivityType::V4, ConnectivityType::V4},
+            {ConnectivityType::V6, ConnectivityType::V4},
+            {ConnectivityType::V6, ConnectivityType::V4V6},
+            {ConnectivityType::V4V6, ConnectivityType::V4},
+            {ConnectivityType::V4V6, ConnectivityType::V4V6},
+    };
+    for (const auto& [upstreamConnectivity, downstreamConnectivity] : connectivityTypePairs) {
+        SCOPED_TRACE(fmt::format("UpstreamConnectivity: {}, DownstreamConnectivity: {}",
+                                 static_cast<int>(upstreamConnectivity),
+                                 static_cast<int>(downstreamConnectivity)));
+
+        // Create upstream network:
+        ScopedPhysicalNetwork upstreamNetwork =
+                CreateScopedPhysicalNetwork(upstreamConnectivity, "test_upstream");
+        ASSERT_RESULT_OK(upstreamNetwork.init());
+        // Setup name server on upstream network:
+        const char testDomain[] = "a.example.com.";
+        const char testDomainV4Addr[] = "1.2.3.4";
+        const char testDomainV6Addr[] = "2001:db8:cafe:d00d::32";
+        Result<std::shared_ptr<test::DNSResponder>> dnsResponder =
+                setupDns(upstreamConnectivity, &upstreamNetwork, testDomain, testDomainV4Addr,
+                         testDomainV6Addr);
+        ASSERT_RESULT_OK(dnsResponder);
+        ASSERT_TRUE(dnsResponder.value()->bindToDevice(upstreamNetwork.ifname()));
+
+        // Create and setup downstream and client networks:
+        ScopedTetheredNetworks tetheredNetworks =
+                CreateScopedTetheredNetworks(downstreamConnectivity);
+        ASSERT_RESULT_OK(tetheredNetworks.init());
+        std::vector<std::string> clientDnsAddrs;
+        if (downstreamConnectivity == ConnectivityType::V4 |
+            downstreamConnectivity == ConnectivityType::V4V6) {
+            const auto clientDnsV4Addr = tetheredNetworks.setClientToDownstreamIpv4Forwarding();
+            ASSERT_TRUE(clientDnsV4Addr.ok());
+            clientDnsAddrs.push_back(clientDnsV4Addr.value());
+        }
+
+        if (downstreamConnectivity == ConnectivityType::V4V6 |
+            downstreamConnectivity == ConnectivityType::V6) {
+            const auto clientDnsV6Addr = tetheredNetworks.setClientToDownstreamIpv6Forwarding();
+            ASSERT_TRUE(clientDnsV6Addr.ok());
+            clientDnsAddrs.push_back(clientDnsV6Addr.value());
+        }
+        ASSERT_TRUE(tetheredNetworks.startClientToDownstreamForwarding());
+
+        // Setup forwarding to upstream network:
+        tetheredNetworks.setUpstreamNetwork(upstreamNetwork.ifname(), upstreamNetwork.netId());
+
+        // Setup client:
+        ResolverParamsParcel parcel = DnsResponderClient::GetDefaultResolverParamsParcel();
+        parcel.netId = tetheredNetworks.clientNetId();
+        parcel.servers = clientDnsAddrs;
+        parcel.interfaceNames.clear();
+        parcel.interfaceNames.push_back(tetheredNetworks.clientIfName());
+        mDnsClient.resolvService()->setResolverConfiguration(parcel);
+
+        auto resolveResultV4 = android_getaddrinfofornet_wrapper(
+                testDomain, tetheredNetworks.clientNetId(), AiFamily::INET);
+        ASSERT_RESULT_OK(resolveResultV4);
+        std::string resultDomainV4 = ToString(resolveResultV4.value());
+        EXPECT_THAT(resultDomainV4, testDomainV4Addr);
+
+        auto resolveResultV6 = android_getaddrinfofornet_wrapper(
+                testDomain, tetheredNetworks.clientNetId(), AiFamily::INET6);
+        ASSERT_RESULT_OK(resolveResultV6);
+        std::string resultDomainV6 = ToString(resolveResultV6.value());
+        EXPECT_THAT(resultDomainV6, testDomainV6Addr);
+    }
+}
