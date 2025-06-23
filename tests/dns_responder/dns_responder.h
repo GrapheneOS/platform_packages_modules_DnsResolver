@@ -206,6 +206,9 @@ class DNSResponder {
     int getUdpSocket() const { return udp_socket_.get(); }
     int getTcpSocket() const { return tcp_socket_.get(); }
 
+    /// Binds the DNS Responder to an interface by it name.
+    bool bindToDevice(const std::string& ifname);
+
     // TODO: Make DNSResponder record unknown queries in a vector for improving the debugging.
     // Unit test could dump the unexpected query for further debug if any unexpected failure.
 
