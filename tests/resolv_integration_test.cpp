@@ -1203,7 +1203,7 @@ TEST_F(ResolverTest, GetAddrInfoForCaseInSensitiveDomains) {
     // Number of queries for HOWDY.example.com would be >= 1 if domain names
     // are considered case-sensitive, else number of queries should be 0.
     const size_t hostname2_count = GetNumQueries(dns, host_name2);
-    EXPECT_EQ(0U,hostname2_count);
+    EXPECT_EQ(0U, hostname2_count);
     std::string hostname2_result_str = ToString(hostname2_result);
     EXPECT_TRUE(hostname2_result_str == "1.2.3.4" || hostname2_result_str == "::1.2.3.4");
 
@@ -7645,7 +7645,9 @@ Result<void> ResolverMultinetworkTest::ScopedNetwork::init() {
     if (!ufd.ok()) {
         return Errorf("createTun for {} failed", mIfname);
     }
-    mTunForwarder = std::make_unique<TunForwarder>(std::move(ufd));
+    std::map<std::string, unique_fd> tunFds;
+    tunFds.emplace(mIfname, std::move(ufd));
+    mTunForwarder = std::make_unique<TunForwarder>(std::move(tunFds));
 
     if (auto r = createNetwork(); !r.ok()) {
         return r;
@@ -7800,12 +7802,14 @@ Result<ResolverMultinetworkTest::DnsServerPair> ResolverMultinetworkTest::Scoped
     std::string real_responder_address = makeIpString(index + 200 + (mNetId - TEST_NETID_BASE));
 
     if (!mTunForwarder->addForwardingRule({real_resolver_address, fake_responder_address},
-                                          {fake_resolver_address, real_responder_address})) {
+                                          {fake_resolver_address, real_responder_address},
+                                          mIfname)) {
         return Errorf("Failed to add the rule - from:({}, {}), to: ({}, {})", real_resolver_address,
                       fake_responder_address, fake_resolver_address, real_responder_address);
     }
     if (!mTunForwarder->addForwardingRule({real_responder_address, fake_resolver_address},
-                                          {fake_responder_address, real_resolver_address})) {
+                                          {fake_responder_address, real_resolver_address},
+                                          mIfname)) {
         return Errorf("Failed to add the rule - from:({}, {}), to: ({}, {})",
                       real_responder_address, fake_resolver_address, fake_responder_address,
                       real_resolver_address);

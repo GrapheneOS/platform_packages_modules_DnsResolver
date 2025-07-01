@@ -102,7 +102,7 @@ bool TunForwarder::v6pair::operator<(const v6pair& o) const {
     return dst < o.dst;
 }
 
-TunForwarder::TunForwarder(unique_fd tunFd) : mTunFd(std::move(tunFd)) {
+TunForwarder::TunForwarder(TunFdMap&& tunFds) : mTunFds(std::move(tunFds)) {
     mEventFd.reset(eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC));
 }
 
@@ -125,18 +125,22 @@ bool TunForwarder::stopForwarding() {
 
 // Assume all of the strings in |from| and |to| are the IP addresses of the same IP version.
 bool TunForwarder::addForwardingRule(const std::array<std::string, 2>& from,
-                                     const std::array<std::string, 2>& to) {
+                                     const std::array<std::string, 2>& to, const std::string& iif) {
+    const auto toFdItr = mTunFds.find(iif);
+    if (toFdItr == mTunFds.end()) {
+        return false;
+    };
     const bool isV4 = (from[0].find(':') == from[0].npos);
     if (isV4) {
         auto k = v4pair::makePair(from);
         auto v = v4pair::makePair(to);
         if (!k.ok() || !v.ok()) return false;
-        mRulesIpv4[k.value()] = v.value();
+        mRulesIpv4[k.value()] = {v.value(), iif};
     } else {
         auto k = v6pair::makePair(from);
         auto v = v6pair::makePair(to);
         if (!k.ok() || !v.ok()) return false;
-        mRulesIpv6[k.value()] = v.value();
+        mRulesIpv6[k.value()] = {v.value(), iif};
     }
     return true;
 }
@@ -153,14 +157,14 @@ unique_fd TunForwarder::createTun(const std::string& ifname) {
     strlcpy(ifr.ifr_name, ifname.data(), sizeof(ifr.ifr_name));
 
     if (ioctl(fd.get(), TUNSETIFF, &ifr) == -1) {
-        PLOG(WARNING) << "failed to bring up tun " << ifr.ifr_name;
+        PLOG(WARNING) << "failed to set tun ifname to " << ifr.ifr_name;
         return {};
     }
 
     unique_fd inet6CtrlSock(socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0));
     ifr.ifr_flags = IFF_UP;
     if (ioctl(inet6CtrlSock.get(), SIOCSIFFLAGS, &ifr) == -1) {
-        PLOG(WARNING) << "failed on SIOCSIFFLAGS " << ifr.ifr_name;
+        PLOG(WARNING) << "failed to bring up tun interface " << ifr.ifr_name;
         return {};
     }
 
@@ -168,23 +172,25 @@ unique_fd TunForwarder::createTun(const std::string& ifname) {
 }
 
 void TunForwarder::loop() {
+    std::vector<struct pollfd> waitFds;
+    waitFds.push_back({mEventFd.get(), POLLIN, 0});
+    for (const auto& [name, fd] : mTunFds) {
+        waitFds.push_back({fd.get(), POLLIN, 0});
+    }
+
     while (true) {
-        struct pollfd wait_fd[] = {
-                {mEventFd, POLLIN, 0},
-                {mTunFd.get(), POLLIN, 0},
-        };
-
-        if (int ret = poll(wait_fd, std::size(wait_fd), kPollTimeoutMs); ret <= 0) {
+        if (const int ret = poll(waitFds.data(), waitFds.size(), kPollTimeoutMs); ret <= 0) {
+            if (ret < 0 && errno != EINTR) PLOG(ERROR) << "poll failed";
             break;
         }
 
-        if (wait_fd[0].revents & (POLLIN | POLLERR)) {
+        if (waitFds[0].revents & (POLLIN | POLLERR)) {
             uint64_t value = 0;
-            eventfd_read(mEventFd, &value);
+            eventfd_read(mEventFd.get(), &value);
             break;
         }
-        if (wait_fd[1].revents & (POLLIN | POLLERR)) {
-            handlePacket(wait_fd[1].fd);
+        for (size_t i = 1; i < waitFds.size(); ++i) {
+            if (waitFds[i].revents & (POLLIN | POLLERR)) handlePacket(waitFds[i].fd);
         }
     }
 }
@@ -203,21 +209,27 @@ void TunForwarder::handlePacket(int fd) const {
 
     // Filter the packet. Only TCP and UDP packets are allowed.
     const Slice tunPacket(buf, readlen);
-    if (auto result = validatePacket(tunPacket); !result.ok()) {
-        LOG(DEBUG) << "validatePacket failed: " << result.error();
+    auto routeResult = validateAndRoutePacket(tunPacket);
+    if (!routeResult.ok()) {
+        LOG(DEBUG) << "validatePacket failed: " << routeResult.error();
         return;
     }
 
     // Change the packet's source/destination address and checksum.
     if (auto result = translatePacket(tunPacket); !result.ok()) {
         LOG(ERROR) << "translatePacket failed: " << result.error();
+        return;
     }
-
+    const auto fdItr = mTunFds.find(routeResult.value());
+    if (fdItr == mTunFds.end()) {
+        LOG(ERROR) << "Interface " << routeResult.value() << " not found";
+        return;
+    }
     // Write the new packet to the fd, causing the kernel to receive it on the tun interface.
-    write(fd, buf, readlen);
+    write(fdItr->second.get(), buf, readlen);
 }
 
-Result<void> TunForwarder::validatePacket(Slice tunPacket) const {
+Result<std::string> TunForwarder::validateAndRoutePacket(Slice tunPacket) const {
     if (tunPacket.size() < TUN_HDRLEN) {
         return Error() << "Too short for a tun header";
     }
@@ -229,15 +241,15 @@ Result<void> TunForwarder::validatePacket(Slice tunPacket) const {
 
     switch (uint16_t proto = ntohs(tunHeader->proto); proto) {
         case ETH_P_IP:
-            return validateIpv4Packet(drop(tunPacket, TUN_HDRLEN));
+            return validateAndRouteIpv4Packet(drop(tunPacket, TUN_HDRLEN));
         case ETH_P_IPV6:
-            return validateIpv6Packet(drop(tunPacket, TUN_HDRLEN));
+            return validateAndRouteIpv6Packet(drop(tunPacket, TUN_HDRLEN));
         default:
             return Error() << "Unsupported packet type 0x" << std::hex << static_cast<int>(proto);
     }
 }
 
-Result<void> TunForwarder::validateIpv4Packet(Slice ipv4Packet) const {
+Result<std::string> TunForwarder::validateAndRouteIpv4Packet(Slice ipv4Packet) const {
     if (ipv4Packet.size() < IP4_HDRLEN) {
         return Error() << "Too short for an ip header";
     }
@@ -252,40 +264,58 @@ Result<void> TunForwarder::validateIpv4Packet(Slice ipv4Packet) const {
     if (ipHeader->version != 4) {
         return Error() << "IP header version not 4: " << ipHeader->version;
     }
-    if (mRulesIpv4.find({ipHeader->saddr, ipHeader->daddr}) == mRulesIpv4.end()) {
+    const auto routeFdItr = mRulesIpv4.find({ipHeader->saddr, ipHeader->daddr});
+    if (routeFdItr == mRulesIpv4.end()) {
         return Error() << "Can't find any v4 rule. Packet hex dump: " << toHex(ipv4Packet, 32);
     }
 
     switch (ipHeader->protocol) {
         case IPPROTO_UDP:
-            return validateUdpPacket(drop(ipv4Packet, ipHeader->ihl * 4));
+            if (const auto result = validateUdpPacket(drop(ipv4Packet, ipHeader->ihl * 4));
+                !result.ok()) {
+                return result.error();
+            }
+            break;
         case IPPROTO_TCP:
-            return validateTcpPacket(drop(ipv4Packet, ipHeader->ihl * 4));
+            if (const auto result = validateTcpPacket(drop(ipv4Packet, ipHeader->ihl * 4));
+                !result.ok()) {
+                return result.error();
+            }
+            break;
         default:
             return Error() << "Unsupported transport protocol "
                            << static_cast<int>(ipHeader->protocol);
     }
+    return routeFdItr->second.second;
 }
 
-Result<void> TunForwarder::validateIpv6Packet(Slice ipv6Packet) const {
+Result<std::string> TunForwarder::validateAndRouteIpv6Packet(Slice ipv6Packet) const {
     if (ipv6Packet.size() < IP6_HDRLEN) {
         return Error() << "Too short for an ipv6 header";
     }
 
     const ip6_hdr* const ipv6Header = reinterpret_cast<ip6_hdr*>(ipv6Packet.base());
-    if (mRulesIpv6.find({ipv6Header->ip6_src, ipv6Header->ip6_dst}) == mRulesIpv6.end()) {
+    const auto routeFdItr = mRulesIpv6.find({ipv6Header->ip6_src, ipv6Header->ip6_dst});
+    if (routeFdItr == mRulesIpv6.end()) {
         return Error() << "Can't find any v6 rule. Packet hex dump: " << toHex(ipv6Packet, 32);
     }
 
     switch (ipv6Header->ip6_nxt) {
         case IPPROTO_UDP:
-            return validateUdpPacket(drop(ipv6Packet, IP6_HDRLEN));
+            if (const auto result = validateUdpPacket(drop(ipv6Packet, IP6_HDRLEN)); !result.ok()) {
+                return result.error();
+            }
+            break;
         case IPPROTO_TCP:
-            return validateTcpPacket(drop(ipv6Packet, IP6_HDRLEN));
+            if (const auto result = validateTcpPacket(drop(ipv6Packet, IP6_HDRLEN)); !result.ok()) {
+                return result.error();
+            }
+            break;
         default:
             return Error() << "Expect TCP/UDP in ipv6 next header: "
                            << static_cast<int>(ipv6Header->ip6_nxt);
     }
+    return routeFdItr->second.second;
 }
 
 Result<void> TunForwarder::validateUdpPacket(Slice udpPacket) const {
@@ -332,8 +362,8 @@ Result<void> TunForwarder::translateIpv4Packet(Slice ipv4Packet) const {
     for (const auto& [from, to] : mRulesIpv4) {
         if (ipHeader->saddr == static_cast<int>(from.src.s_addr) &&
             ipHeader->daddr == static_cast<int>(from.dst.s_addr)) {
-            ipHeader->saddr = to.src.s_addr;
-            ipHeader->daddr = to.dst.s_addr;
+            ipHeader->saddr = to.first.src.s_addr;
+            ipHeader->daddr = to.first.dst.s_addr;
             break;
         }
     }
@@ -366,8 +396,8 @@ Result<void> TunForwarder::translateIpv6Packet(Slice ipv6Packet) const {
             ipv6_pseudo_header_checksum(ipv6Header, transport_len, ipv6Header->ip6_nxt);
     for (const auto& [from, to] : mRulesIpv6) {
         if (ipv6Header->ip6_src == from.src && ipv6Header->ip6_dst == from.dst) {
-            ipv6Header->ip6_src = to.src;
-            ipv6Header->ip6_dst = to.dst;
+            ipv6Header->ip6_src = to.first.src;
+            ipv6Header->ip6_dst = to.first.dst;
             break;
         }
     }
