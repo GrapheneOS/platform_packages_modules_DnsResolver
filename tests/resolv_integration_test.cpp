@@ -111,6 +111,7 @@ using aidl::android::net::ResolverParamsParcel;
 using aidl::android::net::UidRangeParcel;
 using aidl::android::net::metrics::INetdEventListener;
 using aidl::android::net::netd::aidl::NativeUidRangeConfig;
+using aidl::android::net::resolv::aidl::DnsForwardingParamsParcel;
 using aidl::android::net::resolv::aidl::DnsHealthEventParcel;
 using aidl::android::net::resolv::aidl::IDnsResolverUnsolicitedEventListener;
 using aidl::android::net::resolv::aidl::Nat64PrefixEventParcel;
@@ -7454,7 +7455,7 @@ class ResolverMultinetworkTest : public ResolverTest {
             return fmt::format("192.168.{}.{}", (mNetId - TEST_NETID_BASE), n);
         }
         std::string makeIpv6AddrString(uint8_t n) const {
-            return fmt::format("2001:db8:{}::{}", (mNetId - TEST_NETID_BASE), n);
+            return fmt::format("2001:db8:{:x}::{:x}", (mNetId - TEST_NETID_BASE), n);
         }
 
       protected:
@@ -7567,6 +7568,121 @@ class ResolverMultinetworkTest : public ResolverTest {
         std::unordered_set<int> mVpnIsolationUids;
         Firewall* mFw;
     };
+
+    /**
+     * ScopedTetheredNetworks sets up a simulated tethering environment between a tethering device
+     * and a client device.
+     *
+     * This class creates two networks, each with its own TUN interface:
+     * 1. `client network`: Simulates the network on a client device connected to the tethering
+           device.
+     * 2. `downstream network`: Simulates the tethering device's downstream network that connects
+     *     the client device to the tethering device.
+     *
+     * The `downstream network` does not have internet access (in particular, remote DNS server) by
+     * itself. Instead, an `upstream network` on the tethering device is required. The upstream
+     * network is added by `setUpstreamNetwork`.
+     *
+     * For an end-to-end test, a ScopedTetheredNetworks needs the following setup steps:
+     * 1. Constructor.
+     * 2. `init` to build the tun interfaces and `TunForwarder`.
+     * 3. `setClientToDownstreamIpv4Forwarding` and/or `setClientToDownstreamIpv6Forwarding`
+     *    to prepare forwarding between the client device and the tethering device.
+     * 4. startClientToDownstreamForwarding that starts the forwarding, connecting the client device
+          to the tethering device.
+     * 5. setUpstreamNetwork that sets or updates the upstream network on the tethering device.
+     */
+    class ScopedTetheredNetworks {
+      public:
+        ScopedTetheredNetworks(unsigned clientNetId, unsigned downstreamNetId,
+                               ConnectivityType type, INetd* netdSrv, IDnsResolver* dnsResolvSrv,
+                               const char* networkName)
+            : mConnectivityType(type),
+              mNetdSrv(netdSrv),
+              mDnsResolvSrv(dnsResolvSrv),
+              mNetworkName(networkName),
+              mClientNetId(clientNetId),
+              mDownstreamNetId(downstreamNetId),
+              mClientIfName(fmt::format("cltun{}", clientNetId)),
+              mDownstreamIfName(fmt::format("dstun{}", downstreamNetId)) {}
+        ~ScopedTetheredNetworks() {
+            if (mNetdSrv != nullptr) {
+                mNetdSrv->networkDestroy(mClientNetId);
+                mNetdSrv->networkDestroy(mDownstreamNetId);
+                if (mUpstreamIfName.length() > 0) {
+                    mNetdSrv->tetherRemoveForward(mDownstreamIfName, mUpstreamIfName);
+                }
+            }
+            if (mDnsResolvSrv != nullptr) {
+                mDnsResolvSrv->destroyNetworkCache(mClientNetId);
+                mDnsResolvSrv->destroyNetworkCache(mDownstreamNetId);
+                const auto downstreamIfIndex = if_nametoindex(mDownstreamIfName.c_str());
+                if (downstreamIfIndex > 0) {
+                    mDnsResolvSrv->setDnsForwarding(downstreamIfIndex, {});
+                }
+            }
+        }
+        // Creates the client and downstream networks and their respective tun interfaces, and
+        // creates the TunForwarder to forward packets between the two tun interfaces.
+        Result<void> init();
+        // Setup IPv4 forwarding rules between the client network and the downstream network.
+        // Returns the destination address of the downstream on the client network.
+        Result<std::string> setClientToDownstreamIpv4Forwarding() {
+            return setupForwarding(ConnectivityType::V4);
+        };
+        // Setup IPv6 forwarding rules between the client network and the downstream network.
+        // Returns the destination address of the downstream on the client network.
+        Result<std::string> setClientToDownstreamIpv6Forwarding() {
+            return setupForwarding(ConnectivityType::V6);
+        };
+        // Starts traffic forwarding between the client network and the downstream network.
+        bool startClientToDownstreamForwarding() { return mTunForwarder->startForwarding(); }
+        // Sets the tethering forwarding rules from the downstream to the upstream network on the
+        // tethering device.
+        Result<void> setUpstreamNetwork(const std::string& upstreamIfname, unsigned upstreamNetId);
+        unsigned clientNetId() const { return mClientNetId; }
+        unsigned downstreamNetId() const { return mDownstreamNetId; }
+        const std::string& clientIfName() const { return mClientIfName; }
+        const std::string& downstreamIfName() const { return mDownstreamIfName; }
+        std::string clientIpv4Addr() const { return makeIpv4AddrString(mClientNetId, 1); }
+        std::string clientIpv6Addr() const { return makeIpv6AddrString(mClientNetId, 1); }
+
+      private:
+        Result<unique_fd> initNetwork(unsigned netId, const std::string& ifname);
+        static std::string makeIpAddrString(unsigned netId, uint8_t n, ConnectivityType type) {
+            return type == ConnectivityType::V4 ? makeIpv4AddrString(netId, n)
+                                                : makeIpv6AddrString(netId, n);
+        }
+        static std::string makeIpv4AddrString(unsigned netId, uint8_t n) {
+            return fmt::format("192.168.{}.{}", (netId - TEST_NETID_BASE), n);
+        }
+        static std::string makeIpv6AddrString(unsigned netId, uint8_t n) {
+            return fmt::format("2001:db8:{:x}::{:x}", (netId - TEST_NETID_BASE), n);
+        }
+        Result<std::string> setupForwarding(ConnectivityType type);
+
+        const ConnectivityType mConnectivityType;
+        INetd* mNetdSrv;
+        IDnsResolver* mDnsResolvSrv;
+        const std::string mNetworkName;
+        std::unique_ptr<TunForwarder> mTunForwarder;
+        const unsigned mClientNetId;
+        const unsigned mDownstreamNetId;
+        unsigned mUpstreamNetId;
+        std::string mClientIfName;
+        std::string mDownstreamIfName;
+        std::string mUpstreamIfName;
+    };
+
+    ScopedTetheredNetworks CreateScopedTetheredNetworks(ConnectivityType type,
+                                                        const char* name = "Tethered") {
+        return {getFreeNetId(),
+                getFreeNetId(),
+                type,
+                mDnsClient.netdService(),
+                mDnsClient.resolvService(),
+                name};
+    }
 
     void SetUp() override {
         ResolverTest::SetUp();
@@ -7686,6 +7802,123 @@ Result<void> ResolverMultinetworkTest::ScopedNetwork::init() {
         }
     }
 
+    return {};
+}
+
+Result<unique_fd> ResolverMultinetworkTest::ScopedTetheredNetworks::initNetwork(
+        unsigned netId, const std::string& ifname) {
+    if (mNetdSrv == nullptr || mDnsResolvSrv == nullptr) {
+        return Error() << "INetd or IDnsResolver is not available";
+    }
+    unique_fd ufd = TunForwarder::createTun(ifname);
+    if (!ufd.ok()) {
+        return Errorf("createTun for {} failed", ifname);
+    }
+    const auto& config = DnsResponderClient::makeNativeNetworkConfig(
+            netId, NativeNetworkType::PHYSICAL, INetd::PERMISSION_NONE, /*secure=*/false);
+
+    if (const auto r = mNetdSrv->networkCreate(config); !r.isOk()) {
+        return Error() << r.getMessage();
+    }
+
+    if (const auto r = mDnsResolvSrv->createNetworkCache(netId); !r.isOk()) {
+        return Error() << r.getMessage();
+    }
+    if (const auto r = mNetdSrv->networkAddInterface(netId, ifname); !r.isOk()) {
+        return Error() << r.getMessage();
+    }
+
+    if (mConnectivityType == ConnectivityType::V4 || mConnectivityType == ConnectivityType::V4V6) {
+        const std::string v4Addr = makeIpv4AddrString(netId, 1);
+        if (auto r = mNetdSrv->interfaceAddAddress(ifname, v4Addr, 24); !r.isOk()) {
+            return Error() << r.getMessage();
+        }
+        if (auto r = mNetdSrv->networkAddRoute(netId, ifname, "0.0.0.0/0", ""); !r.isOk()) {
+            return Error() << r.getMessage();
+        }
+    }
+    if (mConnectivityType == ConnectivityType::V6 || mConnectivityType == ConnectivityType::V4V6) {
+        const std::string v6Addr = makeIpv6AddrString(netId, 1);
+        if (auto r = mNetdSrv->interfaceAddAddress(ifname, v6Addr, 64); !r.isOk()) {
+            return Error() << r.getMessage();
+        }
+        if (auto r = mNetdSrv->networkAddRoute(netId, ifname, "::/0", ""); !r.isOk()) {
+            return Error() << r.getMessage();
+        }
+    }
+    return std::move(ufd);
+}
+
+Result<void> ResolverMultinetworkTest::ScopedTetheredNetworks::init() {
+    auto clientFd = initNetwork(mClientNetId, mClientIfName);
+    if (!clientFd.ok()) {
+        return clientFd.error();
+    }
+    auto downstreamFd = initNetwork(mDownstreamNetId, mDownstreamIfName);
+    if (!downstreamFd.ok()) {
+        mNetdSrv->networkDestroy(mClientNetId);
+        mDnsResolvSrv->destroyNetworkCache(mClientNetId);
+        return downstreamFd.error();
+    }
+    std::map<std::string, unique_fd> tunFds;
+    tunFds.emplace(mClientIfName, std::move(clientFd.value()));
+    tunFds.emplace(mDownstreamIfName, std::move(downstreamFd.value()));
+    mTunForwarder = std::make_unique<TunForwarder>(std::move(tunFds));
+    return {};
+}
+
+/* Setup the forwarding between the client and the downstream.
+ *
+ * Implemented as follows:
+ *
+ * client -> downstream outbound:
+ * - client TUN (tun0) sends packet |clientAddr| -> |clientNbrAddr|, received on tun0 FD
+ * - TunForwarder swaps the packet content with address |downstreamNbrAddr| -> |downstreamAddr|, and
+ * send the modified packet to downstream TUN (tun1) FD.
+ * - The listening service on downstream (e.g.: DNS proxy) listens on |downstreamAddr|.
+ *
+ * client <- downstream return:
+ * - service on downstream sends packet |downstreamAddr| -> |downstreamNbrAddr|, received on tun1
+ * FD.
+ * - TunForwarder swaps the packet content with address |clientNbrAddr| -> |clientAddr|, and send
+ * the modified packet to tun0 FD.
+ * - The client receives packet.
+ *
+ * To ensure the traffic go through the correct interface:
+ * - client and downstream are on disjoint subnets
+ * - |clientAddr| and |clientNbrAddr| are on the same subnet.
+ * - |downstreamAddr| and |downstreamNbrAddr| are on the saame subnet.
+ */
+Result<std::string> ResolverMultinetworkTest::ScopedTetheredNetworks::setupForwarding(
+        ConnectivityType type) {
+    const std::string clientNbrAddr = makeIpAddrString(mClientNetId, 2, type);
+    const std::string clientAddr = makeIpAddrString(mClientNetId, 1, type);
+    const std::string downstreamNbrAddr = makeIpAddrString(mDownstreamNetId, 2, type);
+    const std::string downstreamAddr = makeIpAddrString(mDownstreamNetId, 1, type);
+    // client->downstream forwarding rule:
+    if (!mTunForwarder->addForwardingRule({clientAddr, clientNbrAddr},
+                                          {downstreamNbrAddr, downstreamAddr}, mDownstreamIfName)) {
+        return Error() << "Add client->downstream forwarding rule failed";
+    }
+    // downstream->client forwarding rule:
+    if (!mTunForwarder->addForwardingRule({downstreamAddr, downstreamNbrAddr},
+                                          {clientNbrAddr, clientAddr}, mClientIfName)) {
+        return Error() << "Add downstream->client forwarding rule failed";
+    }
+    return clientNbrAddr;
+}
+
+Result<void> ResolverMultinetworkTest::ScopedTetheredNetworks::setUpstreamNetwork(
+        const std::string& upstreamIfname, unsigned upstreamNetId) {
+    mUpstreamIfName = upstreamIfname;
+    mUpstreamNetId = upstreamNetId;
+    if (const auto r = mNetdSrv->tetherAddForward(mDownstreamIfName, mUpstreamIfName); !r.isOk()) {
+        return Error() << r.getMessage();
+    }
+    const auto downstreamIfIndex = if_nametoindex(mDownstreamIfName.c_str());
+    const DnsForwardingParamsParcel upstreamParams{static_cast<int32_t>(mUpstreamNetId),
+                                                   AID_DNS_TETHER};
+    mDnsResolvSrv->setDnsForwarding(downstreamIfIndex, upstreamParams);
     return {};
 }
 
