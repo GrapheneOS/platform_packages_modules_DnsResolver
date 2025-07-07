@@ -156,11 +156,11 @@ class DNSResponder {
                  DNSResponder::MappingType mapping_type = MappingType::ADDRESS_OR_HOSTNAME);
 
     DNSResponder(ns_rcode error_rcode)
-        : DNSResponder(kDefaultListenAddr, kDefaultListenService, error_rcode){};
+        : DNSResponder(kDefaultListenAddr, kDefaultListenService, error_rcode) {};
 
     DNSResponder(MappingType mapping_type)
-        : DNSResponder(kDefaultListenAddr, kDefaultListenService, kDefaultErrorCode,
-                       mapping_type){};
+        : DNSResponder(kDefaultListenAddr, kDefaultListenService, kDefaultErrorCode, mapping_type) {
+          };
 
     DNSResponder(unsigned netId, std::string listen_address) : DNSResponder(listen_address) {
         mNetId = netId;
