@@ -7662,7 +7662,11 @@ Result<void> ResolverMultinetworkTest::ScopedNetwork::init() {
         if (auto r = mNetdSrv->interfaceAddAddress(mIfname, v4Addr, 32); !r.isOk()) {
             return Error() << r.getMessage();
         }
-        if (auto r = mNetdSrv->networkAddRoute(mNetId, mIfname, "0.0.0.0/0", ""); !r.isOk()) {
+        aidl::android::net::RouteInfoParcel parcel;
+        parcel.ifName = mIfname;
+        parcel.destination = "0.0.0.0/0";
+        parcel.nextHop = "";
+        if (auto r = mNetdSrv->networkAddRouteParcel(mNetId, parcel); !r.isOk()) {
             return Error() << r.getMessage();
         }
     }
@@ -7671,7 +7675,11 @@ Result<void> ResolverMultinetworkTest::ScopedNetwork::init() {
         if (auto r = mNetdSrv->interfaceAddAddress(mIfname, v6Addr, 128); !r.isOk()) {
             return Error() << r.getMessage();
         }
-        if (auto r = mNetdSrv->networkAddRoute(mNetId, mIfname, "::/0", ""); !r.isOk()) {
+        aidl::android::net::RouteInfoParcel parcel;
+        parcel.ifName = mIfname;
+        parcel.destination = "::/0";
+        parcel.nextHop = "";
+        if (auto r = mNetdSrv->networkAddRouteParcel(mNetId, parcel); !r.isOk()) {
             return Error() << r.getMessage();
         }
     }
@@ -8220,9 +8228,11 @@ TEST_F(ResolverMultinetworkTest, AI_ADDRCONFIG_DnsWithLinkLocalIPv6AndDefaultRou
     ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::NONE);
     ASSERT_RESULT_OK(network.init());
 
-    ASSERT_TRUE(mDnsClient.netdService()
-                        ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
-                        .isOk());
+    aidl::android::net::RouteInfoParcel parcel;
+    parcel.ifName = network.ifname();
+    parcel.destination = "::/0";
+    parcel.nextHop = "";
+    ASSERT_TRUE(mDnsClient.netdService()->networkAddRouteParcel(network.netId(), parcel).isOk());
 
     const Result<DnsServerPair> dnsPair = network.addIpv6Dns();
     ASSERT_RESULT_OK(dnsPair);
@@ -8252,9 +8262,11 @@ TEST_F(ResolverMultinetworkTest, AI_ADDRCONFIG_DnsWithGlobalIPv6AndDefaultRouteS
     ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::NONE);
     ASSERT_RESULT_OK(network.init());
 
-    ASSERT_TRUE(mDnsClient.netdService()
-                        ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
-                        .isOk());
+    aidl::android::net::RouteInfoParcel parcel;
+    parcel.ifName = network.ifname();
+    parcel.destination = "::/0";
+    parcel.nextHop = "";
+    ASSERT_TRUE(mDnsClient.netdService()->networkAddRouteParcel(network.netId(), parcel).isOk());
 
     const Result<DnsServerPair> dnsPair = network.addIpv6Dns();
     ASSERT_RESULT_OK(dnsPair);
@@ -8330,9 +8342,11 @@ TEST_F(ResolverMultinetworkTest, AI_ADDRCONFIG_MdnsWithLinkLocalIPv6AndDefaultRo
     ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::NONE);
     ASSERT_RESULT_OK(network.init());
 
-    ASSERT_TRUE(mDnsClient.netdService()
-                        ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
-                        .isOk());
+    aidl::android::net::RouteInfoParcel parcel;
+    parcel.ifName = network.ifname();
+    parcel.destination = "::/0";
+    parcel.nextHop = "";
+    ASSERT_TRUE(mDnsClient.netdService()->networkAddRouteParcel(network.netId(), parcel).isOk());
     // Ensuring that routing is applied. This is required for mainline test (b/247693272).
     usleep(1000 * 1000);
 
@@ -8458,9 +8472,11 @@ TEST_F(ResolverMultinetworkTest, getaddrinfo_DoesNotPopulateScopeIDWhenDnsReturn
     ScopedPhysicalNetwork network = CreateScopedPhysicalNetwork(ConnectivityType::NONE);
     ASSERT_RESULT_OK(network.init());
 
-    ASSERT_TRUE(mDnsClient.netdService()
-                        ->networkAddRoute(network.netId(), network.ifname(), "::/0", "")
-                        .isOk());
+    aidl::android::net::RouteInfoParcel parcel;
+    parcel.ifName = network.ifname();
+    parcel.destination = "::/0";
+    parcel.nextHop = "";
+    ASSERT_TRUE(mDnsClient.netdService()->networkAddRouteParcel(network.netId(), parcel).isOk());
 
     const Result<DnsServerPair> dnsPair = network.addIpv6Dns();
     ASSERT_RESULT_OK(dnsPair);
