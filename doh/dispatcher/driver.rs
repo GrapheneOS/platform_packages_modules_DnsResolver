@@ -103,7 +103,7 @@ impl Driver {
 
     async fn probe(&mut self, info: ServerInfo, timeout: Duration) -> Result<()> {
         use std::collections::hash_map::Entry;
-        if !self.networks.get(&info.net_id).map_or(true, |net| net.get_info() == &info) {
+        if !self.networks.get(&info.net_id).is_none_or(|net| net.get_info() == &info) {
             // If we have a network registered to the provided net_id, but the server info doesn't
             // match, our API has been used incorrectly. Attempt to recover by deleting the old
             // network and recreating it according to the probe request.

@@ -129,14 +129,14 @@ impl TryFrom<&[u8]> for DnsHeader {
         let ar_count = raw.get_u16();
         Ok(Self {
             id,
-            qr_is_response: flags >> 15 & 0x1 != 0,
-            opcode: (flags >> 11 & 0xf).into(),
-            aa: flags >> 10 & 0x1 != 0,
-            tc: flags >> 9 & 0x1 != 0,
-            rd: flags >> 8 & 0x1 != 0,
-            ra: flags >> 7 & 0x1 != 0,
-            ad: flags >> 5 & 0x1 != 0,
-            cd: flags >> 4 & 0x1 != 0,
+            qr_is_response: ((flags >> 15) & 0x1) != 0,
+            opcode: ((flags >> 11) & 0xf).into(),
+            aa: (flags >> 10) & 0x1 != 0,
+            tc: (flags >> 9) & 0x1 != 0,
+            rd: (flags >> 8) & 0x1 != 0,
+            ra: (flags >> 7) & 0x1 != 0,
+            ad: (flags >> 5) & 0x1 != 0,
+            cd: (flags >> 4) & 0x1 != 0,
             rcode: (flags & 0xf).into(),
             qd_count,
             an_count,
@@ -151,14 +151,14 @@ impl From<DnsHeader> for [u8; DNS_HEADER_LEN] {
         let mut bytes = [0u8; DNS_HEADER_LEN];
         let mut bytes_mut = bytes.as_mut_slice();
         bytes_mut.put_u16(value.id);
-        let flags: u16 = (value.qr_is_response as u16) << 15
-            | u16::from(value.opcode) << 11
-            | (value.aa as u16) << 10
-            | (value.tc as u16) << 9
-            | (value.rd as u16) << 8
-            | (value.ra as u16) << 7
-            | (value.ad as u16) << 5
-            | (value.cd as u16) << 4
+        let flags: u16 = ((value.qr_is_response as u16) << 15)
+            | (u16::from(value.opcode) << 11)
+            | ((value.aa as u16) << 10)
+            | ((value.tc as u16) << 9)
+            | ((value.rd as u16) << 8)
+            | ((value.ra as u16) << 7)
+            | ((value.ad as u16) << 5)
+            | ((value.cd as u16) << 4)
             | u16::from(value.rcode);
         bytes_mut.put_u16(flags);
         bytes_mut.put_u16(value.qd_count);
