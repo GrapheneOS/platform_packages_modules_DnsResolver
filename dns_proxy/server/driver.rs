@@ -289,13 +289,13 @@ async fn udp_recv(socket: &UdpSocket) -> Result<(Vec<u8>, SocketAddr)> {
 }
 
 async fn resolve_and_send_udp(socket: UdpSocket, query: UdpDnsQuery) -> Result<()> {
-    // TODO (b:379992903): randomize DNS ID.
+    // TODO: b/379992903 - Randomize DNS ID.
     let query_dns_id = query.query_packet.header().id;
     socket.send(query.query_packet.as_bytes()).await?;
 
     let (buf, _) = udp_recv(&socket).await?;
-    // TODO: if try_from() or the subsequent ID comparison fails, udp_recv() should be called again
-    // until the packet is received or some timeout occurs.
+    // TODO: b/430720622 - If try_from() or the subsequent ID comparison fails, udp_recv() should be
+    // called again until the packet is received or some timeout occurs.
     // Alternatively, consider responding with a ServFail.
     let response = DnsPacket::try_from(buf)?;
     if response.header().id != query_dns_id {
