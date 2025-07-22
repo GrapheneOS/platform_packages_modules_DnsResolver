@@ -23,6 +23,7 @@
 #include <aidl/android/net/ResolverParamsParcel.h>
 #include <android/binder_ibinder.h>
 
+#include "DnsProxy.h"
 #include "netd_resolv/resolv.h"
 
 namespace android {
@@ -70,9 +71,17 @@ class DnsResolverService : public aidl::android::net::BnDnsResolver {
     // Debug log command
     ::ndk::ScopedAStatus setLogSeverity(int32_t logSeverity) override;
 
+    // DNS proxy commands
+    ::ndk::ScopedAStatus setDnsForwarding(
+            int32_t downstreamIfIndex,
+            const std::optional<aidl::android::net::resolv::aidl::DnsForwardingParamsParcel>&
+                    forwardingParams) override;
+
     DnsResolverService();
 
   private:
+    // DNS proxy instance
+    dns_proxy_ffi::DnsProxy mDnsProxy;
     // TODO: Remove below items after libbiner_ndk supports check_permission.
     ::ndk::ScopedAStatus checkAnyPermission(const std::vector<const char*>& permissions);
 };

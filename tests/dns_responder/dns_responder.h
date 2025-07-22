@@ -156,11 +156,11 @@ class DNSResponder {
                  DNSResponder::MappingType mapping_type = MappingType::ADDRESS_OR_HOSTNAME);
 
     DNSResponder(ns_rcode error_rcode)
-        : DNSResponder(kDefaultListenAddr, kDefaultListenService, error_rcode){};
+        : DNSResponder(kDefaultListenAddr, kDefaultListenService, error_rcode) {};
 
     DNSResponder(MappingType mapping_type)
-        : DNSResponder(kDefaultListenAddr, kDefaultListenService, kDefaultErrorCode,
-                       mapping_type){};
+        : DNSResponder(kDefaultListenAddr, kDefaultListenService, kDefaultErrorCode, mapping_type) {
+          };
 
     DNSResponder(unsigned netId, std::string listen_address) : DNSResponder(listen_address) {
         mNetId = netId;
@@ -205,6 +205,9 @@ class DNSResponder {
     std::optional<unsigned> getNetwork() const { return mNetId; }
     int getUdpSocket() const { return udp_socket_.get(); }
     int getTcpSocket() const { return tcp_socket_.get(); }
+
+    /// Binds the DNS Responder to an interface by it name.
+    bool bindToDevice(const std::string& ifname);
 
     // TODO: Make DNSResponder record unknown queries in a vector for improving the debugging.
     // Unit test could dump the unexpected query for further debug if any unexpected failure.

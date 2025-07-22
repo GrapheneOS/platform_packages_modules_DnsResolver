@@ -287,6 +287,7 @@ cc_test {
         "libcrypto_static",
         "libconnectivity_native_test_utils",
         "libcutils",
+        "libdns_proxy_ffi",
         "libdoh_ffi_for_test",
         "libgmock",
         "libnetd_resolv",
@@ -394,6 +395,10 @@ cc_defaults {
         "libnetd_resolv_headers",
         "dnsproxyd_protocol_headers",
     ],
+    generated_headers: [
+        "cxx-bridge-header",
+        "libdns_proxy_cxx_bridge_header",
+    ],
     shared_libs: [
         "libbinder_ndk",
         "libstatssocket",
@@ -401,6 +406,7 @@ cc_defaults {
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
         "libcrypto_static",
+        "libdns_proxy_ffi",
         "libdoh_fuzz_ffi",
         "libgtest",
         "libnetdutils",

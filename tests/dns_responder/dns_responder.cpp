@@ -17,6 +17,7 @@
 #include "dns_responder.h"
 
 #include <arpa/inet.h>
+#include <asm-generic/socket.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <stdarg.h>
@@ -1292,6 +1293,20 @@ unique_fd DNSResponder::createListeningSocket(int socket_type) {
         }
     }
     return {};
+}
+
+bool DNSResponder::bindToDevice(const std::string& ifname) {
+    if (setsockopt(udp_socket_.get(), SOL_SOCKET, SO_BINDTODEVICE, ifname.c_str(), ifname.size()) ==
+        -1) {
+        PLOG(ERROR) << "Error binding UDP socket to interface " << ifname;
+        return false;
+    }
+    if (setsockopt(tcp_socket_.get(), SOL_SOCKET, SO_BINDTODEVICE, ifname.c_str(), ifname.size()) ==
+        -1) {
+        PLOG(ERROR) << "Error binding TCP socket to interface " << ifname;
+        return false;
+    }
+    return true;
 }
 
 }  // namespace test
