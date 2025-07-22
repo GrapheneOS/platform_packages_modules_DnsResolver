@@ -27,18 +27,23 @@
 #include <netdutils/Slice.h>
 
 namespace android::net {
-
-// Given a TUN interface fd, TunForwarder reads packets from the fd, changes their IP header
-// according to a set of forwarding rules (which can be set by addForwardingRule), and sends
-// new packets back to the fd. Only IPv4 and IPv6 packets with recognized source and destination
-// addresses are accepted; other packets are silently ignored.
+// TunForwarder listens onto TUN interfaces, and masquerades clients sending packets based on
+// forwarding rules. Given a TUN interface fd, TunForwarder reads packets from the fd, changes their
+// IP header according to a set of forwarding rules (which can be set by addForwardingRule), and
+// sends the new packets back to the destination fd specified by the forwarding rule. Only IPv4 and
+// IPv6 packets with recognized source and destination address pairs are accepted; other packets are
+// silently ignored.
 class TunForwarder {
   public:
-    TunForwarder(base::unique_fd tunFd);
+    using TunFdMap = std::map<std::string, base::unique_fd>;
+    TunForwarder(TunFdMap&&);
     ~TunForwarder();
 
+    // The forwarding rule is from a pair of src and dst IP addresses to another pair of src and dst
+    // IP addresses, and the packet will be sent as input to the tunnel interface specified by |iif|
+    // by matching on the first pair of src and dst IP addresses.
     bool addForwardingRule(const std::array<std::string, 2>& from,
-                           const std::array<std::string, 2>& to);
+                           const std::array<std::string, 2>& to, const std::string& iif);
     bool startForwarding();
     bool stopForwarding();
 
@@ -76,10 +81,12 @@ class TunForwarder {
     // Send a signal to terminate the loop thread.
     bool signalEventFd();
 
-    // A series of functions to check the packet. Return error if the packet is neither UDP nor TCP.
-    base::Result<void> validatePacket(netdutils::Slice tunPacket) const;
-    base::Result<void> validateIpv4Packet(netdutils::Slice ipv4Packet) const;
-    base::Result<void> validateIpv6Packet(netdutils::Slice ipv6Packet) const;
+    // A series of functions to check the packet, and which FD should be used to forward the packet.
+    // Returns the ifname where the packet shall be sent, or an error if the packet is neither UDP
+    // nor TCP.
+    base::Result<std::string> validateAndRoutePacket(netdutils::Slice tunPacket) const;
+    base::Result<std::string> validateAndRouteIpv4Packet(netdutils::Slice ipv4Packet) const;
+    base::Result<std::string> validateAndRouteIpv6Packet(netdutils::Slice ipv6Packet) const;
     base::Result<void> validateUdpPacket(netdutils::Slice udpPacket) const;
     base::Result<void> validateTcpPacket(netdutils::Slice tcpPacket) const;
 
@@ -94,10 +101,10 @@ class TunForwarder {
                             uint32_t newPseudoSum) const;
 
     std::thread mForwarder;
-    base::unique_fd mTunFd;
+    const TunFdMap mTunFds;
     base::unique_fd mEventFd;
-    std::map<v4pair, v4pair> mRulesIpv4;
-    std::map<v6pair, v6pair> mRulesIpv6;
+    std::map<v4pair, std::pair<v4pair, std::string>> mRulesIpv4;
+    std::map<v6pair, std::pair<v6pair, std::string>> mRulesIpv6;
 
     static constexpr int kPollTimeoutMs = 5000;
 };

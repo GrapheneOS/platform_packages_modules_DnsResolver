@@ -41,6 +41,8 @@ using android::base::Join;
 using android::netdutils::DumpWriter;
 using android::netdutils::IPPrefix;
 
+constexpr uint16_t DNS_PORT = 53;
+
 namespace android {
 namespace net {
 
@@ -317,6 +319,21 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
     int res = resolv_set_allow_bypass_private_dns_on_network(netId, uid, allowed);
 
     return statusFromErrcode(res);
+}
+
+::ndk::ScopedAStatus DnsResolverService::setDnsForwarding(
+        int32_t downstreamIfIndex,
+        const std::optional<aidl::android::net::resolv::aidl::DnsForwardingParamsParcel>&
+                forwardingParams) {
+    ENFORCE_NETWORK_STACK_PERMISSIONS();
+    if (forwardingParams.has_value()) {
+        mDnsProxy.configureDnsProxy(forwardingParams.value().netId, forwardingParams.value().uid,
+                                    downstreamIfIndex, DNS_PORT);
+    } else {
+        mDnsProxy.stopDnsProxy(downstreamIfIndex, DNS_PORT);
+    }
+
+    return ::ndk::ScopedAStatus(AStatus_newOk());
 }
 
 }  // namespace net
