@@ -8079,12 +8079,19 @@ bool ResolverMultinetworkTest::ScopedNetwork::clearDnsConfiguration() const {
 
 namespace {
 
+enum class AiFamily {
+    UNSPEC = AF_UNSPEC,
+    INET = AF_INET,
+    INET6 = AF_INET6,
+};
+
 // Convenient wrapper for making getaddrinfo call like framework.
-Result<ScopedAddrinfo> android_getaddrinfofornet_wrapper(const char* name, int netId) {
+Result<ScopedAddrinfo> android_getaddrinfofornet_wrapper(const char* name, int netId,
+                                                         AiFamily af = AiFamily::UNSPEC) {
     // Use the same parameter as libcore/ojluni/src/main/java/java/net/Inet6AddressImpl.java.
-    static const addrinfo hints = {
+    const addrinfo hints = {
             .ai_flags = AI_ADDRCONFIG,
-            .ai_family = AF_UNSPEC,
+            .ai_family = static_cast<int>(af),
             .ai_socktype = SOCK_STREAM,
     };
     addrinfo* result = nullptr;
