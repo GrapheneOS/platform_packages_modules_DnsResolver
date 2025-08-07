@@ -20,5 +20,5 @@
 
 #[cfg(feature = "android-ffi")]
 mod ffi;
-pub(crate) mod packet;
+mod packet;
 mod server;
