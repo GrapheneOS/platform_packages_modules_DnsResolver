@@ -38,7 +38,7 @@ impl Driver {
 
     async fn drive_once(&mut self) -> Result<()> {
         if let Some(_command) = self.command_rx.recv().await {
-            Ok(())
+            todo!();
         } else {
             bail!("Death due command_tx dying.")
         }

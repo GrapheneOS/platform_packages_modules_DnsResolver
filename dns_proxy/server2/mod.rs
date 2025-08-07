@@ -15,7 +15,7 @@
  */
 
 use anyhow::Result;
-use log::error;
+use log::info;
 use std::thread;
 use tokio::runtime;
 use tokio::sync::mpsc;
@@ -27,6 +27,7 @@ pub enum Command {}
 
 pub struct Server {
     command_tx: mpsc::Sender<Command>,
+    join_handle: thread::JoinHandle<()>,
 }
 
 impl Server {
@@ -34,13 +35,38 @@ impl Server {
     pub fn new() -> Result<Server> {
         let runtime = runtime::Builder::new_current_thread().enable_all().build()?;
         let (command_tx, command_rx) = mpsc::channel::<Command>(100 /*capacity*/);
-        thread::spawn(move || {
+        let join_handle = thread::spawn(move || {
             runtime.block_on(async {
                 if let Err(e) = Driver::new(command_rx).drive().await {
-                    error!("Server exited due to {:?}", e);
+                    info!("Server exited due to {:?}", e);
                 }
             });
         });
-        Ok(Server { command_tx })
+        Ok(Server { command_tx, join_handle })
+    }
+
+    pub fn send_command(&self, command: Command) -> Result<()> {
+        self.command_tx.blocking_send(command)?;
+        Ok(())
+    }
+
+    // TODO: consider calling stop() in a Drop trait impl; however, joining threads inside drop()
+    // is generally considered bad practice.
+    pub fn stop(self) {
+        // Dropping command_tx causes command_rx.recv() to fail and subsequently causes termination
+        // of the driver.
+        drop(self.command_tx);
+        let _ = self.join_handle.join();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_start_stop() {
+        let server = Server::new().unwrap();
+        server.stop();
     }
 }
