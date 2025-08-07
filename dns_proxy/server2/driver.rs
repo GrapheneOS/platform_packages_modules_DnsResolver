@@ -19,15 +19,20 @@
 use super::Command;
 use anyhow::bail;
 use anyhow::Result;
+use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
 pub struct Driver {
     command_rx: mpsc::Receiver<Command>,
+    downstream_udp_socket: UdpSocket,
 }
 
 impl Driver {
-    pub fn new(command_rx: mpsc::Receiver<Command>) -> Self {
-        Self { command_rx }
+    pub fn new(command_rx: mpsc::Receiver<Command>, udp_socket: std::net::UdpSocket) -> Self {
+        let _ = udp_socket.set_nonblocking(true);
+        // Conversion from std::net::UdpSocket to tokio::net::UdpSocket is not expected to fail.
+        let downstream_udp_socket = UdpSocket::from_std(udp_socket).unwrap();
+        Self { command_rx, downstream_udp_socket }
     }
 
     pub async fn drive(mut self) -> Result<()> {

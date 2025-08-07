@@ -16,6 +16,7 @@
 
 use anyhow::Result;
 use log::info;
+use std::net::UdpSocket;
 use std::thread;
 use tokio::runtime;
 use tokio::sync::mpsc;
@@ -32,12 +33,12 @@ pub struct Server {
 
 impl Server {
     /// Creates a server running a current thread runtime.
-    pub fn new() -> Result<Server> {
+    pub fn new(downstream_udp_socket: UdpSocket) -> Result<Server> {
         let runtime = runtime::Builder::new_current_thread().enable_all().build()?;
         let (command_tx, command_rx) = mpsc::channel::<Command>(100 /*capacity*/);
         let join_handle = thread::spawn(move || {
             runtime.block_on(async {
-                if let Err(e) = Driver::new(command_rx).drive().await {
+                if let Err(e) = Driver::new(command_rx, downstream_udp_socket).drive().await {
                     info!("Server exited due to {:?}", e);
                 }
             });
@@ -66,7 +67,8 @@ mod tests {
 
     #[test]
     fn test_start_stop() {
-        let server = Server::new().unwrap();
+        let sock = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let server = Server::new(sock).unwrap();
         server.stop();
     }
 }
