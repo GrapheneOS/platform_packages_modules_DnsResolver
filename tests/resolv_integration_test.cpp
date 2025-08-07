@@ -7833,7 +7833,11 @@ Result<unique_fd> ResolverMultinetworkTest::ScopedTetheredNetworks::initNetwork(
         if (auto r = mNetdSrv->interfaceAddAddress(ifname, v4Addr, 24); !r.isOk()) {
             return Error() << r.getMessage();
         }
-        if (auto r = mNetdSrv->networkAddRoute(netId, ifname, "0.0.0.0/0", ""); !r.isOk()) {
+        aidl::android::net::RouteInfoParcel parcel;
+        parcel.ifName = ifname;
+        parcel.destination = "0.0.0.0/0";
+        parcel.nextHop = "";
+        if (auto r = mNetdSrv->networkAddRouteParcel(netId, parcel); !r.isOk()) {
             return Error() << r.getMessage();
         }
     }
@@ -7842,7 +7846,11 @@ Result<unique_fd> ResolverMultinetworkTest::ScopedTetheredNetworks::initNetwork(
         if (auto r = mNetdSrv->interfaceAddAddress(ifname, v6Addr, 64); !r.isOk()) {
             return Error() << r.getMessage();
         }
-        if (auto r = mNetdSrv->networkAddRoute(netId, ifname, "::/0", ""); !r.isOk()) {
+        aidl::android::net::RouteInfoParcel parcel;
+        parcel.ifName = ifname;
+        parcel.destination = "::/0";
+        parcel.nextHop = "";
+        if (auto r = mNetdSrv->networkAddRouteParcel(netId, parcel); !r.isOk()) {
             return Error() << r.getMessage();
         }
     }
