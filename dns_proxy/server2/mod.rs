@@ -14,21 +14,33 @@
  * limitations under the License.
  */
 
-use std::io::Result;
+use anyhow::Result;
+use log::error;
 use std::thread;
 use tokio::runtime;
+use tokio::sync::mpsc;
 
-pub struct Server;
+mod driver;
+use driver::Driver;
+
+pub enum Command {}
+
+pub struct Server {
+    command_tx: mpsc::Sender<Command>,
+}
 
 impl Server {
     /// Creates a server running a current thread runtime.
     pub fn new() -> Result<Server> {
         let runtime = runtime::Builder::new_current_thread().enable_all().build()?;
+        let (command_tx, command_rx) = mpsc::channel::<Command>(100 /*capacity*/);
         thread::spawn(move || {
             runtime.block_on(async {
-                // TODO
+                if let Err(e) = Driver::new(command_rx).drive().await {
+                    error!("Server exited due to {:?}", e);
+                }
             });
         });
-        Ok(Server {})
+        Ok(Server { command_tx })
     }
 }
