@@ -22,6 +22,8 @@ use anyhow::Result;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
+mod socket;
+
 pub struct Driver {
     command_rx: mpsc::Receiver<Command>,
     downstream_udp_socket: UdpSocket,

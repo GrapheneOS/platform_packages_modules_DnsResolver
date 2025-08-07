@@ -30,7 +30,7 @@ futures = "^0.3.31"
 log = "^0.4.25"
 mockall = "^0.13.1"
 num_enum = "^0.7.3"
-nix = { version = "^0.29.0", features = ["fs", "net", "user"] }
+nix = { version = "^0.29.0", features = ["fs", "net", "uio", "user"] }
 rand = { version = "^0.9.1", features = ["std", "std_rng"] }
 socket2 = "0.5.8"
 thiserror = "^2.0.11"
