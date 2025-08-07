@@ -114,7 +114,7 @@ impl Driver {
                 }
                 Command::Query(query) => {
                     if let Err(e) = self.send_query(query).await {
-                        info!("Unable to send query: {:?}", e)
+                        info!("Unable to send query: {e:?}")
                     }
                 }
             };

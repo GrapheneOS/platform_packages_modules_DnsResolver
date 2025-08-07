@@ -91,8 +91,7 @@ impl Client {
             match h3_conn.poll(&mut self.conn) {
                 Ok((stream_id, quiche::h3::Event::Headers { list, has_body })) => {
                     info!(
-                        "Processing HTTP/3 Headers {:?} on stream id {} has_body {}",
-                        list, stream_id, has_body
+                        "Processing HTTP/3 Headers {list:?} on stream id {stream_id} has_body {has_body}"
                     );
 
                     // Find ":path" field to get the query.
@@ -109,11 +108,11 @@ impl Client {
                     warn!("Received unexpected HTTP/3 data");
                     let mut buf = [0; 65535];
                     if let Ok(read) = h3_conn.recv_body(&mut self.conn, stream_id, &mut buf) {
-                        warn!("Got {} bytes of response data on stream {}", read, stream_id);
+                        warn!("Got {read} bytes of response data on stream {stream_id}");
                     }
                 }
                 Ok(n) => {
-                    debug!("Got event {:?}", n);
+                    debug!("Got event {n:?}");
                 }
                 Err(quiche::h3::Error::Done) => {
                     debug!("quiche::h3::Error::Done");
@@ -154,12 +153,12 @@ impl Client {
             if send_reset_stream == stream_id {
                 // Terminate the stream with an error code 99.
                 self.conn.stream_shutdown(stream_id, quiche::Shutdown::Write, 99)?;
-                info!("Preparing RESET_STREAM on stream {}", stream_id);
+                info!("Preparing RESET_STREAM on stream {stream_id}");
                 return Ok(());
             }
         }
 
-        info!("Preparing HTTP/3 response {:?} on stream {}", headers, stream_id);
+        info!("Preparing HTTP/3 response {headers:?} on stream {stream_id}");
 
         h3_conn.send_response(&mut self.conn, stream_id, &headers, false)?;
 
@@ -176,7 +175,7 @@ impl Client {
     pub fn process_pending_answers(&mut self) -> Result<()> {
         if let Some((stream_id, ans)) = self.pending_answers.pop() {
             let h3_conn = self.h3_conn.as_mut().unwrap();
-            info!("process the remaining response for stream {}", stream_id);
+            info!("process the remaining response for stream {stream_id}");
             h3_conn.send_body(&mut self.conn, stream_id, &ans, true)?;
         }
         Ok(())
@@ -191,7 +190,7 @@ impl Client {
             Ok(v) => v,
             Err(quiche::Error::Done) => bail!(quiche::Error::Done),
             Err(e) => {
-                error!("flush_egress failed: {}", e);
+                error!("flush_egress failed: {e}");
                 bail!(e)
             }
         };
@@ -306,7 +305,7 @@ impl ClientMap {
                     &mut self.config,
                 )?;
                 let client = Client::new(conn, peer, conn_id.clone());
-                info!("New client: {:?}", client);
+                info!("New client: {client:?}");
                 vacant.insert(client)
             }
         };

@@ -155,7 +155,7 @@ struct H3Driver {
 }
 
 async fn optional_timeout(timeout: Option<boot_time::Duration>, net_id: u32) {
-    info!("optional_timeout: timeout={:?}, network {}", timeout, net_id);
+    info!("optional_timeout: timeout={timeout:?}, network {net_id}");
     match timeout {
         Some(timeout) => boot_time::sleep(timeout).await,
         None => future::pending().await,
@@ -451,7 +451,7 @@ impl H3Driver {
                         return Ok(());
                     }
                     Err(e) => {
-                        info!("recv_body: Error={:?}", e);
+                        info!("recv_body: Error={e:?}");
                         stream.data.truncate(base_len);
                         return Err(e.into());
                     }
@@ -465,7 +465,7 @@ impl H3Driver {
                 }
             }
         } else {
-            warn!("Received body for untracked stream ID {}", stream_id);
+            warn!("Received body for untracked stream ID {stream_id}");
         }
         Ok(())
     }
@@ -493,7 +493,7 @@ impl H3Driver {
 
     async fn process_h3_event(&mut self, stream_id: u64, event: h3::Event) -> Result<()> {
         if !self.requests.contains_key(&stream_id) {
-            warn!("Received event {:?} for stream_id {} without a request.", event, stream_id);
+            warn!("Received event {event:?} for stream_id {stream_id} without a request.");
         }
         match event {
             h3::Event::Headers { list, has_body } => {
@@ -503,7 +503,7 @@ impl H3Driver {
                 );
                 let stream = Stream::new(list);
                 if self.streams.insert(stream_id, stream).is_some() {
-                    warn!("Re-using stream ID {} before it was completed.", stream_id)
+                    warn!("Re-using stream ID {stream_id} before it was completed.")
                 }
                 if !has_body {
                     self.respond(stream_id);
@@ -581,8 +581,8 @@ impl H3Driver {
                 // We don't care about the error, because it means the requestor has left.
                 let _ = request.response_tx.send(stream);
             }
-            (None, _) => warn!("Tried to deliver untracked stream {}", stream_id),
-            (_, None) => warn!("Tried to deliver stream {} to untracked requestor", stream_id),
+            (None, _) => warn!("Tried to deliver untracked stream {stream_id}"),
+            (_, None) => warn!("Tried to deliver stream {stream_id} to untracked requestor"),
         }
     }
 }

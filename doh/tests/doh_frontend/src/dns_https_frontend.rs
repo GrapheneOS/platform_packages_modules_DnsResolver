@@ -111,7 +111,7 @@ impl DohFrontend {
             latest_stats: Stats::new(),
             command_tx: None,
         });
-        debug!("DohFrontend created: {:?}", doh);
+        debug!("DohFrontend created: {doh:?}");
         Ok(doh)
     }
 
@@ -131,14 +131,14 @@ impl DohFrontend {
     }
 
     pub fn stop(&mut self) -> Result<()> {
-        debug!("DohFrontend: stopping: {:?}", self);
+        debug!("DohFrontend: stopping: {self:?}");
         if let Some(worker_thread) = self.worker_thread.take() {
             // Update latest_stats before stopping worker_thread.
             let _ = self.request_stats();
 
             self.command_tx.as_ref().unwrap().send(ControlCommand::CloseConnection)?;
             if let Err(e) = self.wait_for_connections_closed() {
-                warn!("wait_for_connections_closed failed: {}", e);
+                warn!("wait_for_connections_closed failed: {e}");
             }
 
             worker_thread.abort();
@@ -147,7 +147,7 @@ impl DohFrontend {
             })
         }
 
-        debug!("DohFrontend: stopped: {:?}", self);
+        debug!("DohFrontend: stopped: {self:?}");
         Ok(())
     }
 
@@ -286,7 +286,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
     let mut delay_queries_buffer: Vec<Vec<u8>> = vec![];
     let mut queries_received = 0;
 
-    debug!("frontend={:?}, backend={:?}", frontend_socket, backend_socket);
+    debug!("frontend={frontend_socket:?}, backend={backend_socket:?}");
 
     loop {
         let timeout = clients
@@ -308,28 +308,28 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
             }
 
             Ok((len, peer)) = frontend_socket.recv_from(&mut frontend_buf) => {
-                debug!("Got {} bytes from {}", len, peer);
+                debug!("Got {len} bytes from {peer}");
 
                 // Parse QUIC packet.
                 let pkt_buf = &mut frontend_buf[..len];
                 let hdr = match quiche::Header::from_slice(pkt_buf, CONN_ID_LEN) {
                     Ok(v) => v,
                     Err(e) => {
-                        error!("Failed to parse QUIC header: {:?}", e);
+                        error!("Failed to parse QUIC header: {e:?}");
                         continue;
                     }
                 };
-                debug!("Got QUIC packet: {:?}", hdr);
+                debug!("Got QUIC packet: {hdr:?}");
 
                 let local = frontend_socket.local_addr()?;
                 let client = match clients.get_or_create(&hdr, &peer, &local) {
                     Ok(v) => v,
                     Err(e) => {
-                        error!("Failed to get the client by the hdr {:?}: {}", hdr, e);
+                        error!("Failed to get the client by the hdr {hdr:?}: {e}");
                         continue;
                     }
                 };
-                debug!("Got client: {:?}", client);
+                debug!("Got client: {client:?}");
 
                 match client.handle_frontend_message(pkt_buf, &local) {
                     Ok(v) if !v.is_empty() => {
@@ -337,7 +337,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                         queries_received += 1;
                     }
                     Err(e) => {
-                        error!("Failed to process QUIC packet: {}", e);
+                        error!("Failed to process QUIC packet: {e}");
                         continue;
                     }
                     _ => {}
@@ -355,7 +355,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
             }
 
             Ok((len, src)) = backend_socket.recv_from(&mut backend_buf) => {
-                debug!("Got {} bytes from {}", len, src);
+                debug!("Got {len} bytes from {src}");
                 if len < DNS_HEADER_SIZE {
                     error!("Received insufficient bytes for DNS header");
                     continue;
@@ -366,7 +366,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                     if client.is_waiting_for_query(&query_id) {
                         let reset_stream_id = config.lock().unwrap().reset_stream_id;
                         if let Err(e) = client.handle_backend_message(&backend_buf[..len], reset_stream_id) {
-                            error!("Failed to handle message from backend: {}", e);
+                            error!("Failed to handle message from backend: {e}");
                         }
                         let connection_id = client.connection_id().clone();
                         event_tx.send(InternalCommand::MaybeWrite{connection_id})?;
@@ -385,7 +385,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                                 let addr = client.addr();
                                 debug!("Sending {} bytes to client {}", v.len(), addr);
                                 if let Err(e) = frontend_socket.send_to(&v, addr).await {
-                                    error!("Failed to send packet to {:?}: {:?}", client, e);
+                                    error!("Failed to send packet to {client:?}: {e:?}");
                                 }
                             }
                             client.process_pending_answers()?;
@@ -394,7 +394,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                 }
             }
             Some(command) = command_rx.recv() => {
-                debug!("ControlCommand: {:?}", command);
+                debug!("ControlCommand: {command:?}");
                 match command {
                     ControlCommand::Stats {resp} => {
                         let stats = Stats {
@@ -405,7 +405,7 @@ async fn worker_thread(params: WorkerParams) -> Result<()> {
                             early_data_connections: clients.iter().filter(|(_, client)| client.handled_early_data()).count() as u32,
                         };
                         if let Err(e) = resp.send(stats) {
-                            error!("Failed to send ControlCommand::Stats response: {:?}", e);
+                            error!("Failed to send ControlCommand::Stats response: {e:?}");
                         }
                     }
                     ControlCommand::StatsClearQueries => queries_received = 0,
@@ -467,7 +467,7 @@ fn into_tokio_udp_socket(socket: std::net::UdpSocket) -> Result<UdpSocket> {
     match UdpSocket::from_std(socket) {
         Ok(v) => Ok(v),
         Err(e) => {
-            error!("into_tokio_udp_socket failed: {}", e);
+            error!("into_tokio_udp_socket failed: {e}");
             bail!("into_tokio_udp_socket failed: {}", e)
         }
     }
@@ -492,7 +492,7 @@ fn bind_udp_socket_retry(addr: std::net::SocketAddr) -> Result<std::net::UdpSock
         match std::net::UdpSocket::bind(addr) {
             Ok(socket) => return Ok(socket),
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                warn!("Binding socket address {} that is in use. Try again", addr);
+                warn!("Binding socket address {addr} that is in use. Try again");
                 std::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => return Err(anyhow::anyhow!(e)),
