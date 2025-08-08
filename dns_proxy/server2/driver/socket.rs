@@ -53,7 +53,7 @@ impl UdpServerSocket {
     /// of bytes read, the sender's address, and the interface index. Must be used in combination
     /// with readable().
     #[allow(clippy::unnecessary_cast)]
-    fn try_recv_from_with_ifindex(&self, buf: &mut [u8]) -> Result<(usize, SocketAddrV6, u32)> {
+    fn try_recv_from_with_ifindex(&self, buf: &mut [u8]) -> Result<(SocketAddrV6, u32)> {
         let mut cmsg_buf = cmsg_space!(in6_pktinfo);
         let iov = &mut [IoSliceMut::new(buf)];
         let msg = self.socket.try_recvmsg::<nix::sys::socket::SockaddrIn6>(
@@ -79,15 +79,28 @@ impl UdpServerSocket {
             .context("No Ipv6PacketInfo found in cmsgs.")? as u32;
 
         let addr = msg.address.map(SocketAddrV6::from).unwrap();
-        Ok((msg.bytes, addr, ifindex))
+        Ok((addr, ifindex))
     }
 
-    pub async fn recv_from_with_ifindex(
-        &self,
-        buf: &mut [u8],
-    ) -> Result<(usize, SocketAddrV6, u32)> {
-        self.socket.readable().await?;
-        self.try_recv_from_with_ifindex(buf)
+    /// Receives an arbitrarily sized UDP packet into an appropriately sized buffer and returns it
+    /// alongside the sender's address, and the interface index.
+    pub async fn recv_from_with_ifindex(&self) -> Result<(Vec<u8>, SocketAddrV6, u32)> {
+        // Call recv with MSG_PEEK|MSG_TRUNC to figure out the size of the incoming packet.
+        let len = loop {
+            // It is possible for readable().await? to return but for the arriving packet to fail
+            // checksum validation. As without checksum offload, validation happens only when recv() is
+            // called (usually while the packet is being copied from the skb to the user buffer). If
+            // this happens, recv() returns EAGAIN (or io::ErrorKind::WouldBlock).
+            self.socket.readable().await?;
+            match self.socket.try_recv_flags(&mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC) {
+                Ok(len) => break len,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
+        let mut buf = vec![0u8; len];
+        let (from, ifindex) = self.try_recv_from_with_ifindex(&mut buf)?;
+        Ok((buf, from, ifindex))
     }
 }
 
@@ -165,11 +178,10 @@ mod tests {
         client_socket.connect(server_addr).await.unwrap();
         client_socket.send(&TEST_VALID_DNS_QUERY).await.unwrap();
 
-        let mut buf = [0u8; 1024];
-        let (len, addr, ifindex) = server_socket.recv_from_with_ifindex(&mut buf).await.unwrap();
+        let (buf, addr, ifindex) = server_socket.recv_from_with_ifindex().await.unwrap();
 
-        assert_eq!(len, TEST_VALID_DNS_QUERY.len());
-        assert_eq!(&buf[..len], &TEST_VALID_DNS_QUERY);
+        assert_eq!(buf.len(), TEST_VALID_DNS_QUERY.len());
+        assert_eq!(buf, TEST_VALID_DNS_QUERY);
         // Must convert addresses to canonical representation, so the IPv6-mapped IPv4 addresses
         // compare correctly.
         assert_eq!(addr.ip().to_canonical(), client_addr.ip().to_canonical());
