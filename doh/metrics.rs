@@ -114,7 +114,7 @@ pub fn log_handshake_event_stats(result: HandshakeResult, handshake_info: Handsh
 
     let logging_result = handshake_event_stats.stats_write();
     if let Err(e) = logging_result {
-        log::error!("Error in logging handshake event. {:?}", e);
+        log::error!("Error in logging handshake event. {e:?}");
     }
 }
 

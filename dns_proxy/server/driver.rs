@@ -131,7 +131,7 @@ impl<C: NetContextClient> Driver<C> {
             }
             Command::ForwardUdpQuery(udp_dns_query) => {
                 if let Err(e) = self.handle_udp_dns_query(udp_dns_query) {
-                    error!("Error handling UDP query: {}", e);
+                    error!("Error handling UDP query: {e}");
                 }
                 Some(())
             }
@@ -184,7 +184,7 @@ impl<C: NetContextClient> Driver<C> {
         let socket = self.configure_upstream_udp_socket(&upstream_param)?;
         tokio::spawn(async move {
             if let Err(e) = resolve_and_send_udp(socket, query).await {
-                error!("Error resolving and sending UDP query: {}", e);
+                error!("Error resolving and sending UDP query: {e}");
             }
         });
         Ok(())

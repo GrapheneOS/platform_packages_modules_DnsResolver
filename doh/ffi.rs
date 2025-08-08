@@ -71,7 +71,7 @@ fn wrap_validation_callback(validation_fn: ValidationCallback) -> ValidationRepo
                 validation_fn(netd_id, success, ip_addr.as_ptr(), domain.as_ptr())
             })
             .await
-            .unwrap_or_else(|e| warn!("Validation function task failed: {}", e))
+            .unwrap_or_else(|e| warn!("Validation function task failed: {e}"))
         }
         .boxed()
     })
@@ -86,7 +86,7 @@ fn wrap_tag_socket_callback(tag_socket_fn: TagSocketCallback) -> SocketTagger {
                 tag_socket_fn(fd);
             })
             .await
-            .unwrap_or_else(|e| warn!("Socket tag function task failed: {}", e))
+            .unwrap_or_else(|e| warn!("Socket tag function task failed: {e}"))
         }
         .boxed()
     })
@@ -164,7 +164,7 @@ pub extern "C" fn doh_dispatcher_new(
     ) {
         Ok(c) => Box::into_raw(Box::new(DohDispatcher(Mutex::new(c)))),
         Err(e) => {
-            error!("doh_dispatcher_new: failed: {:?}", e);
+            error!("doh_dispatcher_new: failed: {e:?}");
             ptr::null_mut()
         }
     }
@@ -255,7 +255,7 @@ pub unsafe extern "C" fn doh_net_new(
         timeout: Duration::from_millis(flags.probe_timeout_ms),
     };
     if let Err(e) = doh.lock().send_cmd(cmd) {
-        error!("Failed to send the probe: {:?}", e);
+        error!("Failed to send the probe: {e:?}");
         return -libc::EPIPE;
     }
     0
@@ -294,11 +294,11 @@ pub unsafe extern "C" fn doh_query(
         };
 
         if let Err(e) = doh.lock().send_cmd(cmd) {
-            error!("Failed to send the query: {:?}", e);
+            error!("Failed to send the query: {e:?}");
             return DOH_RESULT_CAN_NOT_SEND;
         }
     } else {
-        error!("Bad timeout parameter: {}", timeout_ms);
+        error!("Bad timeout parameter: {timeout_ms}");
         return DOH_RESULT_CAN_NOT_SEND;
     }
 
@@ -319,17 +319,17 @@ pub unsafe extern "C" fn doh_query(
                         answer.len() as ssize_t
                     }
                     rsp => {
-                        error!("Non-successful response: {:?}", rsp);
+                        error!("Non-successful response: {rsp:?}");
                         DOH_RESULT_CAN_NOT_SEND
                     }
                 },
                 Err(e) => {
-                    error!("no result {}", e);
+                    error!("no result {e}");
                     DOH_RESULT_CAN_NOT_SEND
                 }
             },
             Err(e) => {
-                error!("timeout: {}", e);
+                error!("timeout: {e}");
                 DOH_RESULT_TIMEOUT
             }
         }
@@ -345,7 +345,7 @@ pub unsafe extern "C" fn doh_query(
 #[no_mangle]
 pub extern "C" fn doh_net_delete(doh: &DohDispatcher, net_id: uint32_t) {
     if let Err(e) = doh.lock().send_cmd(Command::Clear { net_id }) {
-        error!("Failed to send the query: {:?}", e);
+        error!("Failed to send the query: {e:?}");
     }
 }
 

@@ -36,7 +36,7 @@ pub struct Driver {
 
 fn debug_err(r: Result<()>) {
     if let Err(e) = r {
-        debug!("Dispatcher loop got {:?}", e);
+        debug!("Dispatcher loop got {e:?}");
     }
 }
 
@@ -63,7 +63,7 @@ impl Driver {
 
     async fn drive_once(&mut self) -> Result<()> {
         if let Some(command) = self.command_rx.recv().await {
-            trace!("dispatch command: {:?}", command);
+            trace!("dispatch command: {command:?}");
             match command {
                 Command::Probe { info, timeout } => debug_err(self.probe(info, timeout).await),
                 Command::Query { net_id, base64_query, expired_time, resp } => {
@@ -93,9 +93,9 @@ impl Driver {
         if let Some(network) = self.networks.get_mut(&net_id) {
             network.query(network::Query { query, response, expiry }).await?;
         } else {
-            warn!("Tried to send a query to non-existent network net_id={}", net_id);
+            warn!("Tried to send a query to non-existent network net_id={net_id}");
             response.send(Response::Error { error: QueryError::Unexpected }).unwrap_or_else(|_| {
-                warn!("Unable to send reply for non-existent network net_id={}", net_id);
+                warn!("Unable to send reply for non-existent network net_id={net_id}");
             })
         }
         Ok(())
