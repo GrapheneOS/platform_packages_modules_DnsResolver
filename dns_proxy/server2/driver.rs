@@ -19,21 +19,21 @@
 use super::Command;
 use anyhow::bail;
 use anyhow::Result;
-use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
 mod socket;
+use socket::UdpServerSocket;
 
 pub struct Driver {
     command_rx: mpsc::Receiver<Command>,
-    downstream_udp_socket: UdpSocket,
+    downstream_udp_socket: UdpServerSocket,
 }
 
 impl Driver {
     pub fn new(command_rx: mpsc::Receiver<Command>, udp_socket: std::net::UdpSocket) -> Self {
-        let _ = udp_socket.set_nonblocking(true);
-        // Conversion from std::net::UdpSocket to tokio::net::UdpSocket is not expected to fail.
-        let downstream_udp_socket = UdpSocket::from_std(udp_socket).unwrap();
+        // panic!() if UdpServerSocket cannot be created. This should never happen.
+        // TODO: consider returning Result instead.
+        let downstream_udp_socket = UdpServerSocket::new(udp_socket).unwrap();
         Self { command_rx, downstream_udp_socket }
     }
 
@@ -49,5 +49,25 @@ impl Driver {
         } else {
             bail!("Death due command_tx dying.")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_driver_new() {
+        let (_command_tx, command_rx) = mpsc::channel(1);
+        let socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let _driver = Driver::new(command_rx, socket);
+    }
+
+    #[tokio::test]
+    #[should_panic]
+    async fn test_driver_new_panic() {
+        let (_command_tx, command_rx) = mpsc::channel(1);
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let _driver = Driver::new(command_rx, socket);
     }
 }
