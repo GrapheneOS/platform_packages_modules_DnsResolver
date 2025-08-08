@@ -15,6 +15,7 @@
  */
 
 use anyhow::ensure;
+use anyhow::Context;
 use anyhow::Result;
 use nix::cmsg_space;
 use nix::libc::in6_pktinfo;
@@ -61,7 +62,10 @@ impl UdpServerSocket {
             MsgFlags::empty(),
         )?;
 
-        // Note: different versions of Rust libc define ipi6_ifindex as u32 or i32. Force the cast
+        // If cmsgs are not present, or the Ipv6PacketInfo option is not found, the function
+        // returns an error. This should never happen, i.e. it likely indicates a kernel bug.
+        // Note that anyhow::context() converts the Option return type to a Result.
+        // Note2: different versions of Rust libc define ipi6_ifindex as u32 or i32. Force the cast
         // to u32 for compatibility.
         let ifindex = msg
             .cmsgs()?
@@ -72,7 +76,7 @@ impl UdpServerSocket {
                     None
                 }
             })
-            .unwrap_or(0) as u32;
+            .context("No Ipv6PacketInfo found in cmsgs.")? as u32;
 
         let addr = msg.address.map(SocketAddrV6::from).unwrap();
         Ok((msg.bytes, addr, ifindex))
