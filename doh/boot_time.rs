@@ -196,7 +196,7 @@ async fn timeout_drift() {
         let start = BootTime::now();
         assert!(timeout(delta, pending::<()>()).await.is_err());
         let taken = start.elapsed();
-        let drift = if taken > delta { taken - delta } else { delta - taken };
+        let drift = taken.abs_diff(delta);
         assert!(drift < Duration::from_millis(10));
     }
 
@@ -204,7 +204,7 @@ async fn timeout_drift() {
         let start = BootTime::now();
         sleep(delta).await;
         let taken = start.elapsed();
-        let drift = if taken > delta { taken - delta } else { delta - taken };
+        let drift = taken.abs_diff(delta);
         assert!(drift < Duration::from_millis(10));
     }
 }

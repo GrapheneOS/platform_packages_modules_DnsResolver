@@ -210,6 +210,6 @@ fn to_socket_addr(addr: &str, port: &str) -> Result<SocketAddr> {
 }
 
 fn logging_and_return_err<T, U: std::fmt::Debug>(e: U) -> Result<T> {
-    warn!("logging_and_return_err: {:?}", e);
+    warn!("logging_and_return_err: {e:?}");
     bail!("{:?}", e)
 }

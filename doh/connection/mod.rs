@@ -94,7 +94,7 @@ async fn build_socket(
     let socket = UdpSocket::bind(bind_addr).await?;
     let std_socket = socket.into_std()?;
     mark_socket(&std_socket, socket_mark)
-        .unwrap_or_else(|e| error!("Unable to mark socket : {:?}", e));
+        .unwrap_or_else(|e| error!("Unable to mark socket : {e:?}"));
     tag_socket(&std_socket).await;
     let socket = UdpSocket::from_std(std_socket)?;
     socket.connect(peer_addr).await?;
@@ -172,7 +172,7 @@ impl Connection {
             let result =
                 drive(request_rx, status_tx, quiche_conn, socket, net_id, handshake_info).await;
             if let Err(ref e) = result {
-                warn!("Connection driver returns some Err: {:?}", e);
+                warn!("Connection driver returns some Err: {e:?}");
             }
             result
         };

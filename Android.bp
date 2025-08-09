@@ -533,6 +533,7 @@ rust_ffi_static {
 rust_defaults {
     name: "libdns_proxy_defaults",
     rlibs: [
+        "libanyhow",
         "libbytes",
         "libfutures",
         "liblog_rust",
