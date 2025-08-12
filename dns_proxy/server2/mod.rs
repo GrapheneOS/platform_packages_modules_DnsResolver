@@ -39,7 +39,7 @@ impl Server {
         let join_handle = thread::spawn(move || {
             runtime.block_on(async {
                 if let Err(e) = Driver::new(command_rx, downstream_udp_socket).drive().await {
-                    info!("Server exited due to {:?}", e);
+                    info!("Server exited due to {e:?}");
                 }
             });
         });
