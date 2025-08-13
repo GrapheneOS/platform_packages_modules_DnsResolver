@@ -44,10 +44,20 @@ impl Driver {
     }
 
     async fn drive_once(&mut self) -> Result<()> {
-        if let Some(_command) = self.command_rx.recv().await {
-            todo!();
-        } else {
-            bail!("Death due command_tx dying.")
+        tokio::select! {
+            res = self.command_rx.recv() => {
+                if let Some(_command) = res {
+                    todo!();
+                } else {
+                    bail!("Death due command_tx dying.");
+                }
+            }
+            Ok((_vec, _from, _ifindex)) = self.downstream_udp_socket.recv_from_with_ifindex() => {
+                todo!();
+            }
+            // Ignore recv errors; at least for now. Apart from panicking, there is not much else
+            // that can be done.
+            else => Ok(())
         }
     }
 }
