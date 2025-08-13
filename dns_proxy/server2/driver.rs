@@ -37,6 +37,10 @@ impl Driver {
         Self { command_rx, downstream_udp_socket }
     }
 
+    fn configure_forwarding(&self, _ifindex: u32, _uid: u32, _netid: u32) -> Result<()> {
+        todo!();
+    }
+
     pub async fn drive(mut self) -> Result<()> {
         loop {
             self.drive_once().await?
@@ -46,11 +50,21 @@ impl Driver {
     async fn drive_once(&mut self) -> Result<()> {
         tokio::select! {
             res = self.command_rx.recv() => {
-                if let Some(_command) = res {
-                    todo!();
-                } else {
-                    bail!("Death due command_tx dying.");
+                let command = match res {
+                    Some(cmd) => cmd,
+                    None => bail!("Death due command_tx dying."),
+                };
+                match command {
+                    Command::ConfigureForwarding { ifindex, uid, netid, status_tx } => {
+                        let res = self.configure_forwarding(ifindex, uid, netid);
+                        // Ignore the result of the send() operation as it returns Result<(), T>
+                        // and cannot be handled with `?`. However if it fails, it likely means the
+                        // reader end is dead, in which case command_rx.recv() will bail on the
+                        // next iteration of the loop.
+                        let _ = status_tx.send(res);
+                    }
                 }
+                Ok(())
             }
             Ok((_vec, _from, _ifindex)) = self.downstream_udp_socket.recv_from_with_ifindex() => {
                 todo!();
