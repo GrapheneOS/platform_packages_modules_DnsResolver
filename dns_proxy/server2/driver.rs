@@ -19,14 +19,22 @@
 use super::Command;
 use anyhow::bail;
 use anyhow::Result;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 mod socket;
 use socket::UdpServerSocket;
 
+struct UpstreamConfig {
+    uid: u32,
+    netid: u32,
+}
+
 pub struct Driver {
     command_rx: mpsc::Receiver<Command>,
     downstream_udp_socket: UdpServerSocket,
+    /// Maps downstream ifindex to upstream config
+    upstream_config_map: HashMap<u32, UpstreamConfig>,
 }
 
 impl Driver {
@@ -34,11 +42,14 @@ impl Driver {
         // panic!() if UdpServerSocket cannot be created. This should never happen.
         // TODO: consider returning Result instead.
         let downstream_udp_socket = UdpServerSocket::new(udp_socket).unwrap();
-        Self { command_rx, downstream_udp_socket }
+        let upstream_config_map = HashMap::new();
+        Self { command_rx, downstream_udp_socket, upstream_config_map }
     }
 
-    fn configure_forwarding(&self, _ifindex: u32, _uid: u32, _netid: u32) -> Result<()> {
-        todo!();
+    fn configure_forwarding(&mut self, ifindex: u32, uid: u32, netid: u32) -> Result<()> {
+        // Insert or update the configuration for ifindex.
+        self.upstream_config_map.insert(ifindex, UpstreamConfig { uid, netid });
+        Ok(())
     }
 
     pub async fn drive(mut self) -> Result<()> {
