@@ -66,12 +66,14 @@ impl Driver {
                 }
                 Ok(())
             }
-            Ok((_vec, _from, _ifindex)) = self.downstream_udp_socket.recv_from_with_ifindex() => {
-                todo!();
+            res = self.downstream_udp_socket.recv_from_with_ifindex() => {
+                match res {
+                    Ok((_vec, _from, _ifindex)) => todo!(),
+                    Err(e) => log::error!("Failed to recv packet from UDP socket: {}", e),
+                }
+                // Do not stop driver on recv errors.
+                Ok(())
             }
-            // Ignore recv errors; at least for now. Apart from panicking, there is not much else
-            // that can be done.
-            else => Ok(())
         }
     }
 }
