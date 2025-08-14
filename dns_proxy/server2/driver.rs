@@ -19,14 +19,22 @@
 use super::Command;
 use anyhow::bail;
 use anyhow::Result;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 mod socket;
 use socket::UdpServerSocket;
 
+struct UpstreamConfig {
+    uid: u32,
+    netid: u32,
+}
+
 pub struct Driver {
     command_rx: mpsc::Receiver<Command>,
     downstream_udp_socket: UdpServerSocket,
+    /// Maps downstream ifindex to upstream config
+    upstream_config_map: HashMap<u32, UpstreamConfig>,
 }
 
 impl Driver {
@@ -34,7 +42,14 @@ impl Driver {
         // panic!() if UdpServerSocket cannot be created. This should never happen.
         // TODO: consider returning Result instead.
         let downstream_udp_socket = UdpServerSocket::new(udp_socket).unwrap();
-        Self { command_rx, downstream_udp_socket }
+        let upstream_config_map = HashMap::new();
+        Self { command_rx, downstream_udp_socket, upstream_config_map }
+    }
+
+    fn configure_forwarding(&mut self, ifindex: u32, uid: u32, netid: u32) -> Result<()> {
+        // Insert or update the configuration for ifindex.
+        self.upstream_config_map.insert(ifindex, UpstreamConfig { uid, netid });
+        Ok(())
     }
 
     pub async fn drive(mut self) -> Result<()> {
@@ -46,18 +61,30 @@ impl Driver {
     async fn drive_once(&mut self) -> Result<()> {
         tokio::select! {
             res = self.command_rx.recv() => {
-                if let Some(_command) = res {
-                    todo!();
-                } else {
-                    bail!("Death due command_tx dying.");
+                let command = match res {
+                    Some(cmd) => cmd,
+                    None => bail!("Death due command_tx dying."),
+                };
+                match command {
+                    Command::ConfigureForwarding { ifindex, uid, netid, status_tx } => {
+                        let res = self.configure_forwarding(ifindex, uid, netid);
+                        // Ignore the result of the send() operation as it returns Result<(), T>
+                        // and cannot be handled with `?`. However if it fails, it likely means the
+                        // reader end is dead, in which case command_rx.recv() will bail on the
+                        // next iteration of the loop.
+                        let _ = status_tx.send(res);
+                    }
                 }
+                Ok(())
             }
-            Ok((_vec, _from, _ifindex)) = self.downstream_udp_socket.recv_from_with_ifindex() => {
-                todo!();
+            res = self.downstream_udp_socket.recv_from_with_ifindex() => {
+                match res {
+                    Ok((_vec, _from, _ifindex)) => todo!(),
+                    Err(e) => log::error!("Failed to recv packet from UDP socket: {}", e),
+                }
+                // Do not stop driver on recv errors.
+                Ok(())
             }
-            // Ignore recv errors; at least for now. Apart from panicking, there is not much else
-            // that can be done.
-            else => Ok(())
         }
     }
 }
