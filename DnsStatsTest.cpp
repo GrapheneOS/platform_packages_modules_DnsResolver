@@ -109,7 +109,7 @@ class DnsStatsTest : public NetNativeTestBase {
   protected:
     std::string captureDumpOutput() {
         netdutils::DumpWriter dw(STDOUT_FILENO);
-        CapturedStdout captured;
+        android::base::CapturedStdout captured;
         mDnsStats.dump(dw);
         return captured.str();
     }

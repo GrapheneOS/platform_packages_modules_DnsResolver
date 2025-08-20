@@ -34,7 +34,7 @@ namespace {
 // Dump the log to STDOUT and capture it.
 std::string captureDumpOutput(const DnsQueryLog& queryLog) {
     netdutils::DumpWriter dw(STDOUT_FILENO);
-    CapturedStdout captured;
+    android::base::CapturedStdout captured;
     queryLog.dump(dw);
     return captured.str();
 }
