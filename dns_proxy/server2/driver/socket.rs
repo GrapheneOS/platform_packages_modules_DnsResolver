@@ -21,12 +21,15 @@ use nix::cmsg_space;
 use nix::libc::in6_pktinfo;
 use nix::sys::socket::recv;
 use nix::sys::socket::recvmsg;
+use nix::sys::socket::sendmsg;
 use nix::sys::socket::setsockopt;
 use nix::sys::socket::sockopt::Ipv6RecvPacketInfo;
+use nix::sys::socket::ControlMessage;
 use nix::sys::socket::ControlMessageOwned;
 use nix::sys::socket::MsgFlags;
 use nix::sys::socket::RecvMsg;
 use nix::sys::socket::SockaddrLike;
+use std::io::IoSlice;
 use std::io::IoSliceMut;
 use std::net::Ipv6Addr;
 use std::net::SocketAddrV6;
@@ -99,6 +102,28 @@ impl UdpServerSocket {
         let (from, pktinfo) = self.try_recv_from_with_pktinfo(&mut buf)?;
         Ok((buf, from, pktinfo))
     }
+
+    pub async fn send_to_with_pktinfo(
+        &self,
+        buf: &[u8],
+        to: SocketAddrV6,
+        pktinfo: in6_pktinfo,
+    ) -> Result<usize> {
+        let iov = [IoSlice::new(buf)];
+        let cmsg = [ControlMessage::Ipv6PacketInfo(&pktinfo)];
+        let to = nix::sys::socket::SockaddrIn6::from(to);
+        loop {
+            self.socket.writable().await?;
+
+            // Similar to readable(), it is possible for writable() to return but try_sendmsg to
+            // fail with EAGAIN.
+            match self.socket.try_sendmsg(&iov, &cmsg, MsgFlags::empty(), Some(&to)) {
+                Ok(len) => return Ok(len),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
 }
 
 /// UdpSocket extension trait for implementing UdpSocket functionality that is missing in
@@ -119,6 +144,17 @@ trait UdpSocketExt {
     where
         S: SockaddrLike + 'a,
         'inner: 'outer;
+
+    /// A tokio-compatible wrapper around sendmsg.
+    fn try_sendmsg<S>(
+        &self,
+        iov: &[IoSlice<'_>],
+        cmsgs: &[ControlMessage<'_>],
+        flags: MsgFlags,
+        addr: Option<&S>,
+    ) -> std::io::Result<usize>
+    where
+        S: SockaddrLike;
 }
 
 impl UdpSocketExt for UdpSocket {
@@ -144,6 +180,22 @@ impl UdpSocketExt for UdpSocket {
         self.try_io(tokio::io::Interest::READABLE, || {
             use std::os::fd::AsRawFd as _;
             recvmsg(self.as_raw_fd(), iov, cmsg_buf, flags).map_err(std::io::Error::from)
+        })
+    }
+
+    fn try_sendmsg<S>(
+        &self,
+        iov: &[IoSlice<'_>],
+        cmsgs: &[ControlMessage<'_>],
+        flags: MsgFlags,
+        addr: Option<&S>,
+    ) -> std::io::Result<usize>
+    where
+        S: SockaddrLike,
+    {
+        self.try_io(tokio::io::Interest::WRITABLE, || {
+            use std::os::fd::AsRawFd as _;
+            sendmsg(self.as_raw_fd(), iov, cmsgs, flags, addr).map_err(std::io::Error::from)
         })
     }
 }
@@ -186,5 +238,31 @@ mod tests {
         assert_eq!(addr.ip().to_canonical(), client_addr.ip().to_canonical());
         assert_eq!(addr.port(), client_addr.port());
         assert_eq!(ifindex, 1 /* loopback */);
+    }
+
+    #[tokio::test]
+    async fn test_udp_server_socket_send_to_with_pktinfo() {
+        let std_socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let server_addr = std_socket.local_addr().unwrap();
+        let server_socket = UdpServerSocket::new(std_socket).unwrap();
+
+        let client_socket = std::net::UdpSocket::bind("[::1]:0").unwrap();
+        let client_addr = client_socket.local_addr().unwrap();
+
+        // Send a packet from client to server to get a valid pktinfo.
+        client_socket.send_to(&TEST_VALID_DNS_QUERY, server_addr).unwrap();
+        let (_, from, pktinfo) = server_socket.recv_from_with_pktinfo().await.unwrap();
+        assert!(from.ip().is_loopback());
+        assert_eq!(from.port(), client_addr.port());
+
+        // Send a response back from server to client.
+        let response = b"response";
+        server_socket.send_to_with_pktinfo(response, from, pktinfo).await.unwrap();
+
+        let mut buf = [0u8; 1024];
+        let (len, addr) = client_socket.recv_from(&mut buf).unwrap();
+        assert!(addr.ip().is_loopback());
+        assert_eq!(addr.port(), server_addr.port());
+        assert_eq!(&buf[..len], response);
     }
 }
