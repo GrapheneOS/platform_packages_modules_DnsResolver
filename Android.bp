@@ -449,7 +449,7 @@ rust_ffi_static {
     name: "libdoh_ffi",
     crate_name: "doh",
     srcs: ["doh/doh.rs"],
-    edition: "2018",
+    edition: "2021",
 
     rlibs: doh_rust_deps + ["libquiche"],
     prefer_rlib: true,
@@ -470,7 +470,7 @@ rust_test {
     name: "doh_unit_test",
     crate_name: "doh",
     srcs: ["doh/doh.rs"],
-    edition: "2018",
+    edition: "2021",
     test_suites: ["general-tests"],
     auto_gen_config: true,
     rustlibs: doh_rust_deps + ["libquiche_static"],
@@ -483,7 +483,7 @@ rust_ffi_static {
     name: "libdoh_ffi_for_test",
     crate_name: "doh",
     srcs: ["doh/doh.rs"],
-    edition: "2018",
+    edition: "2021",
 
     rlibs: doh_rust_deps + ["libquiche_static"],
     prefer_rlib: true,
@@ -510,7 +510,7 @@ rust_ffi_static {
     srcs: [
         "doh/doh_test_superset_for_fuzzer.rs",
     ],
-    edition: "2018",
+    edition: "2021",
 
     rlibs: [
         "libandroid_logger",
