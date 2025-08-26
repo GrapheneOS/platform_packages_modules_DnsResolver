@@ -52,8 +52,7 @@ impl UdpServerSocket {
     /// Receives a single datagram from the socket. On success, returns the number
     /// of bytes read, the sender's address, and the interface index. Must be used in combination
     /// with readable().
-    #[allow(clippy::unnecessary_cast)]
-    fn try_recv_from_with_ifindex(&self, buf: &mut [u8]) -> Result<(SocketAddrV6, u32)> {
+    fn try_recv_from_with_pktinfo(&self, buf: &mut [u8]) -> Result<(SocketAddrV6, in6_pktinfo)> {
         let mut cmsg_buf = cmsg_space!(in6_pktinfo);
         let iov = &mut [IoSliceMut::new(buf)];
         let msg = self.socket.try_recvmsg::<nix::sys::socket::SockaddrIn6>(
@@ -65,26 +64,24 @@ impl UdpServerSocket {
         // If cmsgs are not present, or the Ipv6PacketInfo option is not found, the function
         // returns an error. This should never happen, i.e. it likely indicates a kernel bug.
         // Note that anyhow::context() converts the Option return type to a Result.
-        // Note2: different versions of Rust libc define ipi6_ifindex as u32 or i32. Force the cast
-        // to u32 for compatibility.
-        let ifindex = msg
+        let pktinfo = msg
             .cmsgs()?
             .find_map(|cmsg| {
                 if let ControlMessageOwned::Ipv6PacketInfo(packet_info) = cmsg {
-                    Some(packet_info.ipi6_ifindex)
+                    Some(packet_info)
                 } else {
                     None
                 }
             })
-            .context("No Ipv6PacketInfo found in cmsgs.")? as u32;
+            .context("No Ipv6PacketInfo found in cmsgs.")?;
 
         let addr = msg.address.map(SocketAddrV6::from).unwrap();
-        Ok((addr, ifindex))
+        Ok((addr, pktinfo))
     }
 
     /// Receives an arbitrarily sized UDP packet into an appropriately sized buffer and returns it
     /// alongside the sender's address, and the interface index.
-    pub async fn recv_from_with_ifindex(&self) -> Result<(Vec<u8>, SocketAddrV6, u32)> {
+    pub async fn recv_from_with_pktinfo(&self) -> Result<(Vec<u8>, SocketAddrV6, in6_pktinfo)> {
         // Call recv with MSG_PEEK|MSG_TRUNC to figure out the size of the incoming packet.
         let len = loop {
             // It is possible for readable().await? to return but for the arriving packet to fail
@@ -99,8 +96,8 @@ impl UdpServerSocket {
             }
         };
         let mut buf = vec![0u8; len];
-        let (from, ifindex) = self.try_recv_from_with_ifindex(&mut buf)?;
-        Ok((buf, from, ifindex))
+        let (from, pktinfo) = self.try_recv_from_with_pktinfo(&mut buf)?;
+        Ok((buf, from, pktinfo))
     }
 }
 
@@ -165,8 +162,9 @@ mod tests {
         assert!(server_socket.is_ok());
     }
 
+    #[allow(clippy::unnecessary_cast)]
     #[tokio::test]
-    async fn test_udp_server_socket_recv_from_with_ifindex() {
+    async fn test_udp_server_socket_recv_from_with_pktinfo() {
         let std_socket = std::net::UdpSocket::bind("[::]:0").unwrap();
         let server_port = std_socket.local_addr().unwrap().port();
         let server_socket = UdpServerSocket::new(std_socket).unwrap();
@@ -178,7 +176,8 @@ mod tests {
         client_socket.connect(server_addr).await.unwrap();
         client_socket.send(&TEST_VALID_DNS_QUERY).await.unwrap();
 
-        let (buf, addr, ifindex) = server_socket.recv_from_with_ifindex().await.unwrap();
+        let (buf, addr, pktinfo) = server_socket.recv_from_with_pktinfo().await.unwrap();
+        let ifindex = pktinfo.ipi6_ifindex as u32;
 
         assert_eq!(buf.len(), TEST_VALID_DNS_QUERY.len());
         assert_eq!(buf, TEST_VALID_DNS_QUERY);

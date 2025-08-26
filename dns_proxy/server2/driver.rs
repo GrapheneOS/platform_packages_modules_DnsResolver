@@ -77,9 +77,9 @@ impl Driver {
                 }
                 Ok(())
             }
-            res = self.downstream_udp_socket.recv_from_with_ifindex() => {
+            res = self.downstream_udp_socket.recv_from_with_pktinfo() => {
                 match res {
-                    Ok((_vec, _from, _ifindex)) => todo!(),
+                    Ok((_vec, _from, _pktinfo)) => todo!(),
                     Err(e) => log::error!("Failed to recv packet from UDP socket: {}", e),
                 }
                 // Do not stop driver on recv errors.
