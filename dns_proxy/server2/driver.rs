@@ -22,10 +22,12 @@ use super::{Command, NetworkContext, UpstreamConfig};
 use anyhow::bail;
 use anyhow::Result;
 use nix::libc::in6_pktinfo;
+use rand::rngs::ThreadRng;
 use socket2::Domain;
 use socket2::Socket;
 use socket2::Type;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::net::SocketAddrV6;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -80,6 +82,7 @@ pub struct Driver<T: NetworkContext> {
     /// Maps downstream ifindex to upstream config
     upstream_config_map: HashMap<u32, UpstreamConfig>,
     network_context: T,
+    rng: ThreadRng,
 }
 
 impl<T: NetworkContext> Driver<T> {
@@ -92,7 +95,8 @@ impl<T: NetworkContext> Driver<T> {
         // TODO: consider returning Result instead.
         let downstream_udp_socket = Arc::new(UdpServerSocket::new(udp_socket).unwrap());
         let upstream_config_map = HashMap::new();
-        Self { command_rx, downstream_udp_socket, upstream_config_map, network_context }
+        let rng = rand::rng();
+        Self { command_rx, downstream_udp_socket, upstream_config_map, network_context, rng }
     }
 
     fn configure_forwarding(&mut self, ifindex: u32, uid: u32, netid: u32) -> Result<()> {
@@ -105,7 +109,7 @@ impl<T: NetworkContext> Driver<T> {
     // linux-like platforms. In particular, the Linux host vs Android variants are different for
     // some reason (i32 vs u32).
     #[allow(clippy::unnecessary_cast)]
-    fn forward_udp(&self, bytes: Vec<u8>, from: SocketAddrV6, pktinfo: in6_pktinfo) {
+    fn forward_udp(&mut self, bytes: Vec<u8>, from: SocketAddrV6, pktinfo: in6_pktinfo) {
         // Some "linux-like" architecture variants of the nix library define ipi6_ifindex as i32
         // requiring an explicit cast.
         let ifindex = pktinfo.ipi6_ifindex as u32;
@@ -123,8 +127,13 @@ impl<T: NetworkContext> Driver<T> {
             return;
         };
 
-        // TODO: pick name server for upstream config.
-        let server = "[2001:4860:4860::8888]:53".parse::<SocketAddrV6>().unwrap();
+        let nameservers = self.network_context.get_name_servers(upstream_config);
+        use rand::seq::IndexedRandom as _;
+        let Some(server) = nameservers.choose(&mut self.rng) else {
+            log::error!("No nameservers configured for network {upstream_config:?}");
+            return;
+        };
+        let server_sock_addr = SocketAddr::new(*server, 53);
 
         // Create a sync socket and convert it to tokio::net::UdpSocket later, so this method does
         // not become async. Additonally, use socket2::Socket, because std::net::UdpSocket does not
@@ -141,7 +150,7 @@ impl<T: NetworkContext> Driver<T> {
             return;
         };
 
-        let Ok(_) = sock.connect(&server.into()) else {
+        let Ok(_) = sock.connect(&server_sock_addr.into()) else {
             log::error!("Failed to connect upstream socket. Dropped query.");
             return;
         };

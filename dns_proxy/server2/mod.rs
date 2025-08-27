@@ -24,6 +24,7 @@ use tokio::sync::{mpsc, oneshot};
 mod driver;
 use driver::Driver;
 
+#[derive(Debug)]
 pub struct UpstreamConfig {
     uid: u32,
     netid: u32,
