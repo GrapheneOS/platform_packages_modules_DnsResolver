@@ -18,7 +18,7 @@
 
 use crate::packet::DnsPacket;
 
-use super::Command;
+use super::{Command, NetworkContext, UpstreamConfig};
 use anyhow::bail;
 use anyhow::Result;
 use nix::libc::in6_pktinfo;
@@ -34,11 +34,6 @@ use tokio::task::JoinHandle;
 
 mod socket;
 use socket::UdpServerSocket;
-
-struct UpstreamConfig {
-    uid: u32,
-    netid: u32,
-}
 
 struct UdpQueryTask {
     packet: DnsPacket,
@@ -79,20 +74,25 @@ impl UdpQueryTask {
     }
 }
 
-pub struct Driver {
+pub struct Driver<T: NetworkContext> {
     command_rx: mpsc::Receiver<Command>,
     downstream_udp_socket: Arc<UdpServerSocket>,
     /// Maps downstream ifindex to upstream config
     upstream_config_map: HashMap<u32, UpstreamConfig>,
+    network_context: T,
 }
 
-impl Driver {
-    pub fn new(command_rx: mpsc::Receiver<Command>, udp_socket: std::net::UdpSocket) -> Self {
+impl<T: NetworkContext> Driver<T> {
+    pub fn new(
+        command_rx: mpsc::Receiver<Command>,
+        udp_socket: std::net::UdpSocket,
+        network_context: T,
+    ) -> Self {
         // panic!() if UdpServerSocket cannot be created. This should never happen.
         // TODO: consider returning Result instead.
         let downstream_udp_socket = Arc::new(UdpServerSocket::new(udp_socket).unwrap());
         let upstream_config_map = HashMap::new();
-        Self { command_rx, downstream_udp_socket, upstream_config_map }
+        Self { command_rx, downstream_udp_socket, upstream_config_map, network_context }
     }
 
     fn configure_forwarding(&mut self, ifindex: u32, uid: u32, netid: u32) -> Result<()> {
@@ -189,7 +189,7 @@ impl Driver {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::tests::TEST_VALID_DNS_QUERY;
+    use crate::{packet::tests::TEST_VALID_DNS_QUERY, server2::MockNetworkContext};
 
     use super::*;
     use nix::libc::in6_addr;
@@ -222,7 +222,7 @@ mod tests {
     async fn test_driver_new() {
         let (_command_tx, command_rx) = mpsc::channel(1);
         let socket = std::net::UdpSocket::bind("[::]:0").unwrap();
-        let _driver = Driver::new(command_rx, socket);
+        let _driver = Driver::new(command_rx, socket, MockNetworkContext::new());
     }
 
     #[tokio::test]
@@ -230,7 +230,7 @@ mod tests {
     async fn test_driver_new_panic() {
         let (_command_tx, command_rx) = mpsc::channel(1);
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        let _driver = Driver::new(command_rx, socket);
+        let _driver = Driver::new(command_rx, socket, MockNetworkContext::new());
     }
 
     #[tokio::test]
