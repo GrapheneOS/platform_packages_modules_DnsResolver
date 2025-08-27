@@ -110,7 +110,7 @@ impl<T: NetworkContext> Driver<T> {
         // requiring an explicit cast.
         let ifindex = pktinfo.ipi6_ifindex as u32;
         // TODO: use upstream config to fetch nameserver and mark.
-        let Some(_upstream_config) = self.upstream_config_map.get(&ifindex) else {
+        let Some(upstream_config) = self.upstream_config_map.get(&ifindex) else {
             // If forwarding is not configured for the given downstream ifindex,
             // ignore the packet.
             log::info!("DNS forwarding is not configured for downstream ifindex {ifindex}");
@@ -135,7 +135,12 @@ impl<T: NetworkContext> Driver<T> {
             return;
         };
 
-        // TODO: set mark on upstream_socket before calling connect.
+        let somark = self.network_context.get_dns_mark(upstream_config);
+        let Ok(_) = sock.set_mark(somark) else {
+            log::error!("Failed to set SO_MARK");
+            return;
+        };
+
         let Ok(_) = sock.connect(&server.into()) else {
             log::error!("Failed to connect upstream socket. Dropped query.");
             return;
