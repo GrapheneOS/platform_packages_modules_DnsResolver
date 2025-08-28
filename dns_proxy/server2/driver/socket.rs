@@ -21,12 +21,15 @@ use nix::cmsg_space;
 use nix::libc::in6_pktinfo;
 use nix::sys::socket::recv;
 use nix::sys::socket::recvmsg;
+use nix::sys::socket::sendmsg;
 use nix::sys::socket::setsockopt;
 use nix::sys::socket::sockopt::Ipv6RecvPacketInfo;
+use nix::sys::socket::ControlMessage;
 use nix::sys::socket::ControlMessageOwned;
 use nix::sys::socket::MsgFlags;
 use nix::sys::socket::RecvMsg;
 use nix::sys::socket::SockaddrLike;
+use std::io::IoSlice;
 use std::io::IoSliceMut;
 use std::net::Ipv6Addr;
 use std::net::SocketAddrV6;
@@ -52,8 +55,7 @@ impl UdpServerSocket {
     /// Receives a single datagram from the socket. On success, returns the number
     /// of bytes read, the sender's address, and the interface index. Must be used in combination
     /// with readable().
-    #[allow(clippy::unnecessary_cast)]
-    fn try_recv_from_with_ifindex(&self, buf: &mut [u8]) -> Result<(SocketAddrV6, u32)> {
+    fn try_recv_from_with_pktinfo(&self, buf: &mut [u8]) -> Result<(SocketAddrV6, in6_pktinfo)> {
         let mut cmsg_buf = cmsg_space!(in6_pktinfo);
         let iov = &mut [IoSliceMut::new(buf)];
         let msg = self.socket.try_recvmsg::<nix::sys::socket::SockaddrIn6>(
@@ -65,26 +67,24 @@ impl UdpServerSocket {
         // If cmsgs are not present, or the Ipv6PacketInfo option is not found, the function
         // returns an error. This should never happen, i.e. it likely indicates a kernel bug.
         // Note that anyhow::context() converts the Option return type to a Result.
-        // Note2: different versions of Rust libc define ipi6_ifindex as u32 or i32. Force the cast
-        // to u32 for compatibility.
-        let ifindex = msg
+        let pktinfo = msg
             .cmsgs()?
             .find_map(|cmsg| {
                 if let ControlMessageOwned::Ipv6PacketInfo(packet_info) = cmsg {
-                    Some(packet_info.ipi6_ifindex)
+                    Some(packet_info)
                 } else {
                     None
                 }
             })
-            .context("No Ipv6PacketInfo found in cmsgs.")? as u32;
+            .context("No Ipv6PacketInfo found in cmsgs.")?;
 
         let addr = msg.address.map(SocketAddrV6::from).unwrap();
-        Ok((addr, ifindex))
+        Ok((addr, pktinfo))
     }
 
     /// Receives an arbitrarily sized UDP packet into an appropriately sized buffer and returns it
     /// alongside the sender's address, and the interface index.
-    pub async fn recv_from_with_ifindex(&self) -> Result<(Vec<u8>, SocketAddrV6, u32)> {
+    pub async fn recv_from_with_pktinfo(&self) -> Result<(Vec<u8>, SocketAddrV6, in6_pktinfo)> {
         // Call recv with MSG_PEEK|MSG_TRUNC to figure out the size of the incoming packet.
         let len = loop {
             // It is possible for readable().await? to return but for the arriving packet to fail
@@ -99,8 +99,30 @@ impl UdpServerSocket {
             }
         };
         let mut buf = vec![0u8; len];
-        let (from, ifindex) = self.try_recv_from_with_ifindex(&mut buf)?;
-        Ok((buf, from, ifindex))
+        let (from, pktinfo) = self.try_recv_from_with_pktinfo(&mut buf)?;
+        Ok((buf, from, pktinfo))
+    }
+
+    pub async fn send_to_with_pktinfo(
+        &self,
+        buf: &[u8],
+        to: SocketAddrV6,
+        pktinfo: in6_pktinfo,
+    ) -> Result<usize> {
+        let iov = [IoSlice::new(buf)];
+        let cmsg = [ControlMessage::Ipv6PacketInfo(&pktinfo)];
+        let to = nix::sys::socket::SockaddrIn6::from(to);
+        loop {
+            self.socket.writable().await?;
+
+            // Similar to readable(), it is possible for writable() to return but try_sendmsg to
+            // fail with EAGAIN.
+            match self.socket.try_sendmsg(&iov, &cmsg, MsgFlags::empty(), Some(&to)) {
+                Ok(len) => return Ok(len),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
     }
 }
 
@@ -122,6 +144,17 @@ trait UdpSocketExt {
     where
         S: SockaddrLike + 'a,
         'inner: 'outer;
+
+    /// A tokio-compatible wrapper around sendmsg.
+    fn try_sendmsg<S>(
+        &self,
+        iov: &[IoSlice<'_>],
+        cmsgs: &[ControlMessage<'_>],
+        flags: MsgFlags,
+        addr: Option<&S>,
+    ) -> std::io::Result<usize>
+    where
+        S: SockaddrLike;
 }
 
 impl UdpSocketExt for UdpSocket {
@@ -149,6 +182,22 @@ impl UdpSocketExt for UdpSocket {
             recvmsg(self.as_raw_fd(), iov, cmsg_buf, flags).map_err(std::io::Error::from)
         })
     }
+
+    fn try_sendmsg<S>(
+        &self,
+        iov: &[IoSlice<'_>],
+        cmsgs: &[ControlMessage<'_>],
+        flags: MsgFlags,
+        addr: Option<&S>,
+    ) -> std::io::Result<usize>
+    where
+        S: SockaddrLike,
+    {
+        self.try_io(tokio::io::Interest::WRITABLE, || {
+            use std::os::fd::AsRawFd as _;
+            sendmsg(self.as_raw_fd(), iov, cmsgs, flags, addr).map_err(std::io::Error::from)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -165,8 +214,9 @@ mod tests {
         assert!(server_socket.is_ok());
     }
 
+    #[allow(clippy::unnecessary_cast)]
     #[tokio::test]
-    async fn test_udp_server_socket_recv_from_with_ifindex() {
+    async fn test_udp_server_socket_recv_from_with_pktinfo() {
         let std_socket = std::net::UdpSocket::bind("[::]:0").unwrap();
         let server_port = std_socket.local_addr().unwrap().port();
         let server_socket = UdpServerSocket::new(std_socket).unwrap();
@@ -178,7 +228,8 @@ mod tests {
         client_socket.connect(server_addr).await.unwrap();
         client_socket.send(&TEST_VALID_DNS_QUERY).await.unwrap();
 
-        let (buf, addr, ifindex) = server_socket.recv_from_with_ifindex().await.unwrap();
+        let (buf, addr, pktinfo) = server_socket.recv_from_with_pktinfo().await.unwrap();
+        let ifindex = pktinfo.ipi6_ifindex as u32;
 
         assert_eq!(buf.len(), TEST_VALID_DNS_QUERY.len());
         assert_eq!(buf, TEST_VALID_DNS_QUERY);
@@ -187,5 +238,31 @@ mod tests {
         assert_eq!(addr.ip().to_canonical(), client_addr.ip().to_canonical());
         assert_eq!(addr.port(), client_addr.port());
         assert_eq!(ifindex, 1 /* loopback */);
+    }
+
+    #[tokio::test]
+    async fn test_udp_server_socket_send_to_with_pktinfo() {
+        let std_socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let server_addr = std_socket.local_addr().unwrap();
+        let server_socket = UdpServerSocket::new(std_socket).unwrap();
+
+        let client_socket = std::net::UdpSocket::bind("[::1]:0").unwrap();
+        let client_addr = client_socket.local_addr().unwrap();
+
+        // Send a packet from client to server to get a valid pktinfo.
+        client_socket.send_to(&TEST_VALID_DNS_QUERY, server_addr).unwrap();
+        let (_, from, pktinfo) = server_socket.recv_from_with_pktinfo().await.unwrap();
+        assert!(from.ip().is_loopback());
+        assert_eq!(from.port(), client_addr.port());
+
+        // Send a response back from server to client.
+        let response = b"response";
+        server_socket.send_to_with_pktinfo(response, from, pktinfo).await.unwrap();
+
+        let mut buf = [0u8; 1024];
+        let (len, addr) = client_socket.recv_from(&mut buf).unwrap();
+        assert!(addr.ip().is_loopback());
+        assert_eq!(addr.port(), server_addr.port());
+        assert_eq!(&buf[..len], response);
     }
 }
