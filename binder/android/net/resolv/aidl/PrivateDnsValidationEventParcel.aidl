@@ -19,7 +19,7 @@ package android.net.resolv.aidl;
 /**
  * A private DNS validation result.
  *
- * {@hide}
+ * @hide
  */
 @JavaDerive(toString=true)
 parcelable PrivateDnsValidationEventParcel {

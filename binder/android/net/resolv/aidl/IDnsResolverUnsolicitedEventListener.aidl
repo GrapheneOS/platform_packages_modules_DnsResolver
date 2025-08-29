@@ -25,7 +25,7 @@ import android.net.resolv.aidl.PrivateDnsValidationEventParcel;
  * This one-way interface groups asynchronous notifications sent by dns resolver to any process that
  * registered itself via IDnsResolver.registerUnsolicitedEventListener.
  *
- * {@hide}
+ * @hide
  */
 oneway interface IDnsResolverUnsolicitedEventListener {
 
