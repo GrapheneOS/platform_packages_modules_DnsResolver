@@ -101,6 +101,8 @@ rust_ffi_static {
 
 rust_defaults {
     name: "libdns_proxy_defaults",
+    edition: "2021",
+    srcs: ["dns_proxy/lib.rs"],
     rlibs: [
         "libanyhow",
         "libbytes",
@@ -137,13 +139,8 @@ genrule {
 rust_ffi_static {
     name: "libdns_proxy_ffi",
     crate_name: "dns_proxy",
-    srcs: ["dns_proxy/lib.rs"],
-    edition: "2021",
-
     defaults: ["libdns_proxy_defaults"],
-    features: [
-        "android-ffi",
-    ],
+    features: ["android-ffi"],
     rlibs: [
         "libandroid_logger",
         "libcxx",
@@ -157,9 +154,7 @@ rust_ffi_static {
 }
 
 rust_test {
-    name: "libdns_proxy_host_tests",
-    srcs: ["dns_proxy/lib.rs"],
-    edition: "2021",
+    name: "dns_proxy_host_unit_test",
     device_supported: false,
     host_supported: true,
     defaults: ["libdns_proxy_defaults"],
