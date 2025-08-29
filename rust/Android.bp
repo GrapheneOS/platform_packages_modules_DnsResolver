@@ -95,21 +95,7 @@ rust_ffi_static {
     srcs: ["doh/doh_test_superset_for_fuzzer.rs"],
     edition: "2021",
 
-    rlibs: [
-        "libandroid_logger",
-        "libanyhow",
-        "libbase64_rust",
-        "libfutures",
-        "liblibc",
-        "liblog_rust",
-        "libquiche_static",
-        "libring",
-        "libstatslog_dns_resolver_rust",
-        "libthiserror",
-        "libtokio",
-        "liburl",
-    ],
-
+    rlibs: doh_rust_deps + ["libquiche_static"],
     whole_static_libs: ["libunwind"],
 }
 
