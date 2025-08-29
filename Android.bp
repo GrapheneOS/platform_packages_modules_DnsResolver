@@ -295,7 +295,7 @@ cc_library {
         "PrivateDnsConfiguration.cpp",
         "ResolverController.cpp",
         "ResolverEventReporter.cpp",
-        "dns_proxy/net_context_client.cpp",
+        "rust/dns_proxy/net_context_client.cpp",
     ],
     // Link most things statically to minimize our dependence on system ABIs.
     stl: "libc++_static",
@@ -448,7 +448,7 @@ doh_rust_deps = [
 rust_ffi_static {
     name: "libdoh_ffi",
     crate_name: "doh",
-    srcs: ["doh/doh.rs"],
+    srcs: ["rust/doh/doh.rs"],
     edition: "2021",
 
     rlibs: doh_rust_deps + ["libquiche"],
@@ -469,7 +469,7 @@ rust_ffi_static {
 rust_test {
     name: "doh_unit_test",
     crate_name: "doh",
-    srcs: ["doh/doh.rs"],
+    srcs: ["rust/doh/doh.rs"],
     edition: "2021",
     test_suites: ["general-tests"],
     auto_gen_config: true,
@@ -482,7 +482,7 @@ rust_test {
 rust_ffi_static {
     name: "libdoh_ffi_for_test",
     crate_name: "doh",
-    srcs: ["doh/doh.rs"],
+    srcs: ["rust/doh/doh.rs"],
     edition: "2021",
 
     rlibs: doh_rust_deps + ["libquiche_static"],
@@ -508,7 +508,7 @@ rust_ffi_static {
     name: "libdoh_fuzz_ffi",
     crate_name: "doh_fuzz_ffi",
     srcs: [
-        "doh/doh_test_superset_for_fuzzer.rs",
+        "rust/doh/doh_test_superset_for_fuzzer.rs",
     ],
     edition: "2021",
 
@@ -553,7 +553,7 @@ genrule {
     name: "libdns_proxy_cxx_bridge_header",
     tools: ["cxxbridge"],
     cmd: "$(location cxxbridge) $(in) --header >> $(out)",
-    srcs: ["dns_proxy/ffi.rs"],
+    srcs: ["rust/dns_proxy/ffi.rs"],
     out: ["dns_proxy_cxx_bridge.rs.h"],
 }
 
@@ -561,14 +561,14 @@ genrule {
     name: "libdns_proxy_cxx_bridge_source",
     tools: ["cxxbridge"],
     cmd: "$(location cxxbridge) $(in) >> $(out)",
-    srcs: ["dns_proxy/ffi.rs"],
+    srcs: ["rust/dns_proxy/ffi.rs"],
     out: ["dns_proxy_cxx_bridge.rs.cpp"],
 }
 
 rust_ffi_static {
     name: "libdns_proxy_ffi",
     crate_name: "dns_proxy",
-    srcs: ["dns_proxy/lib.rs"],
+    srcs: ["rust/dns_proxy/lib.rs"],
     edition: "2021",
 
     defaults: ["libdns_proxy_defaults"],
@@ -589,7 +589,7 @@ rust_ffi_static {
 
 rust_test {
     name: "libdns_proxy_host_tests",
-    srcs: ["dns_proxy/lib.rs"],
+    srcs: ["rust/dns_proxy/lib.rs"],
     edition: "2021",
     device_supported: false,
     host_supported: true,
