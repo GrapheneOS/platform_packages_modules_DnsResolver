@@ -57,7 +57,6 @@ rust_test {
     srcs: ["doh/doh.rs"],
     edition: "2021",
     test_suites: ["general-tests"],
-    auto_gen_config: true,
     rustlibs: doh_rust_deps + ["libquiche_static"],
     min_sdk_version: "30",
     shared_libs: ["libc++"],
@@ -154,14 +153,10 @@ rust_ffi_static {
 }
 
 rust_test {
-    name: "dns_proxy_host_unit_test",
-    device_supported: false,
-    host_supported: true,
+    name: "dns_proxy_unit_test",
     defaults: ["libdns_proxy_defaults"],
     rlibs: [
         "libmockall",
     ],
-    test_options: {
-        unit_test: true,
-    },
+    test_suites: ["general-tests"],
 }
