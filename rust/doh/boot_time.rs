@@ -70,21 +70,10 @@ impl BootTime {
         BootTime { d: Duration::new(t.tv_sec as u64, t.tv_nsec as u32) }
     }
 
-    /// Determines how long has elapsed since the provided `BootTime`.
-    pub fn elapsed(&self) -> Duration {
-        BootTime::now().checked_duration_since(*self).unwrap()
-    }
-
     /// Add a specified time delta to a moment in time. If this would overflow the representation,
     /// returns `None`.
     pub fn checked_add(&self, duration: Duration) -> Option<BootTime> {
         Some(BootTime { d: self.d.checked_add(duration)? })
-    }
-
-    /// Finds the difference from an earlier point in time. If the provided time is later, returns
-    /// `None`.
-    pub fn checked_duration_since(&self, earlier: BootTime) -> Option<Duration> {
-        self.d.checked_sub(earlier.d)
     }
 }
 
@@ -169,50 +158,68 @@ pub async fn sleep(duration: Duration) {
     assert!(timeout(duration, pending::<()>()).await.is_err());
 }
 
-#[test]
-fn monotonic_smoke() {
-    for _ in 0..1000 {
-        // If BootTime is not monotonic, .elapsed() will panic on the unwrap.
-        BootTime::now().elapsed();
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test]
-fn round_trip() {
-    use std::thread::sleep;
-    for _ in 0..10 {
-        let start = BootTime::now();
-        sleep(Duration::from_millis(1));
-        let end = BootTime::now();
-        let delta = end.checked_duration_since(start).unwrap();
-        assert_eq!(start.checked_add(delta).unwrap(), end);
-    }
-}
+    impl BootTime {
+        /// Determines how long has elapsed since the provided `BootTime`.
+        pub fn elapsed(&self) -> Duration {
+            BootTime::now().checked_duration_since(*self).unwrap()
+        }
 
-#[tokio::test]
-async fn timeout_drift() {
-    let delta = Duration::from_millis(40);
-    for _ in 0..5 {
+        /// Finds the difference from an earlier point in time. If the provided time is later, returns
+        /// `None`.
+        pub fn checked_duration_since(&self, earlier: BootTime) -> Option<Duration> {
+            self.d.checked_sub(earlier.d)
+        }
+    }
+
+    #[test]
+    fn monotonic_smoke() {
+        for _ in 0..1000 {
+            // If BootTime is not monotonic, .elapsed() will panic on the unwrap.
+            BootTime::now().elapsed();
+        }
+    }
+
+    #[test]
+    fn round_trip() {
+        use std::thread::sleep;
+        for _ in 0..10 {
+            let start = BootTime::now();
+            sleep(Duration::from_millis(1));
+            let end = BootTime::now();
+            let delta = end.checked_duration_since(start).unwrap();
+            assert_eq!(start.checked_add(delta).unwrap(), end);
+        }
+    }
+
+    #[tokio::test]
+    async fn timeout_drift() {
+        let delta = Duration::from_millis(40);
+        for _ in 0..5 {
+            let start = BootTime::now();
+            assert!(timeout(delta, pending::<()>()).await.is_err());
+            let taken = start.elapsed();
+            let drift = taken.abs_diff(delta);
+            assert!(drift < Duration::from_millis(10));
+        }
+
+        for _ in 0..5 {
+            let start = BootTime::now();
+            sleep(delta).await;
+            let taken = start.elapsed();
+            let drift = taken.abs_diff(delta);
+            assert!(drift < Duration::from_millis(10));
+        }
+    }
+
+    #[tokio::test]
+    async fn timeout_duration_zero() {
         let start = BootTime::now();
-        assert!(timeout(delta, pending::<()>()).await.is_err());
+        assert!(timeout(Duration::from_millis(0), pending::<()>()).await.is_err());
         let taken = start.elapsed();
-        let drift = taken.abs_diff(delta);
-        assert!(drift < Duration::from_millis(10));
+        assert!(taken < Duration::from_millis(5));
     }
-
-    for _ in 0..5 {
-        let start = BootTime::now();
-        sleep(delta).await;
-        let taken = start.elapsed();
-        let drift = taken.abs_diff(delta);
-        assert!(drift < Duration::from_millis(10));
-    }
-}
-
-#[tokio::test]
-async fn timeout_duration_zero() {
-    let start = BootTime::now();
-    assert!(timeout(Duration::from_millis(0), pending::<()>()).await.is_err());
-    let taken = start.elapsed();
-    assert!(taken < Duration::from_millis(5));
 }
