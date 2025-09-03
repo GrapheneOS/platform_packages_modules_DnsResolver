@@ -15,9 +15,9 @@
 
 //! Defines a backing task to keep a HTTP/3 connection running
 
-use crate::boot_time;
-use crate::boot_time::BootTime;
-use crate::metrics::log_handshake_event_stats;
+use crate::doh::boot_time;
+use crate::doh::boot_time::BootTime;
+use crate::doh::metrics::log_handshake_event_stats;
 use log::{debug, info, warn};
 use quiche::h3;
 use std::collections::HashMap;

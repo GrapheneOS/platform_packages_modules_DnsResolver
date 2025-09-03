@@ -15,11 +15,11 @@
 
 //! Module providing an async abstraction around a quiche HTTP/3 connection
 
-use crate::boot_time::BootTime;
-use crate::connection::driver::Cause;
-use crate::connection::driver::HandshakeInfo;
-use crate::network::ServerInfo;
-use crate::network::SocketTagger;
+use crate::doh::boot_time::BootTime;
+use crate::doh::connection::driver::Cause;
+use crate::doh::connection::driver::HandshakeInfo;
+use crate::doh::network::ServerInfo;
+use crate::doh::network::SocketTagger;
 use log::{debug, error, warn};
 use quiche::h3;
 use std::future::Future;

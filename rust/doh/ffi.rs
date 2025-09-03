@@ -16,9 +16,9 @@
 
 //! C API for the DoH backend for the Android DnsResolver module.
 
-use crate::boot_time::{timeout, BootTime, Duration};
-use crate::dispatcher::{Command, Dispatcher, Response, ServerInfo};
-use crate::network::{SocketTagger, ValidationReporter};
+use crate::doh::boot_time::{timeout, BootTime, Duration};
+use crate::doh::dispatcher::{Command, Dispatcher, Response, ServerInfo};
+use crate::doh::network::{SocketTagger, ValidationReporter};
 use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use futures::FutureExt;
 use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};

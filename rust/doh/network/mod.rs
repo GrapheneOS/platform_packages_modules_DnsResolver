@@ -16,9 +16,9 @@
 
 //! Provides the ability to query DNS for a specific network configuration
 
-use crate::boot_time::{BootTime, Duration};
-use crate::config::Config;
-use crate::dispatcher::{QueryError, Response};
+use crate::doh::boot_time::{BootTime, Duration};
+use crate::doh::config::Config;
+use crate::doh::dispatcher::{QueryError, Response};
 use anyhow::Result;
 use futures::future::BoxFuture;
 use log::warn;

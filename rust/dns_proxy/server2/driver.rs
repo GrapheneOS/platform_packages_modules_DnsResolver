@@ -16,7 +16,7 @@
 
 //! Provides a backing task to implement a Server
 
-use crate::packet::DnsPacket;
+use crate::dns_proxy::packet::DnsPacket;
 
 use super::{Command, NetworkContext, UpstreamConfig};
 use anyhow::bail;
@@ -203,7 +203,7 @@ impl<T: NetworkContext> Driver<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{packet::tests::TEST_VALID_DNS_QUERY, server2::MockNetworkContext};
+    use crate::dns_proxy::{packet::tests::TEST_VALID_DNS_QUERY, server2::MockNetworkContext};
 
     use super::*;
     use nix::libc::in6_addr;

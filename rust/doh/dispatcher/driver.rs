@@ -16,15 +16,15 @@
 
 //! Provides a backing task to implement a Dispatcher
 
-use crate::boot_time::{BootTime, Duration};
+use crate::doh::boot_time::{BootTime, Duration};
 use anyhow::{bail, Result};
 use log::{debug, trace, warn};
 use std::collections::HashMap;
 use tokio::sync::{mpsc, oneshot};
 
 use super::{Command, QueryError, Response};
-use crate::network::{Network, ServerInfo, SocketTagger, ValidationReporter};
-use crate::{config, network};
+use crate::doh::network::{Network, ServerInfo, SocketTagger, ValidationReporter};
+use crate::doh::{config, network};
 
 pub struct Driver {
     command_rx: mpsc::Receiver<Command>,
