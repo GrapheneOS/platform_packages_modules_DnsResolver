@@ -234,6 +234,7 @@ impl OpaqueServer {
     }
 
     fn proxy2_server_stop_forwarding(self: &OpaqueServer, ifindex: u32) {
-        todo!();
+        // TODO: consider returning the result to the caller.
+        let _ = self.stop_forwarding(ifindex);
     }
 }
