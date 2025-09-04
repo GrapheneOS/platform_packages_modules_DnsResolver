@@ -17,6 +17,7 @@
 use crate::doh::connection::driver::Cause;
 use crate::doh::connection::driver::HandshakeInfo;
 use crate::doh::connection::driver::HandshakeResult;
+#[cfg(feature = "statslog")]
 use statslog_dns_resolver_rust::network_dns_handshake_reported::{
     Cause as StatsdCause, NetworkDnsHandshakeReported, NetworkType as StatsdNetworkType,
     PrivateDnsMode as StatsdPrivateDnsMode, Protocol as StatsdProtocol, Result as StatsdResult,
@@ -41,6 +42,7 @@ const STRICT: u32 = 3;
 
 const TLS1_3_VERSION: u32 = 3;
 
+#[cfg(feature = "statslog")]
 fn create_default_handshake_atom() -> NetworkDnsHandshakeReported {
     NetworkDnsHandshakeReported {
         protocol: StatsdProtocol::ProtoUnknown,
@@ -61,6 +63,7 @@ fn create_default_handshake_atom() -> NetworkDnsHandshakeReported {
     }
 }
 
+#[cfg(feature = "statslog")]
 fn construct_handshake_event_stats(
     result: HandshakeResult,
     handshake_info: HandshakeInfo,
@@ -110,11 +113,18 @@ fn construct_handshake_event_stats(
 
 /// Log hankshake events via statsd API.
 pub fn log_handshake_event_stats(result: HandshakeResult, handshake_info: HandshakeInfo) {
-    let handshake_event_stats = construct_handshake_event_stats(result, handshake_info);
+    #[cfg(feature = "statslog")]
+    {
+        let handshake_event_stats = construct_handshake_event_stats(result, handshake_info);
 
-    let logging_result = handshake_event_stats.stats_write();
-    if let Err(e) = logging_result {
-        log::error!("Error in logging handshake event. {e:?}");
+        let logging_result = handshake_event_stats.stats_write();
+        if let Err(e) = logging_result {
+            log::error!("Error in logging handshake event. {e:?}");
+        }
+    }
+    #[cfg(not(feature = "statslog"))]
+    {
+        panic!("Must enable statslog in production");
     }
 }
 
@@ -123,6 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "statslog")]
     fn test_metrics_write() {
         let handshake_info = HandshakeInfo {
             cause: Cause::Retry,

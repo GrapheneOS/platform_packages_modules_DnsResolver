@@ -37,6 +37,7 @@ rust_defaults {
     crate_name: "resolvrs",
     edition: "2021",
     srcs: ["src/lib.rs"],
+    features: ["statslog"],
 
     rlibs: [
         "libandroid_logger",
