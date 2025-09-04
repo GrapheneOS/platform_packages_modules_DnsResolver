@@ -20,7 +20,7 @@ genrule {
     name: "libdns_proxy_cxx_bridge_header",
     tools: ["cxxbridge"],
     cmd: "$(location cxxbridge) $(in) --header >> $(out)",
-    srcs: ["dns_proxy/ffi.rs"],
+    srcs: ["src/dns_proxy/ffi.rs"],
     out: ["dns_proxy_cxx_bridge.rs.h"],
 }
 
@@ -28,7 +28,7 @@ genrule {
     name: "libdns_proxy_cxx_bridge_source",
     tools: ["cxxbridge"],
     cmd: "$(location cxxbridge) $(in) >> $(out)",
-    srcs: ["dns_proxy/ffi.rs"],
+    srcs: ["src/dns_proxy/ffi.rs"],
     out: ["dns_proxy_cxx_bridge.rs.cpp"],
 }
 
@@ -36,7 +36,7 @@ rust_defaults {
     name: "resolvrs_defaults",
     crate_name: "resolvrs",
     edition: "2021",
-    srcs: ["lib.rs"],
+    srcs: ["src/lib.rs"],
 
     rlibs: [
         "libandroid_logger",

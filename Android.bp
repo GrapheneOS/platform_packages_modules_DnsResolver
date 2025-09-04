@@ -295,7 +295,7 @@ cc_library {
         "PrivateDnsConfiguration.cpp",
         "ResolverController.cpp",
         "ResolverEventReporter.cpp",
-        "rust/dns_proxy/net_context_client.cpp",
+        "rust/src/dns_proxy/net_context_client.cpp",
     ],
     // Link most things statically to minimize our dependence on system ABIs.
     stl: "libc++_static",
