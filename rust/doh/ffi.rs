@@ -16,12 +16,12 @@
 
 //! C API for the DoH backend for the Android DnsResolver module.
 
-use crate::boot_time::{timeout, BootTime, Duration};
-use crate::dispatcher::{Command, Dispatcher, Response, ServerInfo};
-use crate::network::{SocketTagger, ValidationReporter};
+use crate::doh::boot_time::{timeout, BootTime, Duration};
+use crate::doh::dispatcher::{Command, Dispatcher, Response, ServerInfo};
+use crate::doh::network::{SocketTagger, ValidationReporter};
 use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use futures::FutureExt;
-use libc::{c_char, int32_t, size_t, ssize_t, uint32_t, uint64_t};
+use libc::{c_char, size_t, ssize_t};
 use log::{error, warn};
 use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
@@ -35,18 +35,14 @@ use tokio::sync::oneshot;
 use tokio::task;
 use url::Url;
 
-pub type ValidationCallback = unsafe extern "C" fn(
-    net_id: uint32_t,
-    success: bool,
-    ip_addr: *const c_char,
-    host: *const c_char,
-);
+pub type ValidationCallback =
+    unsafe extern "C" fn(net_id: u32, success: bool, ip_addr: *const c_char, host: *const c_char);
 pub type TagSocketCallback = extern "C" fn(sock: RawFd);
 
 #[repr(C)]
 pub struct FeatureFlags {
-    probe_timeout_ms: uint64_t,
-    idle_timeout_ms: uint64_t,
+    probe_timeout_ms: u64,
+    idle_timeout_ms: u64,
     use_session_resumption: bool,
     enable_early_data: bool,
 }
@@ -192,16 +188,16 @@ pub unsafe extern "C" fn doh_dispatcher_delete(doh: *mut DohDispatcher) {
 #[no_mangle]
 pub unsafe extern "C" fn doh_net_new(
     doh: &DohDispatcher,
-    net_id: uint32_t,
+    net_id: u32,
     url: *const c_char,
     domain: *const c_char,
     ip_addr: *const c_char,
-    sk_mark: libc::uint32_t,
+    sk_mark: u32,
     cert_path: *const c_char,
     flags: &FeatureFlags,
-    network_type: uint32_t,
-    private_dns_mode: uint32_t,
-) -> int32_t {
+    network_type: u32,
+    private_dns_mode: u32,
+) -> i32 {
     // SAFETY: The caller guarantees that these are all valid nul-terminated C strings.
     let (url, domain, ip_addr, cert_path) = match unsafe {
         (
@@ -272,12 +268,12 @@ pub unsafe extern "C" fn doh_net_new(
 #[no_mangle]
 pub unsafe extern "C" fn doh_query(
     doh: &DohDispatcher,
-    net_id: uint32_t,
+    net_id: u32,
     dns_query: *mut u8,
     dns_query_len: size_t,
     response: *mut u8,
     response_len: size_t,
-    timeout_ms: uint64_t,
+    timeout_ms: u64,
 ) -> ssize_t {
     // SAFETY: The caller guarantees that `dns_query` is a valid pointer to a buffer of at least
     // `dns_query_len` items.
@@ -343,7 +339,7 @@ pub unsafe extern "C" fn doh_query(
 /// `doh` must be a non-null pointer previously created by `doh_dispatcher_new()`
 /// and not yet deleted by `doh_dispatcher_delete()`.
 #[no_mangle]
-pub extern "C" fn doh_net_delete(doh: &DohDispatcher, net_id: uint32_t) {
+pub extern "C" fn doh_net_delete(doh: &DohDispatcher, net_id: u32) {
     if let Err(e) = doh.lock().send_cmd(Command::Clear { net_id }) {
         error!("Failed to send the query: {e:?}");
     }
@@ -358,7 +354,7 @@ mod tests {
     const LOCALHOST_URL: &str = "https://mylocal.com/dns-query";
 
     unsafe extern "C" fn success_cb(
-        net_id: uint32_t,
+        net_id: u32,
         success: bool,
         ip_addr: *const c_char,
         host: *const c_char,
@@ -371,7 +367,7 @@ mod tests {
     }
 
     unsafe extern "C" fn fail_cb(
-        net_id: uint32_t,
+        net_id: u32,
         success: bool,
         ip_addr: *const c_char,
         host: *const c_char,
@@ -385,11 +381,7 @@ mod tests {
 
     // # Safety
     // `ip_addr`, `host` are null terminated strings
-    unsafe fn assert_validation_info(
-        net_id: uint32_t,
-        ip_addr: *const c_char,
-        host: *const c_char,
-    ) {
+    unsafe fn assert_validation_info(net_id: u32, ip_addr: *const c_char, host: *const c_char) {
         assert_eq!(net_id, TEST_NET_ID);
         // SAFETY: The caller guarantees that `ip_addr` is a valid nul-terminated C string.
         let ip_addr = unsafe { std::ffi::CStr::from_ptr(ip_addr) }.to_str().unwrap();

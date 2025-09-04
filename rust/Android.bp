@@ -16,110 +16,6 @@ package {
     default_team: "trendy_team_fwk_core_networking",
 }
 
-doh_rust_deps = [
-    "libandroid_logger",
-    "libanyhow",
-    "libbase64_rust",
-    "libfutures",
-    "liblibc",
-    "liblog_rust",
-    "libring",
-    "libstatslog_dns_resolver_rust",
-    "libthiserror",
-    "libtokio",
-    "liburl",
-]
-
-rust_ffi_static {
-    name: "libdoh_ffi",
-    crate_name: "doh",
-    srcs: ["doh/doh.rs"],
-    edition: "2021",
-
-    rlibs: doh_rust_deps + ["libquiche"],
-    prefer_rlib: true,
-
-    shared_libs: [
-        "libcrypto",
-        "libssl",
-    ],
-
-    apex_available: [
-        "//apex_available:platform", // Needed by doh_ffi_test
-        "com.android.resolv",
-    ],
-    min_sdk_version: "30",
-}
-
-rust_test {
-    name: "doh_unit_test",
-    crate_name: "doh",
-    srcs: ["doh/doh.rs"],
-    edition: "2021",
-    test_suites: ["general-tests"],
-    auto_gen_config: true,
-    rustlibs: doh_rust_deps + ["libquiche_static"],
-    min_sdk_version: "30",
-    shared_libs: ["libc++"],
-}
-
-// It's required by unit tests.
-rust_ffi_static {
-    name: "libdoh_ffi_for_test",
-    crate_name: "doh",
-    srcs: ["doh/doh.rs"],
-    edition: "2021",
-
-    rlibs: doh_rust_deps + ["libquiche_static"],
-    prefer_rlib: true,
-
-    shared_libs: [
-        "libstatssocket",
-    ],
-
-    // TODO(b/194022174), for unit tests to run on the Android 10 platform,
-    // libunwind must be statically linked.
-    whole_static_libs: ["libunwind"],
-    apex_available: [
-        "//apex_available:platform", // Needed by doh_ffi_test
-        "com.android.resolv",
-    ],
-    min_sdk_version: "30",
-}
-
-rust_ffi_static {
-    // Combines libdoh_frontend_ffi and libdoh_ffi for fuzzing test.
-    // Includes multiple static rust libraries will cause duplicate symbol error.
-    name: "libdoh_fuzz_ffi",
-    crate_name: "doh_fuzz_ffi",
-    srcs: ["doh/doh_test_superset_for_fuzzer.rs"],
-    edition: "2021",
-
-    rlibs: doh_rust_deps + ["libquiche_static"],
-    whole_static_libs: ["libunwind"],
-}
-
-rust_defaults {
-    name: "libdns_proxy_defaults",
-    edition: "2021",
-    srcs: ["dns_proxy/lib.rs"],
-    rlibs: [
-        "libanyhow",
-        "libbytes",
-        "libfutures",
-        "liblog_rust",
-        "libnix",
-        "libnum_enum",
-        "librand",
-        "libsocket2",
-        "libthiserror",
-        "libtokio",
-    ],
-    proc_macros: [
-        "libasync_trait",
-    ],
-}
-
 genrule {
     name: "libdns_proxy_cxx_bridge_header",
     tools: ["cxxbridge"],
@@ -136,32 +32,82 @@ genrule {
     out: ["dns_proxy_cxx_bridge.rs.cpp"],
 }
 
-rust_ffi_static {
-    name: "libdns_proxy_ffi",
-    crate_name: "dns_proxy",
-    defaults: ["libdns_proxy_defaults"],
-    features: ["android-ffi"],
+rust_defaults {
+    name: "resolvrs_defaults",
+    crate_name: "resolvrs",
+    edition: "2021",
+    srcs: ["lib.rs"],
+
     rlibs: [
         "libandroid_logger",
         "libcxx",
+        "libanyhow",
+        "libbytes",
+        "libfutures",
+        "liblog_rust",
+        "libnix",
+        "libnum_enum",
+        "librand",
+        "libsocket2",
+        "libthiserror",
+        "libtokio",
+        "libbase64_rust",
+        "liblibc",
+        "libring",
+        "libstatslog_dns_resolver_rust",
+        "liburl",
     ],
-    prefer_rlib: true,
+    shared_libs: [
+        "libcrypto",
+        "libssl",
+    ],
+}
 
+rust_ffi_static {
+    name: "libresolvrs_ffi",
+    defaults: ["resolvrs_defaults"],
+    features: ["android-ffi"],
+    prefer_rlib: true,
+    rlibs: [
+        "libcxx",
+        "libquiche",
+    ],
+    shared_libs: [
+        "libcrypto",
+        "libssl",
+    ],
+    apex_available: ["com.android.resolv"],
+    min_sdk_version: "30",
+}
+
+rust_ffi_static {
+    name: "libresolvrs_test_ffi",
+    defaults: ["resolvrs_defaults"],
+    features: ["android-ffi"],
+    prefer_rlib: true,
+    rlibs: [
+        "libcxx",
+        "libquiche_static",
+    ],
+    shared_libs: [
+        "libstatssocket",
+    ],
     apex_available: [
+        "apex_available:platform",
         "com.android.resolv",
     ],
     min_sdk_version: "30",
 }
 
 rust_test {
-    name: "dns_proxy_host_unit_test",
-    device_supported: false,
-    host_supported: true,
-    defaults: ["libdns_proxy_defaults"],
+    name: "resolvrs_unit_test",
+    defaults: ["resolvrs_defaults"],
+    test_suites: ["general-tests"],
+
     rlibs: [
+        "libquiche_static",
         "libmockall",
     ],
-    test_options: {
-        unit_test: true,
-    },
+    shared_libs: ["libc++"],
+    min_sdk_version: "30",
 }

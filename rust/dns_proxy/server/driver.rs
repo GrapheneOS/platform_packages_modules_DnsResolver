@@ -43,7 +43,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::packet::DnsPacket;
+use crate::dns_proxy::packet::DnsPacket;
 
 use super::Command;
 use super::DownstreamIndexPort;

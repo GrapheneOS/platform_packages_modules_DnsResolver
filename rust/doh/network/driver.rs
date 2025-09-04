@@ -16,12 +16,12 @@
 
 //! Provides a backing task to implement a network
 
-use crate::boot_time::{timeout, BootTime, Duration};
-use crate::config::Config;
-use crate::connection::driver::Cause;
-use crate::connection::Connection;
-use crate::dispatcher::{QueryError, Response};
-use crate::encoding;
+use crate::doh::boot_time::{timeout, BootTime, Duration};
+use crate::doh::config::Config;
+use crate::doh::connection::driver::Cause;
+use crate::doh::connection::Connection;
+use crate::doh::dispatcher::{QueryError, Response};
+use crate::doh::encoding;
 use anyhow::{anyhow, bail, Result};
 use log::{debug, info};
 use std::sync::Arc;

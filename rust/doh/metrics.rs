@@ -14,9 +14,9 @@
 
 //! This module provides convenience functions for doh logging.
 
-use crate::connection::driver::Cause;
-use crate::connection::driver::HandshakeInfo;
-use crate::connection::driver::HandshakeResult;
+use crate::doh::connection::driver::Cause;
+use crate::doh::connection::driver::HandshakeInfo;
+use crate::doh::connection::driver::HandshakeResult;
 use statslog_dns_resolver_rust::network_dns_handshake_reported::{
     Cause as StatsdCause, NetworkDnsHandshakeReported, NetworkType as StatsdNetworkType,
     PrivateDnsMode as StatsdPrivateDnsMode, Protocol as StatsdProtocol, Result as StatsdResult,

@@ -20,9 +20,9 @@ use std::net::IpAddr;
 
 use cxx::UniquePtr;
 
-use crate::server::NetContextClient;
-use crate::server::Server;
-use crate::server::UpstreamParam;
+use crate::dns_proxy::server::NetContextClient;
+use crate::dns_proxy::server::Server;
+use crate::dns_proxy::server::UpstreamParam;
 
 #[cxx::bridge(namespace = "android::net::dns_proxy_ffi")]
 #[allow(clippy::needless_maybe_sized)]

@@ -30,7 +30,7 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::RecvError;
 
-use crate::packet::PacketError;
+use crate::dns_proxy::packet::PacketError;
 
 mod driver;
 use driver::Driver;

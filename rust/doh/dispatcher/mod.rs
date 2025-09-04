@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-use crate::boot_time::{BootTime, Duration};
+use crate::doh::boot_time::{BootTime, Duration};
 use anyhow::Result;
 use log::error;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
 
-pub use crate::network::{ServerInfo, SocketTagger, ValidationReporter};
+pub use crate::doh::network::{ServerInfo, SocketTagger, ValidationReporter};
 
 const MAX_BUFFERED_CMD_COUNT: usize = 400;
 
