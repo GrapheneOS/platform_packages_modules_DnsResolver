@@ -26,8 +26,8 @@ use driver::Driver;
 
 #[derive(Debug)]
 pub struct UpstreamConfig {
-    uid: u32,
-    netid: u32,
+    pub uid: u32,
+    pub netid: u32,
 }
 
 #[cfg_attr(test, mockall::automock)]
