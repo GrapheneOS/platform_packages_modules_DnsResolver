@@ -16,13 +16,14 @@
 
 //! DNS Proxy C FFI .
 
-use std::net::IpAddr;
-
-use cxx::UniquePtr;
-
 use crate::dns_proxy::server::NetContextClient;
 use crate::dns_proxy::server::Server;
 use crate::dns_proxy::server::UpstreamParam;
+// TODO: import server2::Server directly once legacy implementation is removed.
+use crate::dns_proxy::server2;
+use crate::dns_proxy::server2::{NetworkContext, UpstreamConfig};
+use cxx::UniquePtr;
+use std::net::{IpAddr, UdpSocket};
 
 #[cxx::bridge(namespace = "android::net::dns_proxy_ffi")]
 #[allow(clippy::needless_maybe_sized)]
@@ -70,6 +71,23 @@ mod cpp2rust {
             downstream_if_index: u32,
             downstream_port: u16,
         );
+
+        type OpaqueServer;
+
+        fn proxy2_server_new(
+            downstream_udp_socket_fd: i32,
+            get_dns_mark_cb: UniquePtr<DnsMarkCallback>,
+            get_name_servers_cb: UniquePtr<NameServersCallback>,
+        ) -> Box<OpaqueServer>;
+
+        fn proxy2_server_configure_forwarding(
+            self: &OpaqueServer,
+            ifindex: u32,
+            uid: u32,
+            netid: u32,
+        );
+
+        fn proxy2_server_stop_forwarding(self: &OpaqueServer, ifindex: u32);
     }
 }
 
@@ -78,12 +96,14 @@ mod cpp2rust {
 unsafe impl Send for cpp2rust::DnsMarkCallback {}
 // Safety: The C++ code which constructs the callback must guarantee that it can be concurrently
 // referenced from different threads.
+// TODO: can this be removed once legacy implementation is removed?
 unsafe impl Sync for cpp2rust::DnsMarkCallback {}
 // Safety: The C++ code which constructs the callback must guarantee that it can be moved between
 // threads: no usage of thread-local resources.
 unsafe impl Send for cpp2rust::NameServersCallback {}
 // Safety: The C++ code which constructs the callback must guarantee that it can be concurrently
 // referenced from different threads.
+// TODO: can this be removed once legacy implementation is removed?
 unsafe impl Sync for cpp2rust::NameServersCallback {}
 
 struct AndroidNetContextClient {
@@ -113,7 +133,7 @@ impl NetContextClient for AndroidNetContextClient {
         cpp2rust::get_dns_mark(callback, upstream_param.upstream_net_id, upstream_param.uid)
     }
 
-    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<std::net::IpAddr> {
+    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr> {
         let callback =
             self.name_servers_callback.as_ref().expect("Name server callback pointer is null");
         cpp2rust::get_name_servers(callback, upstream_param.upstream_net_id)
@@ -123,6 +143,35 @@ impl NetContextClient for AndroidNetContextClient {
                     .into_owned()
                     .parse::<IpAddr>()
                     .expect("Name server address parse fail")
+            })
+            .collect()
+    }
+}
+
+struct ResolverCallbacks {
+    get_dns_mark_cb: UniquePtr<cpp2rust::DnsMarkCallback>,
+    get_name_servers_cb: UniquePtr<cpp2rust::NameServersCallback>,
+}
+
+impl NetworkContext for ResolverCallbacks {
+    fn get_dns_mark(&self, upstream: &UpstreamConfig) -> u32 {
+        // TODO: move to the constructor
+        let cb = self.get_dns_mark_cb.as_ref().unwrap();
+        cpp2rust::get_dns_mark(cb, upstream.netid, upstream.uid)
+    }
+
+    fn get_name_servers(&self, upstream: &UpstreamConfig) -> Vec<IpAddr> {
+        let cb = self.get_name_servers_cb.as_ref().unwrap();
+        // Parse the resulting vector<string> and skip invalid IP address entries.
+        // TODO: the result should always be valid; consider panicking if parsing fails.
+        cpp2rust::get_name_servers(cb, upstream.netid)
+            .into_iter()
+            .filter_map(|ns| {
+                // If invalid string -> skip
+                ns.to_str()
+                    .ok()
+                    // Elif invalid IpAddr -> skip
+                    .and_then(|s| s.parse::<IpAddr>().ok())
             })
             .collect()
     }
@@ -154,5 +203,38 @@ impl DnsProxyServer {
 
     fn stop_dns_proxy_ffi(&self, downstream_if_index: u32, downstream_port: u16) {
         self.stop_dns_proxy(downstream_if_index, downstream_port).expect("Stop DNS proxy failed")
+    }
+}
+
+type OpaqueServer = server2::Server;
+
+fn proxy2_server_new(
+    downstream_udp_socket_fd: i32,
+    get_dns_mark_cb: UniquePtr<cpp2rust::DnsMarkCallback>,
+    get_name_servers_cb: UniquePtr<cpp2rust::NameServersCallback>,
+) -> Box<OpaqueServer> {
+    assert!(downstream_udp_socket_fd >= 0);
+
+    // Safety: The caller guarantees that downstream_udp_socket_fd is a valid socket file
+    // descriptor and ownership is passed to the dns proxy.
+    let socket = unsafe {
+        use std::os::fd::FromRawFd as _;
+        UdpSocket::from_raw_fd(downstream_udp_socket_fd)
+    };
+    let network_context = ResolverCallbacks { get_dns_mark_cb, get_name_servers_cb };
+
+    // TODO: consider whether panicking on error is ok here.
+    Box::new(server2::Server::new(socket, network_context).unwrap())
+}
+
+impl OpaqueServer {
+    fn proxy2_server_configure_forwarding(self: &OpaqueServer, ifindex: u32, uid: u32, netid: u32) {
+        // TODO: consider returning the result to the caller.
+        let _ = self.configure_dns_forwarding(ifindex, uid, netid);
+    }
+
+    fn proxy2_server_stop_forwarding(self: &OpaqueServer, ifindex: u32) {
+        // TODO: consider returning the result to the caller.
+        let _ = self.stop_forwarding(ifindex);
     }
 }
