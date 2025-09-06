@@ -1,0 +1,75 @@
+# Copyright 2025 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+#! dns-proxy cargo build.
+
+[package]
+edition = "2021"
+rust-version = "1.84"
+name = "resolvrs"
+version = "0.0.1"
+
+[dependencies]
+android_logger = { path = "../../../../external/rust/android-crates-io/crates/android_logger" }
+anyhow = { path = "../../../../external/rust/android-crates-io/crates/anyhow" }
+base64 = { path = "../../../../external/rust/android-crates-io/crates/base64" }
+bytes = { path = "../../../../external/rust/android-crates-io/crates/bytes" }
+cxx = { path = "../../../../external/rust/cxx", optional = true }
+futures = { path = "../../../../external/rust/android-crates-io/crates/futures" }
+libc = { path = "../../../../external/rust/android-crates-io/crates/libc" }
+# Note that this can't use log from external/rust/android-crates-io, because some of the
+# dependencies use log at version 0.4.28 while the version in android-crates-io is at 0.4.27.
+# Usually, cargo is smart enough to resolve this automatically, but android-crates-io only consists
+# of a single version, so it can't do that.
+log = "^0.4.28"
+mockall = { path = "../../../../external/rust/android-crates-io/crates/mockall" }
+nix = { path = "../../../../external/rust/android-crates-io/crates/nix", features = ["fs", "net", "uio", "user"] }
+num_enum = { path = "../../../../external/rust/android-crates-io/crates/num_enum" }
+rand = { path = "../../../../external/rust/android-crates-io/crates/rand", features = ["std", "std_rng"] }
+ring = { path = "../../../../external/rust/android-crates-io/crates/ring", features = ["std"] }
+quiche = { path = "../../../../external/rust/android-crates-io/crates/quiche" }
+socket2 = { path = "../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
+thiserror = { path = "../../../../external/rust/android-crates-io/crates/thiserror" }
+tokio = { path = "../../../../external/rust/android-crates-io/crates/tokio", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+url = { path = "../../../../external/rust/android-crates-io/crates/url" }
+
+[features]
+default = []
+android-ffi = ["dep:cxx"]
+
+[lib]
+name = "android_dns_proxy"
+path = "src/lib.rs"
+
+# It follows the default Rust lints on Android. (Ref: build/soong/rust/config/lints.go)
+[lints.rust]
+deprecated = "allow"
+unknown_lints = "allow"
+missing_docs = "deny"
+warning = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+# Note that lints.go temporarily includes mismatched_lifetime_syntaxes = "allow" which is omitted
+# here.
+
+[lints.clippy]
+disallowed_names = "allow"
+empty_line_after_doc_comments = "allow"
+type-complexity = "allow"
+unnecessary_fallible_conversions = "allow"
+unnecessary-wraps = "allow"
+unusual-byte-groupings = "allow"
+upper-case-acronyms = "allow"
+uninlined_format_args = "allow"
+undocumented_unsafe_blocks = "deny"
+
