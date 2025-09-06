@@ -26,8 +26,8 @@ use driver::Driver;
 
 #[derive(Debug)]
 pub struct UpstreamConfig {
-    uid: u32,
-    netid: u32,
+    pub uid: u32,
+    pub netid: u32,
 }
 
 #[cfg_attr(test, mockall::automock)]
@@ -44,6 +44,11 @@ pub enum Command {
         uid: u32,
         /// The upstream netid.
         netid: u32,
+        /// oneshot::Sender to block the calling/binder thread until the command has been processed.
+        status_tx: oneshot::Sender<Result<()>>,
+    },
+    StopForwarding {
+        ifindex: u32,
         /// oneshot::Sender to block the calling/binder thread until the command has been processed.
         status_tx: oneshot::Sender<Result<()>>,
     },
@@ -84,6 +89,13 @@ impl Server {
         // calling thread until completion.
         let (status_tx, status_rx) = oneshot::channel();
         let cmd = Command::ConfigureForwarding { ifindex, uid, netid, status_tx };
+        self.command_tx.blocking_send(cmd)?;
+        status_rx.blocking_recv()?
+    }
+
+    pub fn stop_forwarding(&self, ifindex: u32) -> Result<()> {
+        let (status_tx, status_rx) = oneshot::channel();
+        let cmd = Command::StopForwarding { ifindex, status_tx };
         self.command_tx.blocking_send(cmd)?;
         status_rx.blocking_recv()?
     }
