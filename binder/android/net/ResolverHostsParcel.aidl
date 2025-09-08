@@ -21,7 +21,7 @@ package android.net;
  * locally. Mapping multiple addresses to one hostname is supported.
  * It's similar to /etc/hosts file.
  *
- * {@hide}
+ * @hide
  */
 @JavaDerive(equals=true)
 parcelable ResolverHostsParcel {

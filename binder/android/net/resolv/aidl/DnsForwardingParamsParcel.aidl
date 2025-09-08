@@ -19,7 +19,7 @@ package android.net.resolv.aidl;
 /**
  * DNS forwarding configuration parameters for upstream network.
  *
- * {@hide}
+ * @hide
  */
 
 @JavaDerive(equals=true, toString=true)

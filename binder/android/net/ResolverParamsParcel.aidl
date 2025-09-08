@@ -22,7 +22,7 @@ import android.net.resolv.aidl.DohParamsParcel;
 /**
  * Configuration for a resolver parameters.
  *
- * {@hide}
+ * @hide
  */
 @JavaDerive(equals=true, toString=true)
 parcelable ResolverParamsParcel {

@@ -21,7 +21,7 @@ import android.net.ResolverHostsParcel;
 /**
  * Knobs for OEM to control alternative behavior.
  *
- * {@hide}
+ * @hide
  */
 @JavaDerive(equals=true, toString=true)
 parcelable ResolverOptionsParcel {
