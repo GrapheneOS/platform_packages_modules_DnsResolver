@@ -22,7 +22,7 @@ import android.net.metrics.INetdEventListener;
 import android.net.resolv.aidl.DnsForwardingParamsParcel;
 import android.net.resolv.aidl.IDnsResolverUnsolicitedEventListener;
 
-/** {@hide} */
+/** @hide */
 interface IDnsResolver {
     /**
      * Returns true if the service is responding.

@@ -19,7 +19,7 @@ package android.net.resolv.aidl;
 /**
  * Nat64 prefix operation event.
  *
- * {@hide}
+ * @hide
  */
 @JavaDerive(toString=true)
 parcelable Nat64PrefixEventParcel {
