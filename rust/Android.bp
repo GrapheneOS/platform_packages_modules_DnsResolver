@@ -82,6 +82,26 @@ rust_ffi_static {
     min_sdk_version: "30",
 }
 
+cc_defaults {
+    name: "libresolvrs_ffi_defaults",
+    static_libs: ["libresolvrs_ffi"],
+    generated_headers: [
+        "cxx-bridge-header",
+        "libdns_proxy_cxx_bridge_header",
+    ],
+    generated_sources: ["libdns_proxy_cxx_bridge_source"],
+}
+
+cc_defaults {
+    name: "libresolvrs_test_ffi_defaults",
+    static_libs: ["libresolvrs_ffi"],
+    generated_headers: [
+        "cxx-bridge-header",
+        "libdns_proxy_cxx_bridge_header",
+    ],
+    generated_sources: ["libdns_proxy_cxx_bridge_source"],
+}
+
 rust_ffi_static {
     name: "libresolvrs_test_ffi",
     defaults: ["resolvrs_defaults"],

@@ -100,6 +100,7 @@ cc_test {
     // TODO: Remove the xml after MTS fixing the problem.
     test_config: "resolv_gold_test_config.xml",
     defaults: [
+        "libresolvrs_test_ffi_defaults",
         "netd_defaults",
         "resolv_test_defaults",
     ],
@@ -124,7 +125,6 @@ cc_test {
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libprotobuf-cpp-lite",
-        "libresolvrs_test_ffi",
         "libssl",
         "netd_aidl_interface-lateststable-ndk",
         "netd_event_listener_interface-lateststable-ndk",
@@ -265,6 +265,7 @@ cc_test {
     // TODO: Drop root privileges and make it be an real unit test.
     // TODO: Remove resolv_test_mts_coverage_defaults after mts coverage switched to 64-bit device.
     defaults: [
+        "libresolvrs_test_ffi_defaults",
         "netd_defaults",
         "resolv_test_defaults",
         "resolv_test_mts_coverage_defaults",
@@ -293,7 +294,6 @@ cc_test {
         "libnetd_test_resolv_utils",
         "libnetdutils",
         "libprotobuf-cpp-lite",
-        "libresolvrs_test_ffi",
         "libssl",
         "libstatslog_resolv",
         "libstatspush_compat",
@@ -350,6 +350,7 @@ cc_test {
     ],
     defaults: [
         "connectivity-mainline-presubmit-cc-defaults",
+        "libresolvrs_test_ffi_defaults",
         "netd_defaults",
         "resolv_test_defaults",
         "resolv_test_mts_coverage_without_root_defaults",
@@ -363,7 +364,6 @@ cc_test {
         "libcrypto_static",
         "libgmock",
         "libnetdutils",
-        "libresolvrs_test_ffi",
         "libssl",
         "stats_proto",
     ],
@@ -383,6 +383,7 @@ cc_test {
 cc_defaults {
     name: "resolv_fuzzer_defaults",
     defaults: [
+        "libresolvrs_test_ffi_defaults",
         "netd_defaults",
         "resolv_test_defaults",
     ],
@@ -393,10 +394,6 @@ cc_defaults {
     header_libs: [
         "libnetd_resolv_headers",
         "dnsproxyd_protocol_headers",
-    ],
-    generated_headers: [
-        "cxx-bridge-header",
-        "libdns_proxy_cxx_bridge_header",
     ],
     shared_libs: [
         "libbinder_ndk",
@@ -412,7 +409,6 @@ cc_defaults {
         "libnetd_test_dnsresponder_ndk",
         "libnetd_test_resolv_utils",
         "libprotobuf-cpp-lite",
-        "libresolvrs_test_ffi",
         "libssl",
         "libsysutils",
         "netd_aidl_interface-lateststable-ndk",

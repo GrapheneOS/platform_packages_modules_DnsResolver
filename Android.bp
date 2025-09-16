@@ -260,12 +260,10 @@ cc_library {
         ],
         symbol_file: "libnetd_resolv.map.txt",
     },
-    defaults: ["netd_defaults"],
-    generated_headers: [
-        "cxx-bridge-header",
-        "libdns_proxy_cxx_bridge_header",
+    defaults: [
+        "libresolvrs_ffi_defaults",
+        "netd_defaults"
     ],
-    generated_sources: ["libdns_proxy_cxx_bridge_source"],
     srcs: [
         "getaddrinfo.cpp",
         "gethnamaddr.cpp",
@@ -306,7 +304,6 @@ cc_library {
         "libnetdutils",
         "libmodules-utils-build",
         "libprotobuf-cpp-lite",
-        "libresolvrs_ffi",
         "libstatslog_resolv",
         "libsysutils",
         "netd_event_listener_interface-lateststable-ndk",
