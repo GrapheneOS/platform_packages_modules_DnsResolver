@@ -23,6 +23,7 @@ use crate::dns_proxy::server::UpstreamParam;
 use crate::dns_proxy::server2;
 use crate::dns_proxy::server2::{NetworkContext, UpstreamConfig};
 use cxx::UniquePtr;
+use static_assertions::assert_impl_all;
 use std::net::{IpAddr, UdpSocket};
 
 #[cxx::bridge(namespace = "android::net::dns_proxy_ffi")]
@@ -183,6 +184,7 @@ fn proxy_server_new(
     net_context_callback: UniquePtr<cpp2rust::DnsMarkCallback>,
     name_server_callback: UniquePtr<cpp2rust::NameServersCallback>,
 ) -> Box<DnsProxyServer> {
+    assert_impl_all!(Server: Send, Sync);
     Box::new(
         Server::new(AndroidNetContextClient::new(net_context_callback, name_server_callback))
             .expect("DNS proxy start failed"),
@@ -214,6 +216,7 @@ fn proxy2_server_new(
     get_name_servers_cb: UniquePtr<cpp2rust::NameServersCallback>,
 ) -> Box<OpaqueServer> {
     assert!(downstream_udp_socket_fd >= 0);
+    assert_impl_all!(server2::Server: Send, Sync);
 
     // Safety: The caller guarantees that downstream_udp_socket_fd is a valid socket file
     // descriptor and ownership is passed to the dns proxy.

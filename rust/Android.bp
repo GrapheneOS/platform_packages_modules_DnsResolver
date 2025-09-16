@@ -55,6 +55,7 @@ rust_defaults {
         "libbase64_rust",
         "liblibc",
         "libring",
+        "libstatic_assertions",
         "libstatslog_dns_resolver_rust",
         "liburl",
     ],

@@ -40,6 +40,7 @@ rand = { path = "../../../../external/rust/android-crates-io/crates/rand", featu
 ring = { path = "../../../../external/rust/android-crates-io/crates/ring", features = ["std"] }
 quiche = { path = "../../../../external/rust/android-crates-io/crates/quiche" }
 socket2 = { path = "../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
+static_assertions = { path = "../../../../external/rust/android-crates-io/crates/static_assertions" }
 thiserror = { path = "../../../../external/rust/android-crates-io/crates/thiserror" }
 tokio = { path = "../../../../external/rust/android-crates-io/crates/tokio", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 url = { path = "../../../../external/rust/android-crates-io/crates/url" }
