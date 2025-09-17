@@ -26,6 +26,7 @@
 #include "DnsProxy.h"
 #include "netd_resolv/resolv.h"
 #include "netdutils/DumpWriter.h"
+#include "netdutils/Lazy.h"
 
 struct res_params;
 
@@ -74,7 +75,7 @@ class ResolverController {
 
   private:
     std::shared_ptr<Dns64Configuration> mDns64Configuration;
-    dns_proxy_ffi::DnsProxy mDnsProxy;
+    netdutils::Lazy<dns_proxy_ffi::DnsProxy> mDnsProxy;
 };
 }  // namespace net
 }  // namespace android
