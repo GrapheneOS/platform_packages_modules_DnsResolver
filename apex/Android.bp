@@ -40,6 +40,7 @@ apex {
     },
     key: "com.android.resolv.key",
     certificate: ":com.android.resolv.certificate",
+    binaries: ["socketbroker"],
 
     // Use a custom AndroidManifest.xml used for API targeting.
     androidManifest: "AndroidManifest.xml",
