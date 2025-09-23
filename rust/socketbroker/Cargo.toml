@@ -1,0 +1,33 @@
+[package]
+name = "socketbroker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { path = "../../../../../external/rust/android-crates-io/crates/anyhow" }
+bytemuck = { path = "../../../../../external/rust/android-crates-io/crates/bytemuck" }
+clap = { path = "../../../../../external/rust/android-crates-io/crates/clap", features = ["derive"] }
+libc = { path = "../../../../../external/rust/android-crates-io/crates/libc" }
+nix = { path = "../../../../../external/rust/android-crates-io/crates/nix", features = ["net", "socket", "uio"] }
+socket2 = { path = "../../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
+
+# It follows the default Rust lints on Android. (Ref: build/soong/rust/config/lints.go)
+[lints.rust]
+deprecated = "allow"
+unknown_lints = "allow"
+missing_docs = "deny"
+warning = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+# Note that lints.go temporarily includes mismatched_lifetime_syntaxes = "allow" which is omitted
+# here.
+
+[lints.clippy]
+disallowed_names = "allow"
+empty_line_after_doc_comments = "allow"
+type-complexity = "allow"
+unnecessary_fallible_conversions = "allow"
+unnecessary-wraps = "allow"
+unusual-byte-groupings = "allow"
+upper-case-acronyms = "allow"
+uninlined_format_args = "allow"
+undocumented_unsafe_blocks = "deny"
