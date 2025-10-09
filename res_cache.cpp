@@ -826,27 +826,16 @@ static void entry_mru_add(Entry* e, Entry* list) {
     first->mru_prev = e;
 }
 
-/* compute the hash of a given entry, this is a hash of most
- * data in the query (key) */
-static unsigned entry_hash(const Entry* e) {
-    DnsPacket pack[1];
-
-    _dnsPacket_init(pack, e->query, e->querylen);
-    return _dnsPacket_hashQuery(pack);
-}
-
 /* initialize an Entry as a search key, this also checks the input query packet
  * returns 1 on success, or 0 in case of unsupported/malformed data */
 static int entry_init_key(Entry* e, span<const uint8_t> query) {
     DnsPacket pack[1];
+    _dnsPacket_init(pack, query.data(), query.size());
 
     memset(e, 0, sizeof(*e));
-
     e->query = query.data();
     e->querylen = query.size();
-    e->hash = entry_hash(e);
-
-    _dnsPacket_init(pack, e->query, e->querylen);
+    e->hash = _dnsPacket_hashQuery(pack);
 
     return _dnsPacket_checkQuery(pack);
 }
