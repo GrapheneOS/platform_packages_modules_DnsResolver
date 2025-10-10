@@ -26,6 +26,7 @@ anyhow = { path = "../../../../external/rust/android-crates-io/crates/anyhow" }
 base64 = { path = "../../../../external/rust/android-crates-io/crates/base64" }
 bytes = { path = "../../../../external/rust/android-crates-io/crates/bytes" }
 cxx = { path = "../../../../external/rust/cxx", optional = true }
+command-fds = { path = "../../../../external/rust/android-crates-io/crates/command-fds" }
 futures = { path = "../../../../external/rust/android-crates-io/crates/futures" }
 libc = { path = "../../../../external/rust/android-crates-io/crates/libc" }
 # Note that this can't use log from external/rust/android-crates-io, because some of the
@@ -39,6 +40,7 @@ num_enum = { path = "../../../../external/rust/android-crates-io/crates/num_enum
 rand = { path = "../../../../external/rust/android-crates-io/crates/rand", features = ["std", "std_rng"] }
 ring = { path = "../../../../external/rust/android-crates-io/crates/ring", features = ["std"] }
 quiche = { path = "../../../../external/rust/android-crates-io/crates/quiche" }
+resolvrs_utils = { path = "lib/resolvrs_utils" }
 socket2 = { path = "../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
 static_assertions = { path = "../../../../external/rust/android-crates-io/crates/static_assertions" }
 thiserror = { path = "../../../../external/rust/android-crates-io/crates/thiserror" }

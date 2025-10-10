@@ -118,6 +118,12 @@ impl UnixSeqpacket {
     }
 }
 
+impl From<OwnedFd> for UnixSeqpacket {
+    fn from(owned: OwnedFd) -> Self {
+        Self { fd: owned }
+    }
+}
+
 impl FromRawFd for UnixSeqpacket {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         // SAFETY:
