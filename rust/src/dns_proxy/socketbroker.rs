@@ -25,6 +25,7 @@ use resolvrs_utils::socket;
 use std::os::fd::AsRawFd as _;
 use std::process::Child;
 use std::process::Command;
+use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
 
 const SOCKET_BROKER_EXEC: &str = "/apex/com.android.resolv/bin/socketbroker";
@@ -67,6 +68,23 @@ impl SocketBroker {
             socket::tokio::UnixSeqpacket::from_sync(sync_socket)?
         };
         Ok(Self { child, cmd_sock: async_socket })
+    }
+
+    /// Create a UDP socket bound to port 53.
+    ///
+    /// This function takes exclusive access to self (&mut self) in order to enforce that
+    /// operations cannot be interleaved.
+    pub async fn create_udp_socket(&mut self) -> Result<UdpSocket> {
+        // Send a single 0 byte to request a new UDP socket.
+        self.cmd_sock.send(&[0; 1]).await?;
+        let (_, opt_fd) = self.cmd_sock.recv_with_fd(&mut [0; 0]).await?;
+        let Some(fd) = opt_fd else {
+            bail!("Failed to create UDP socket");
+        };
+
+        // socketbroker configures all sockets as non-blocking.
+        let sock = UdpSocket::from_std(fd.into())?;
+        Ok(sock)
     }
 }
 
