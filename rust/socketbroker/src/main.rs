@@ -17,6 +17,11 @@
 
 use clap::Parser;
 use clap::ValueEnum;
+use nix::fcntl::fcntl;
+use nix::fcntl::FcntlArg;
+use nix::fcntl::OFlag;
+use nix::sys::socket::recv;
+use nix::sys::socket::send;
 use nix::sys::socket::sendmsg;
 use nix::sys::socket::ControlMessage;
 use nix::sys::socket::MsgFlags;
@@ -28,8 +33,10 @@ use std::io::IoSlice;
 use std::io::Result;
 use std::net::Ipv6Addr;
 use std::net::SocketAddrV6;
+use std::os::fd::AsRawFd as _;
+use std::os::fd::FromRawFd;
+use std::os::fd::OwnedFd;
 use std::os::fd::RawFd;
-use std::os::unix::net::UnixStream;
 
 #[derive(ValueEnum, Clone)]
 #[clap(rename_all = "kebab_case")]
@@ -76,20 +83,49 @@ impl SocketExt for Socket {
     }
 }
 
-trait UnixStreamExt {
-    fn send_with_fd(&self, buf: &[u8], fd: RawFd) -> Result<usize>;
+/// UnixSeqpacket is loosely modeled after std::os::unix::net::UnixDatagram.
+struct UnixSeqpacket {
+    fd: OwnedFd,
 }
 
-impl UnixStreamExt for UnixStream {
-    fn send_with_fd(&self, buf: &[u8], fd: RawFd) -> Result<usize> {
-        let iov = [IoSlice::new(buf)];
-        let fds = [fd];
-        let cmsgs = [ControlMessage::ScmRights(&fds)];
+#[allow(dead_code)]
+impl UnixSeqpacket {
+    fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
+        let mut flags = OFlag::from_bits_truncate(fcntl(self.fd.as_raw_fd(), FcntlArg::F_GETFL)?);
+        if nonblocking {
+            flags.insert(OFlag::O_NONBLOCK)
+        } else {
+            flags.remove(OFlag::O_NONBLOCK)
+        }
+        fcntl(self.fd.as_raw_fd(), FcntlArg::F_SETFL(flags))?;
+        Ok(())
+    }
 
-        use std::os::fd::AsRawFd as _;
-        let rawfd = self.as_raw_fd();
-        let size = sendmsg::<()>(rawfd, &iov, &cmsgs, MsgFlags::empty(), None)?;
+    fn recv(&self, buf: &mut [u8]) -> Result<usize> {
+        let len = recv(self.fd.as_raw_fd(), buf, MsgFlags::empty())?;
+        Ok(len)
+    }
+
+    fn send(&self, buf: &[u8]) -> Result<usize> {
+        let len = send(self.fd.as_raw_fd(), buf, MsgFlags::empty())?;
+        Ok(len)
+    }
+
+    fn send_with_fd(&self, buf: &[u8], fd: OwnedFd) -> Result<usize> {
+        let iov = [IoSlice::new(buf)];
+        let raw_fds = [fd.as_raw_fd()];
+        let cmsgs = [ControlMessage::ScmRights(&raw_fds)];
+
+        let size = sendmsg::<()>(self.fd.as_raw_fd(), &iov, &cmsgs, MsgFlags::empty(), None)?;
         Ok(size)
+    }
+}
+
+impl FromRawFd for UnixSeqpacket {
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        // SAFETY:
+        // The caller is responsible for ensuring that `fd` is a valid (and unowned) file descriptor
+        unsafe { Self { fd: OwnedFd::from_raw_fd(fd) } }
     }
 }
 
@@ -124,13 +160,11 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let sock = create_socket(args.socktype, args.ifindex)?;
 
-    use std::os::fd::FromRawFd as _;
-    // Safety: The parent process passes a valid file descriptor which the child is expected to
-    // close.
-    let result_stream = unsafe { UnixStream::from_raw_fd(args.resultfd) };
+    // SAFETY:
+    // The parent process passes a valid file descriptor which the child is expected to close.
+    let result_sock = unsafe { UnixSeqpacket::from_raw_fd(args.resultfd) };
 
     // Send a single 0 byte along with the fd.
-    use std::os::fd::AsRawFd as _;
-    let _ = result_stream.send_with_fd(&[0; 1], sock.as_raw_fd())?;
+    let _ = result_sock.send_with_fd(&[0; 1], sock.into())?;
     Ok(())
 }

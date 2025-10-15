@@ -8,7 +8,7 @@ anyhow = { path = "../../../../../external/rust/android-crates-io/crates/anyhow"
 bytemuck = { path = "../../../../../external/rust/android-crates-io/crates/bytemuck" }
 clap = { path = "../../../../../external/rust/android-crates-io/crates/clap", features = ["derive"] }
 libc = { path = "../../../../../external/rust/android-crates-io/crates/libc" }
-nix = { path = "../../../../../external/rust/android-crates-io/crates/nix", features = ["net", "socket", "uio"] }
+nix = { path = "../../../../../external/rust/android-crates-io/crates/nix", features = ["fs", "net", "socket", "uio"] }
 socket2 = { path = "../../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
 
 # It follows the default Rust lints on Android. (Ref: build/soong/rust/config/lints.go)
