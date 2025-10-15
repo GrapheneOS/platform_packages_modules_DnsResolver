@@ -27,7 +27,7 @@ bool ConvertPbtxtToPb(const filesystem::path& pbtxtFile, const filesystem::path&
     // parse plain text from .pbtxt.
     android::net::GoldTest goldTest;
 
-    int fd = open(pbtxtFile.c_str(), O_RDONLY);
+    int fd = open(pbtxtFile.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
         cerr << "Failed to open " << pbtxtFile << ", " << strerror(errno) << endl;
         return false;
@@ -44,7 +44,7 @@ bool ConvertPbtxtToPb(const filesystem::path& pbtxtFile, const filesystem::path&
     // write marshalled message into .pb file
     filesystem::path pbFile = pbOutDir / pbtxtFile.filename();
     pbFile.replace_extension(".pb");
-    fd = open(pbFile.c_str(), O_CREAT | O_WRONLY | O_TRUNC, 0660);
+    fd = open(pbFile.c_str(), O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0660);
     if (fd < 0) {
         cerr << "Failed to open " << pbFile << ", " << strerror(errno) << endl;
         return false;
