@@ -15,15 +15,21 @@
 //! A utility that can be used to open sockets and bind them to privileged ports.
 //! The bound socket is returned via the provided unix socket.
 
-use clap::{Parser, ValueEnum};
-use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
-use socket2::{Domain, Socket, Type};
+use clap::Parser;
+use clap::ValueEnum;
+use nix::sys::socket::sendmsg;
+use nix::sys::socket::ControlMessage;
+use nix::sys::socket::MsgFlags;
+use socket2::Domain;
+use socket2::Socket;
+use socket2::Type;
+use std::io::Error;
+use std::io::IoSlice;
+use std::io::Result;
+use std::net::Ipv6Addr;
+use std::net::SocketAddrV6;
+use std::os::fd::RawFd;
 use std::os::unix::net::UnixStream;
-use std::{
-    io::{Error, IoSlice, Result},
-    net::{Ipv6Addr, SocketAddrV6},
-    os::fd::RawFd,
-};
 
 #[derive(ValueEnum, Clone)]
 #[clap(rename_all = "kebab_case")]
