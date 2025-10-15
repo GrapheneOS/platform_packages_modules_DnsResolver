@@ -16,7 +16,6 @@
 //! The bound socket is returned via the provided unix socket.
 
 use clap::Parser;
-use clap::ValueEnum;
 use nix::fcntl::fcntl;
 use nix::fcntl::FcntlArg;
 use nix::fcntl::OFlag;
@@ -38,26 +37,32 @@ use std::os::fd::FromRawFd;
 use std::os::fd::OwnedFd;
 use std::os::fd::RawFd;
 
-#[derive(ValueEnum, Clone)]
-#[clap(rename_all = "kebab_case")]
 enum SocketType {
-    TCP,
+    TCP { ifindex: u32 },
     UDP,
+}
+
+impl SocketType {
+    fn from_message(buf: &[u8]) -> Option<SocketType> {
+        // UDP socket requests are encoded as a single arbitrary byte.
+        // TCP socket requests are encoded as a 4-byte little-endian ifindex.
+        if buf.len() == 1 {
+            Some(SocketType::UDP)
+        } else if buf.len() == 4 {
+            // The conversion cannot fail because the length was already checked above.
+            let bytes: [u8; 4] = buf.try_into().unwrap();
+            Some(SocketType::TCP { ifindex: u32::from_le_bytes(bytes) })
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Parser)]
 struct Args {
-    // Socket type to open.
-    #[arg(long, value_enum)]
-    socktype: SocketType,
-
-    // Interface index to bind the socket to. Must be provided when `--sockype tcp`
+    // File descriptor of unix seqpacket socket to pass a socket request / result.
     #[arg(long)]
-    ifindex: Option<u32>,
-
-    // File descriptor of unix domain socket to pass the result.
-    #[arg(long)]
-    resultfd: i32,
+    cmdfd: i32,
 }
 
 trait SocketExt {
@@ -129,9 +134,9 @@ impl FromRawFd for UnixSeqpacket {
     }
 }
 
-fn create_socket(socktype: SocketType, ifindex: Option<u32>) -> Result<Socket> {
+fn create_socket(socktype: SocketType) -> Result<Socket> {
     let t = match socktype {
-        SocketType::TCP => Type::STREAM.nonblocking().cloexec(),
+        SocketType::TCP { .. } => Type::STREAM.nonblocking().cloexec(),
         SocketType::UDP => Type::DGRAM.nonblocking().cloexec(),
     };
     let socket = Socket::new(Domain::IPV6, t, None)?;
@@ -140,7 +145,7 @@ fn create_socket(socktype: SocketType, ifindex: Option<u32>) -> Result<Socket> {
     socket.set_only_v6(false)?;
     socket.set_reuse_address(true)?;
 
-    if let Some(ifindex) = ifindex {
+    if let SocketType::TCP { ifindex } = socktype {
         socket.bind_ifindex(ifindex)?;
     }
 
@@ -158,13 +163,22 @@ fn create_socket(socktype: SocketType, ifindex: Option<u32>) -> Result<Socket> {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let sock = create_socket(args.socktype, args.ifindex)?;
 
     // SAFETY:
     // The parent process passes a valid file descriptor which the child is expected to close.
-    let result_sock = unsafe { UnixSeqpacket::from_raw_fd(args.resultfd) };
+    let cmd_sock = unsafe { UnixSeqpacket::from_raw_fd(args.cmdfd) };
+    cmd_sock.set_nonblocking(false)?;
+
+    // Allocate a 5-byte buffer to detect large packets since the maximum message length is 4 bytes.
+    let mut buf = [0; 5];
+    let len = cmd_sock.recv(&mut buf)?;
+    let Some(socket_type) = SocketType::from_message(&buf[..len]) else {
+        return Err(std::io::Error::other("message invalid"));
+    };
+
+    let sock = create_socket(socket_type)?;
 
     // Send a single 0 byte along with the fd.
-    let _ = result_sock.send_with_fd(&[0; 1], sock.into())?;
+    let _ = cmd_sock.send_with_fd(&[0; 1], sock.into())?;
     Ok(())
 }
