@@ -265,7 +265,7 @@ class ResolverTest : public NetNativeTestBase {
     }
 
     void DumpResolverService() {
-        unique_fd fd(open("/dev/null", O_WRONLY));
+        unique_fd fd(open("/dev/null", O_WRONLY | O_CLOEXEC));
         EXPECT_EQ(mDnsClient.resolvService()->dump(fd, nullptr, 0), 0);
 
         const char* querylogCmd[] = {"querylog"};  // Keep it sync with DnsQueryLog::DUMP_KEYWORD.
