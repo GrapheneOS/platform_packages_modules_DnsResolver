@@ -28,6 +28,7 @@ use socket2::Domain;
 use socket2::Socket;
 use socket2::Type;
 use std::io::Error;
+use std::io::ErrorKind;
 use std::io::IoSlice;
 use std::io::Result;
 use std::net::Ipv6Addr;
@@ -93,7 +94,6 @@ struct UnixSeqpacket {
     fd: OwnedFd,
 }
 
-#[allow(dead_code)]
 impl UnixSeqpacket {
     fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
         let mut flags = OFlag::from_bits_truncate(fcntl(self.fd.as_raw_fd(), FcntlArg::F_GETFL)?);
@@ -169,16 +169,34 @@ fn main() -> Result<()> {
     let cmd_sock = unsafe { UnixSeqpacket::from_raw_fd(args.cmdfd) };
     cmd_sock.set_nonblocking(false)?;
 
-    // Allocate a 5-byte buffer to detect large packets since the maximum message length is 4 bytes.
-    let mut buf = [0; 5];
-    let len = cmd_sock.recv(&mut buf)?;
-    let Some(socket_type) = SocketType::from_message(&buf[..len]) else {
-        return Err(std::io::Error::other("message invalid"));
-    };
+    loop {
+        // Allocate a 5-byte buffer to detect large packets since the maximum message length is 4 bytes.
+        let mut buf = [0; 5];
+        let len = match cmd_sock.recv(&mut buf) {
+            // If the other side closed gracefully, the socket will read EOF (len == 0). Otherwise,
+            // it will return with ECONNRESET. In either case, exit the program.
+            Ok(0) => break,
+            Err(e) if e.kind() == ErrorKind::ConnectionReset => break,
 
-    let sock = create_socket(socket_type)?;
+            // Other messages are processed and other errors are ignored.
+            Ok(len) => len,
+            Err(_e) => continue,
+        };
 
-    // Send a single 0 byte along with the fd.
-    let _ = cmd_sock.send_with_fd(&[0; 1], sock.into())?;
+        let Some(socket_type) = SocketType::from_message(&buf[..len]) else {
+            // Ignore invalid messages.
+            continue;
+        };
+
+        if let Ok(sock) = create_socket(socket_type) {
+            // Send a single 0 byte along with the fd. Ignore any errors.
+            let _ = cmd_sock.send_with_fd(&[0; 1], sock.into());
+        } else {
+            // If socket creation failed, send a single 0 byte to unblock the reader. Ignore any
+            // errors.
+            let _ = cmd_sock.send(&[0; 1]);
+        };
+    }
+
     Ok(())
 }
