@@ -179,12 +179,12 @@ impl NetworkContext for ResolverCallbacks {
 }
 
 type DnsProxyServer = Server; // Opaque type required for FFI.
+assert_impl_all!(Server: Send, Sync);
 
 fn proxy_server_new(
     net_context_callback: UniquePtr<cpp2rust::DnsMarkCallback>,
     name_server_callback: UniquePtr<cpp2rust::NameServersCallback>,
 ) -> Box<DnsProxyServer> {
-    assert_impl_all!(Server: Send, Sync);
     Box::new(
         Server::new(AndroidNetContextClient::new(net_context_callback, name_server_callback))
             .expect("DNS proxy start failed"),
@@ -209,6 +209,7 @@ impl DnsProxyServer {
 }
 
 type OpaqueServer = server2::Server;
+assert_impl_all!(server2::Server: Send, Sync);
 
 fn proxy2_server_new(
     downstream_udp_socket_fd: i32,
@@ -216,7 +217,6 @@ fn proxy2_server_new(
     get_name_servers_cb: UniquePtr<cpp2rust::NameServersCallback>,
 ) -> Box<OpaqueServer> {
     assert!(downstream_udp_socket_fd >= 0);
-    assert_impl_all!(server2::Server: Send, Sync);
 
     // Safety: The caller guarantees that downstream_udp_socket_fd is a valid socket file
     // descriptor and ownership is passed to the dns proxy.
