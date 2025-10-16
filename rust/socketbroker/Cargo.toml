@@ -4,10 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+android_logger = { path = "../../../../../external/rust/android-crates-io/crates/android_logger" }
 anyhow = { path = "../../../../../external/rust/android-crates-io/crates/anyhow" }
 bytemuck = { path = "../../../../../external/rust/android-crates-io/crates/bytemuck" }
 clap = { path = "../../../../../external/rust/android-crates-io/crates/clap", features = ["derive"] }
 libc = { path = "../../../../../external/rust/android-crates-io/crates/libc" }
+# Do not use log from android-crates-io to prevent version conflicts.
+log = "^0.4.28"
 nix = { path = "../../../../../external/rust/android-crates-io/crates/nix", features = ["fs", "net", "socket", "uio"] }
 socket2 = { path = "../../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
 

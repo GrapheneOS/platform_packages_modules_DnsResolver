@@ -20,11 +20,13 @@ rust_binary {
     name: "socketbroker",
     srcs: ["src/main.rs"],
     rustlibs: [
+        "libandroid_logger",
         "libanyhow",
         // libbytemuck sets min_sdk_version to 34. Use libbytemuck_nostd instead.
         "libbytemuck_nostd",
         "libclap",
         "liblibc",
+        "liblog_rust",
         "libnix",
         "libsocket2",
     ],
