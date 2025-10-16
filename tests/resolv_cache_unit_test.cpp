@@ -95,7 +95,7 @@ std::vector<uint8_t> makeAnswer(const std::vector<uint8_t>& query, const char* r
                 .rclass = question.qclass,
                 .ttl = ttl,
         };
-        test::DNSResponder::fillRdata(rdata_str, record);
+        EXPECT_TRUE(test::DNSResponder::fillRdata(rdata_str, record));
         header.answers.push_back(std::move(record));
     }
 
@@ -393,6 +393,7 @@ TEST_F(ResolvCacheTest, CacheLookup_Types) {
             {ns_t_aaaa, "2001:db8::1.2.3.4"},
             {ns_t_ptr, "4.3.2.1.in-addr.arpa."},
             {ns_t_ptr, "4.0.3.0.2.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa."},
+            {ns_t_https, "1 example.com. ipv4hint=1.2.3.42"},
     };
 
     for (const auto& t : Types) {

@@ -367,6 +367,7 @@ static int _dnsPacket_checkQR(DnsPacket* packet) {
         !_dnsPacket_checkBE16(packet, ns_type::ns_t_ptr) &&
         !_dnsPacket_checkBE16(packet, ns_type::ns_t_mx) &&
         !_dnsPacket_checkBE16(packet, ns_type::ns_t_aaaa) &&
+        !_dnsPacket_checkBE16(packet, ns_type::ns_t_https) &&
         !_dnsPacket_checkBE16(packet, ns_type::ns_t_any /*all*/)) {
         LOG(INFO) << __func__ << ": unsupported TYPE";
         return 0;
