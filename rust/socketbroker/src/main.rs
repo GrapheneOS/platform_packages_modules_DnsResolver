@@ -16,6 +16,8 @@
 //! The bound socket is returned via the provided unix socket.
 
 use clap::Parser;
+use log::error;
+use log::LevelFilter;
 use nix::fcntl::fcntl;
 use nix::fcntl::FcntlArg;
 use nix::fcntl::OFlag;
@@ -162,6 +164,7 @@ fn create_socket(socktype: SocketType) -> Result<Socket> {
 }
 
 fn main() -> Result<()> {
+    android_logger::init_once(android_logger::Config::default().with_max_level(LevelFilter::Info));
     let args = Args::parse();
 
     // SAFETY:
@@ -180,22 +183,32 @@ fn main() -> Result<()> {
 
             // Other messages are processed and other errors are ignored.
             Ok(len) => len,
-            Err(_e) => continue,
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) => {
+                // TODO: Consider panicking as common errors are handled above.
+                error!("recv failed: {e}");
+                continue;
+            }
         };
 
         let Some(socket_type) = SocketType::from_message(&buf[..len]) else {
             // Ignore invalid messages.
+            error!("Failed to parse socket request message with len {}", len);
             continue;
         };
 
-        if let Ok(sock) = create_socket(socket_type) {
-            // Send a single 0 byte along with the fd. Ignore any errors.
-            let _ = cmd_sock.send_with_fd(&[0; 1], sock.into());
-        } else {
-            // If socket creation failed, send a single 0 byte to unblock the reader. Ignore any
-            // errors.
-            let _ = cmd_sock.send(&[0; 1]);
-        };
+        match create_socket(socket_type) {
+            Ok(sock) => {
+                // Send a single 0 byte along with the fd. Ignore any errors.
+                let _ = cmd_sock.send_with_fd(&[0; 1], sock.into());
+            }
+            Err(e) => {
+                // If socket creation failed, log and send a single 0 byte to unblock the reader.
+                // Ignore any errors.
+                error!("Failed to create socket: {e}");
+                let _ = cmd_sock.send(&[0; 1]);
+            }
+        }
     }
 
     Ok(())
