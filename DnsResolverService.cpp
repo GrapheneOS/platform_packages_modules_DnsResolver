@@ -41,8 +41,6 @@ using android::base::Join;
 using android::netdutils::DumpWriter;
 using android::netdutils::IPPrefix;
 
-constexpr uint16_t DNS_PORT = 53;
-
 namespace android {
 namespace net {
 
@@ -326,13 +324,16 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
         const std::optional<aidl::android::net::resolv::aidl::DnsForwardingParamsParcel>&
                 forwardingParams) {
     ENFORCE_NETWORK_STACK_PERMISSIONS();
+
     if (forwardingParams.has_value()) {
-        mDnsProxy.configureDnsProxy(forwardingParams.value().netId, forwardingParams.value().uid,
-                                    downstreamIfIndex, DNS_PORT);
+        const auto& params = forwardingParams.value();
+        gDnsResolv->resolverCtrl.configureDnsForwarding(params.netId, params.uid, downstreamIfIndex,
+                                                        53 /* port */);
     } else {
-        mDnsProxy.stopDnsProxy(downstreamIfIndex, DNS_PORT);
+        gDnsResolv->resolverCtrl.stopDnsForwarding(downstreamIfIndex, 53 /* port */);
     }
 
+    // TODO: propagate possible error code to binder return value.
     return ::ndk::ScopedAStatus(AStatus_newOk());
 }
 

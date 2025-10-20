@@ -1,0 +1,135 @@
+// Copyright (C) 2025 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package {
+    default_team: "trendy_team_fwk_core_networking",
+}
+
+genrule {
+    name: "libdns_proxy_cxx_bridge_header",
+    tools: ["cxxbridge"],
+    cmd: "$(location cxxbridge) $(in) --header >> $(out)",
+    srcs: ["src/dns_proxy/ffi.rs"],
+    out: ["dns_proxy_cxx_bridge.rs.h"],
+}
+
+genrule {
+    name: "libdns_proxy_cxx_bridge_source",
+    tools: ["cxxbridge"],
+    cmd: "$(location cxxbridge) $(in) >> $(out)",
+    srcs: ["src/dns_proxy/ffi.rs"],
+    out: ["dns_proxy_cxx_bridge.rs.cpp"],
+}
+
+rust_defaults {
+    name: "resolvrs_defaults",
+    crate_name: "resolvrs",
+    edition: "2021",
+    srcs: ["src/lib.rs"],
+    features: ["statslog"],
+
+    rlibs: [
+        "libandroid_logger",
+        "libcxx",
+        "libanyhow",
+        "libbytes",
+        "libfutures",
+        "liblog_rust",
+        "libnix",
+        "libnum_enum",
+        "librand",
+        "libsocket2",
+        "libthiserror",
+        "libtokio",
+        "libbase64_rust",
+        "liblibc",
+        "libring",
+        "libstatic_assertions",
+        "libstatslog_dns_resolver_rust",
+        "liburl",
+    ],
+    shared_libs: [
+        "libcrypto",
+        "libssl",
+    ],
+}
+
+rust_ffi_static {
+    name: "libresolvrs_ffi",
+    defaults: ["resolvrs_defaults"],
+    features: ["android-ffi"],
+    prefer_rlib: true,
+    rlibs: [
+        "libcxx",
+        "libquiche",
+    ],
+    shared_libs: [
+        "libcrypto",
+        "libssl",
+    ],
+    apex_available: ["com.android.resolv"],
+    min_sdk_version: "30",
+}
+
+cc_defaults {
+    name: "libresolvrs_ffi_defaults",
+    static_libs: ["libresolvrs_ffi"],
+    generated_headers: [
+        "cxx-bridge-header",
+        "libdns_proxy_cxx_bridge_header",
+    ],
+    generated_sources: ["libdns_proxy_cxx_bridge_source"],
+}
+
+cc_defaults {
+    name: "libresolvrs_test_ffi_defaults",
+    static_libs: ["libresolvrs_ffi"],
+    generated_headers: [
+        "cxx-bridge-header",
+        "libdns_proxy_cxx_bridge_header",
+    ],
+    generated_sources: ["libdns_proxy_cxx_bridge_source"],
+}
+
+rust_ffi_static {
+    name: "libresolvrs_test_ffi",
+    defaults: ["resolvrs_defaults"],
+    features: ["android-ffi"],
+    prefer_rlib: true,
+    rlibs: [
+        "libcxx",
+        "libquiche_static",
+    ],
+    shared_libs: [
+        "libstatssocket",
+    ],
+    apex_available: [
+        "apex_available:platform",
+        "com.android.resolv",
+    ],
+    min_sdk_version: "30",
+}
+
+rust_test {
+    name: "resolvrs_unit_test",
+    defaults: ["resolvrs_defaults"],
+    test_suites: ["general-tests"],
+
+    rlibs: [
+        "libquiche_static",
+        "libmockall",
+    ],
+    shared_libs: ["libc++"],
+    min_sdk_version: "30",
+}

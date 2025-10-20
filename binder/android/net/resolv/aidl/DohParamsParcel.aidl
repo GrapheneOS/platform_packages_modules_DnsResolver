@@ -23,7 +23,7 @@ package android.net.resolv.aidl;
  * no field in this parcelable to specify an exact HTTPS protocol (h2 or h3) because DnsResolver
  * only supports DNS-over-HTTPS/3. The configuration parameters are for h3.
  *
- * {@hide}
+ * @hide
  */
 @JavaDerive(equals=true, toString=true) @JavaOnlyImmutable
 parcelable DohParamsParcel {

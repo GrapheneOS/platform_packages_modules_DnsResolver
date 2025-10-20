@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// DNS Proxy AIDL header.
-
 #pragma once
 
 #include <cstdint>
@@ -22,7 +20,6 @@
 #include <mutex>
 #include <vector>
 
-#include "DnsResolver.h"
 #include "rust/cxx.h"
 
 namespace android {
@@ -38,6 +35,8 @@ using NameServersCallback =
 
 struct DnsProxyServer;
 
+// Thread-safety: The Rust DnsProxyServer implementation is both Send and Sync and should thus be
+// safe to be accessed from multiple threads.
 class DnsProxy {
   public:
     // Default constructor depending on DnsResolver global variables.

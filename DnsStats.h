@@ -110,8 +110,6 @@ class StatsRecords {
 // The class itself is not thread-safe.
 class DnsStats {
   public:
-    using StatsMap = std::map<netdutils::IPSockAddr, StatsRecords>;
-
     // Add |addrs| to the map, and remove no-longer-used addresses.
     // Return true if they are successfully added; otherwise, return false.
     bool setAddrs(const std::vector<netdutils::IPSockAddr>& addrs, Protocol protocol);
@@ -133,6 +131,7 @@ class DnsStats {
     static constexpr size_t kLogSize = 128;
 
   private:
+    using StatsMap = std::map<netdutils::IPSockAddr, StatsRecords>;
     std::map<Protocol, StatsMap> mStats;
 };
 

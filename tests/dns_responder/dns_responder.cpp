@@ -29,6 +29,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <span>
+#include <sstream>
 
 #include <chrono>
 #include <iostream>
@@ -150,6 +151,7 @@ const char* dnstype2str(unsigned dnstype) {
             {ns_type::ns_t_maila, "MAILA"},
             {ns_type::ns_t_any, "ANY"},
             {ns_type::ns_t_zxfr, "ZXFR"},
+            {ns_type::ns_t_https, "HTTPS"},
     };
     auto it = kTypeStrs.find(dnstype);
     static const char* kUnknownStr{"UNKNOWN"};
@@ -844,6 +846,107 @@ bool DNSResponder::addAnswerRecords(const DNSQuestion& question,
     return true;
 }
 
+static bool nameToLabelSequence(const std::string& rdatastr, std::vector<char>& rdata) {
+    static constexpr char delimiter = '.';
+    // Can't use string_view because android::base::Split requires string.
+    std::string name = rdatastr;
+
+    // Generating PTRDNAME field(section 3.3.12) or CNAME field(section 3.3.1) in rfc1035.
+    // The "name" should be an absolute domain name which ends in a dot.
+    if (name.back() != delimiter) {
+        LOG(ERROR) << "invalid absolute domain name";
+        return false;
+    }
+    name.pop_back();  // remove the dot in tail
+
+    for (const auto& label : android::base::Split(name, {delimiter})) {
+        // The length of label is limited to 63 octets or less. See RFC 1035 section 3.1.
+        if (label.length() == 0 || label.length() > 63) {
+            LOG(ERROR) << "invalid label length";
+            return false;
+        }
+
+        rdata.push_back(label.length());
+        rdata.insert(rdata.end(), label.begin(), label.end());
+    }
+    rdata.push_back(0);  // Length byte of zero terminates the label list
+
+    // The length of domain name is limited to 255 octets or less. See RFC 1035 section 3.1.
+    if (rdata.size() > 255) {
+        LOG(ERROR) << "invalid name length";
+        return false;
+    }
+    return true;
+}
+
+static bool fillSvcParam(std::ostringstream& oss, const std::string& key, const std::string& val) {
+    // SvcParams are represented as:
+    // - 2 octet field containing the SvcParamKey, see
+    // https://www.iana.org/assignments/dns-svcb/dns-svcb.xhtml
+    // - 2-octet field containing the length of SvcParamValue.
+    // - octet string determined by the SvcParamKey.
+    if (key == "ipv4hint") {
+        short paramKeyNet = htons(4);       // SvcParamKey
+        short paramValueLenNet = htons(4);  // length of SvcParamValue
+
+        oss.write(reinterpret_cast<const char*>(&paramKeyNet), sizeof(paramKeyNet));
+        oss.write(reinterpret_cast<const char*>(&paramValueLenNet), sizeof(paramValueLenNet));
+
+        // Note that this only supports a single address.
+        std::array<char, 4> addrbuf;
+        if (inet_pton(AF_INET, val.c_str(), addrbuf.data()) != 1) return false;
+        oss.write(addrbuf.data(), addrbuf.size());
+    } else {
+        return false;
+    }
+    return true;
+}
+
+static bool fillHttpsRdata(const std::string& rdatastr, std::vector<char>& rdata) {
+    std::istringstream iss(rdatastr);
+
+    short prio;
+    if (!(iss >> prio)) {
+        return false;
+    }
+
+    std::string targetName;
+    if (!(iss >> targetName)) {
+        return false;
+    }
+
+    // fillHttpsRdata assumes that the SvcParams are already in strictly increasing numeric order as
+    // required by rfc9460#section-2.2.
+    std::vector<std::pair<std::string, std::string>> svcParams;
+    std::string token;
+    while (iss >> token) {
+        auto equalPos = token.find('=');
+        if (equalPos == std::string::npos) return false;
+
+        std::string key = token.substr(0, equalPos);
+        // Assumes the value is unquoted.
+        std::string val = token.substr(equalPos + 1);
+        svcParams.emplace_back(std::make_pair(std::move(key), std::move(val)));
+    }
+
+    // Rdata contains 2 byte prio, target name as a sequence of labels, and svc params.
+    std::ostringstream oss;
+    short prioNet = htons(prio);
+    oss.write(reinterpret_cast<const char*>(&prioNet), sizeof(prioNet));
+
+    std::vector<char> rdataName;
+    if (!nameToLabelSequence(targetName, rdataName)) return false;
+    oss << std::string(rdataName.cbegin(), rdataName.cend());
+
+    for (const auto& [key, val] : svcParams) {
+        if (!fillSvcParam(oss, key, val)) return false;
+    }
+
+    auto resultStr = oss.str();
+    rdata = std::vector(resultStr.cbegin(), resultStr.cend());
+    return true;
+}
+
 bool DNSResponder::fillRdata(const std::string& rdatastr, DNSRecord& record) {
     if (record.rtype == ns_type::ns_t_a) {
         record.rdata.resize(4);
@@ -859,35 +962,17 @@ bool DNSResponder::fillRdata(const std::string& rdatastr, DNSRecord& record) {
         }
     } else if ((record.rtype == ns_type::ns_t_ptr) || (record.rtype == ns_type::ns_t_cname) ||
                (record.rtype == ns_type::ns_t_ns)) {
-        constexpr char delimiter = '.';
-        std::string name = rdatastr;
-        std::vector<char> rdata;
-
-        // Generating PTRDNAME field(section 3.3.12) or CNAME field(section 3.3.1) in rfc1035.
-        // The "name" should be an absolute domain name which ends in a dot.
-        if (name.back() != delimiter) {
-            LOG(ERROR) << "invalid absolute domain name";
+        if (!nameToLabelSequence(rdatastr, record.rdata)) {
+            LOG(ERROR) << "invalid absolute name: " << rdatastr;
             return false;
         }
-        name.pop_back();  // remove the dot in tail
-        for (const std::string& label : android::base::Split(name, {delimiter})) {
-            // The length of label is limited to 63 octets or less. See RFC 1035 section 3.1.
-            if (label.length() == 0 || label.length() > 63) {
-                LOG(ERROR) << "invalid label length";
-                return false;
-            }
-
-            rdata.push_back(label.length());
-            rdata.insert(rdata.end(), label.begin(), label.end());
-        }
-        rdata.push_back(0);  // Length byte of zero terminates the label list
-
-        // The length of domain name is limited to 255 octets or less. See RFC 1035 section 3.1.
-        if (rdata.size() > 255) {
-            LOG(ERROR) << "invalid name length";
+    } else if (record.rtype == ns_type::ns_t_https) {
+        // CAREFUL: fillHttpsRdata assumes that the input is correct and may return true for some
+        // invalid inputs.
+        if (!fillHttpsRdata(rdatastr, record.rdata)) {
+            LOG(ERROR) << "invalid https rdata: " << rdatastr;
             return false;
         }
-        record.rdata = std::move(rdata);
     } else {
         LOG(ERROR) << "unhandled qtype " << dnstype2str(record.rtype);
         return false;

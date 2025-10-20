@@ -1,0 +1,268 @@
+/*
+ * Copyright (C) 2025 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use anyhow::ensure;
+use anyhow::Context;
+use anyhow::Result;
+use nix::cmsg_space;
+use nix::libc::in6_pktinfo;
+use nix::sys::socket::recv;
+use nix::sys::socket::recvmsg;
+use nix::sys::socket::sendmsg;
+use nix::sys::socket::setsockopt;
+use nix::sys::socket::sockopt::Ipv6RecvPacketInfo;
+use nix::sys::socket::ControlMessage;
+use nix::sys::socket::ControlMessageOwned;
+use nix::sys::socket::MsgFlags;
+use nix::sys::socket::RecvMsg;
+use nix::sys::socket::SockaddrLike;
+use std::io::IoSlice;
+use std::io::IoSliceMut;
+use std::net::Ipv6Addr;
+use std::net::SocketAddrV6;
+use tokio::net::UdpSocket;
+
+/// A UDP socket that can receive packets with their destination interface index.
+pub struct UdpServerSocket {
+    socket: UdpSocket,
+}
+
+impl UdpServerSocket {
+    /// Creates a new UdpServerSocket from a std::net::UdpSocket.
+    pub fn new(socket: std::net::UdpSocket) -> Result<Self> {
+        // UdpServerSocket must be a dual-stack socket.
+        ensure!(socket.local_addr()?.ip() == Ipv6Addr::UNSPECIFIED, "Socket must be dual-stack");
+
+        socket.set_nonblocking(true)?;
+        let socket = UdpSocket::from_std(socket)?;
+        setsockopt(&socket, Ipv6RecvPacketInfo, &true)?;
+        Ok(Self { socket })
+    }
+
+    /// Receives a single datagram from the socket. On success, returns the number
+    /// of bytes read, the sender's address, and the interface index. Must be used in combination
+    /// with readable().
+    fn try_recv_from_with_pktinfo(&self, buf: &mut [u8]) -> Result<(SocketAddrV6, in6_pktinfo)> {
+        let mut cmsg_buf = cmsg_space!(in6_pktinfo);
+        let iov = &mut [IoSliceMut::new(buf)];
+        let msg = self.socket.try_recvmsg::<nix::sys::socket::SockaddrIn6>(
+            iov,
+            Some(&mut cmsg_buf),
+            MsgFlags::empty(),
+        )?;
+
+        // If cmsgs are not present, or the Ipv6PacketInfo option is not found, the function
+        // returns an error. This should never happen, i.e. it likely indicates a kernel bug.
+        // Note that anyhow::context() converts the Option return type to a Result.
+        let pktinfo = msg
+            .cmsgs()?
+            .find_map(|cmsg| {
+                if let ControlMessageOwned::Ipv6PacketInfo(packet_info) = cmsg {
+                    Some(packet_info)
+                } else {
+                    None
+                }
+            })
+            .context("No Ipv6PacketInfo found in cmsgs.")?;
+
+        let addr = msg.address.map(SocketAddrV6::from).unwrap();
+        Ok((addr, pktinfo))
+    }
+
+    /// Receives an arbitrarily sized UDP packet into an appropriately sized buffer and returns it
+    /// alongside the sender's address, and the interface index.
+    pub async fn recv_from_with_pktinfo(&self) -> Result<(Vec<u8>, SocketAddrV6, in6_pktinfo)> {
+        // Call recv with MSG_PEEK|MSG_TRUNC to figure out the size of the incoming packet.
+        let len = loop {
+            // It is possible for readable().await? to return but for the arriving packet to fail
+            // checksum validation. As without checksum offload, validation happens only when recv() is
+            // called (usually while the packet is being copied from the skb to the user buffer). If
+            // this happens, recv() returns EAGAIN (or io::ErrorKind::WouldBlock).
+            self.socket.readable().await?;
+            match self.socket.try_recv_flags(&mut [], MsgFlags::MSG_PEEK | MsgFlags::MSG_TRUNC) {
+                Ok(len) => break len,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e.into()),
+            }
+        };
+        let mut buf = vec![0u8; len];
+        let (from, pktinfo) = self.try_recv_from_with_pktinfo(&mut buf)?;
+        Ok((buf, from, pktinfo))
+    }
+
+    pub async fn send_to_with_pktinfo(
+        &self,
+        buf: &[u8],
+        to: SocketAddrV6,
+        pktinfo: in6_pktinfo,
+    ) -> Result<usize> {
+        let iov = [IoSlice::new(buf)];
+        let cmsg = [ControlMessage::Ipv6PacketInfo(&pktinfo)];
+        let to = nix::sys::socket::SockaddrIn6::from(to);
+        loop {
+            self.socket.writable().await?;
+
+            // Similar to readable(), it is possible for writable() to return but try_sendmsg to
+            // fail with EAGAIN.
+            match self.socket.try_sendmsg(&iov, &cmsg, MsgFlags::empty(), Some(&to)) {
+                Ok(len) => return Ok(len),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+}
+
+/// UdpSocket extension trait for implementing UdpSocket functionality that is missing in
+/// tokio::net::UdpSocket.
+trait UdpSocketExt {
+    /// A version of try_recv that accepts flags.
+    ///
+    /// This function is usually paired with readable(). See UdpSocket::try_recv for details.
+    fn try_recv_flags(&self, buf: &mut [u8], flags: MsgFlags) -> std::io::Result<usize>;
+
+    /// A tokio-compatible wrapper around recvmsg.
+    fn try_recvmsg<'a, 'outer, 'inner, S>(
+        &'a self,
+        iov: &'outer mut [IoSliceMut<'inner>],
+        cmsg_buf: Option<&'a mut Vec<u8>>,
+        flags: MsgFlags,
+    ) -> std::io::Result<RecvMsg<'a, 'outer, S>>
+    where
+        S: SockaddrLike + 'a,
+        'inner: 'outer;
+
+    /// A tokio-compatible wrapper around sendmsg.
+    fn try_sendmsg<S>(
+        &self,
+        iov: &[IoSlice<'_>],
+        cmsgs: &[ControlMessage<'_>],
+        flags: MsgFlags,
+        addr: Option<&S>,
+    ) -> std::io::Result<usize>
+    where
+        S: SockaddrLike;
+}
+
+impl UdpSocketExt for UdpSocket {
+    fn try_recv_flags(&self, buf: &mut [u8], flags: MsgFlags) -> std::io::Result<usize> {
+        // UdpSocket::try_io() is required to consume the readable readiness event of the
+        // UdpSocket. See notes on "Cancel safety" in UdpSocket::readable().
+        self.try_io(tokio::io::Interest::READABLE, || {
+            use std::os::fd::AsRawFd as _;
+            recv(self.as_raw_fd(), buf, flags).map_err(std::io::Error::from)
+        })
+    }
+
+    fn try_recvmsg<'a, 'outer, 'inner, S>(
+        &'a self,
+        iov: &'outer mut [IoSliceMut<'inner>],
+        cmsg_buf: Option<&'a mut Vec<u8>>,
+        flags: MsgFlags,
+    ) -> std::io::Result<RecvMsg<'a, 'outer, S>>
+    where
+        S: SockaddrLike + 'a,
+        'inner: 'outer,
+    {
+        self.try_io(tokio::io::Interest::READABLE, || {
+            use std::os::fd::AsRawFd as _;
+            recvmsg(self.as_raw_fd(), iov, cmsg_buf, flags).map_err(std::io::Error::from)
+        })
+    }
+
+    fn try_sendmsg<S>(
+        &self,
+        iov: &[IoSlice<'_>],
+        cmsgs: &[ControlMessage<'_>],
+        flags: MsgFlags,
+        addr: Option<&S>,
+    ) -> std::io::Result<usize>
+    where
+        S: SockaddrLike,
+    {
+        self.try_io(tokio::io::Interest::WRITABLE, || {
+            use std::os::fd::AsRawFd as _;
+            sendmsg(self.as_raw_fd(), iov, cmsgs, flags, addr).map_err(std::io::Error::from)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dns_proxy::packet::tests::TEST_VALID_DNS_QUERY;
+    use std::net::Ipv4Addr;
+    use std::net::SocketAddr;
+
+    #[tokio::test]
+    async fn test_udp_server_socket_new() {
+        let std_socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let server_socket = UdpServerSocket::new(std_socket);
+        assert!(server_socket.is_ok());
+    }
+
+    #[allow(clippy::unnecessary_cast)]
+    #[tokio::test]
+    async fn test_udp_server_socket_recv_from_with_pktinfo() {
+        let std_socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let server_port = std_socket.local_addr().unwrap().port();
+        let server_socket = UdpServerSocket::new(std_socket).unwrap();
+
+        let client_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let client_addr = client_socket.local_addr().unwrap();
+        let server_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), server_port);
+
+        client_socket.connect(server_addr).await.unwrap();
+        client_socket.send(&TEST_VALID_DNS_QUERY).await.unwrap();
+
+        let (buf, addr, pktinfo) = server_socket.recv_from_with_pktinfo().await.unwrap();
+        let ifindex = pktinfo.ipi6_ifindex as u32;
+
+        assert_eq!(buf.len(), TEST_VALID_DNS_QUERY.len());
+        assert_eq!(buf, TEST_VALID_DNS_QUERY);
+        // Must convert addresses to canonical representation, so the IPv6-mapped IPv4 addresses
+        // compare correctly.
+        assert_eq!(addr.ip().to_canonical(), client_addr.ip().to_canonical());
+        assert_eq!(addr.port(), client_addr.port());
+        assert_eq!(ifindex, 1 /* loopback */);
+    }
+
+    #[tokio::test]
+    async fn test_udp_server_socket_send_to_with_pktinfo() {
+        let std_socket = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let server_addr = std_socket.local_addr().unwrap();
+        let server_socket = UdpServerSocket::new(std_socket).unwrap();
+
+        let client_socket = std::net::UdpSocket::bind("[::1]:0").unwrap();
+        let client_addr = client_socket.local_addr().unwrap();
+
+        // Send a packet from client to server to get a valid pktinfo.
+        client_socket.send_to(&TEST_VALID_DNS_QUERY, server_addr).unwrap();
+        let (_, from, pktinfo) = server_socket.recv_from_with_pktinfo().await.unwrap();
+        assert!(from.ip().is_loopback());
+        assert_eq!(from.port(), client_addr.port());
+
+        // Send a response back from server to client.
+        let response = b"response";
+        server_socket.send_to_with_pktinfo(response, from, pktinfo).await.unwrap();
+
+        let mut buf = [0u8; 1024];
+        let (len, addr) = client_socket.recv_from(&mut buf).unwrap();
+        assert!(addr.ip().is_loopback());
+        assert_eq!(addr.port(), server_addr.port());
+        assert_eq!(&buf[..len], response);
+    }
+}

@@ -29,7 +29,7 @@ package android.net.resolv.aidl;
  * to stop sending one event by DNS API call, and instead report network failures in realtime.
  *
  * Non-public API, only callable from Connectivity or NetworkStack Mainline modules.
- * {@hide}
+ * @hide
  */
 @JavaDerive(toString=true)
 parcelable DnsHealthEventParcel {

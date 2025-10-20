@@ -82,7 +82,7 @@ class ExperimentsTest : public NetNativeTestBase {
 
     void expectDumpOutput() {
         netdutils::DumpWriter dw(STDOUT_FILENO);
-        CapturedStdout captured;
+        android::base::CapturedStdout captured;
         mExperiments.dump(dw);
         const std::string dumpString = captured.str();
         const std::string title = "Experiments list:";
