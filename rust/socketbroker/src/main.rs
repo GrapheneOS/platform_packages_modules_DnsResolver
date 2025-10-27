@@ -178,6 +178,11 @@ fn main() -> Result<()> {
         let len = match cmd_sock.recv(&mut buf) {
             // If the other side closed gracefully, the socket will read EOF (len == 0). Otherwise,
             // it will return with ECONNRESET. In either case, exit the program.
+            // Note that len == 0 could also indicate a 0-length packet. The 2 cases are
+            // indistinguishable on AF_UNIX SOCK_SEQPACKET sockets when using recv(). It seems that
+            // the only way to reliably detect socket closure is to poll() and wait for POLLHUP |
+            // POLLERR. In reality, this should not matter, because we are in control of the
+            // client and should never see a 0-length packet.
             Ok(0) => break,
             Err(e) if e.kind() == ErrorKind::ConnectionReset => break,
 
