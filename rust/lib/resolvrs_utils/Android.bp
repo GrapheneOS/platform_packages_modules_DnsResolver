@@ -16,23 +16,13 @@ package {
     default_team: "trendy_team_fwk_core_networking",
 }
 
-rust_binary {
-    name: "socketbroker",
-    srcs: ["src/main.rs"],
-    rustlibs: [
-        "libandroid_logger",
-        "libanyhow",
-        // libbytemuck sets min_sdk_version to 34. Use libbytemuck_nostd instead.
-        "libbytemuck_nostd",
-        "libclap",
-        "liblibc",
-        "liblog_rust",
+rust_library {
+    name: "libresolvrs_utils",
+    crate_name: "resolvrs_utils",
+    srcs: ["src/lib.rs"],
+    rlibs: [
         "libnix",
-        "libresolvrs_utils",
-        "libsocket2",
     ],
-    // Setting prefer_rlib to true prevents pulling in duplicate library dependencies from
-    // libresolvrs_utils:
-    // "error: found crates (`socket2` and `socket2`) with colliding StableCrateId values"
-    prefer_rlib: true,
+    apex_available: ["com.android.resolv"],
+    min_sdk_version: "30",
 }

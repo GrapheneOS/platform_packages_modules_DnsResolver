@@ -18,27 +18,16 @@
 use clap::Parser;
 use log::error;
 use log::LevelFilter;
-use nix::fcntl::fcntl;
-use nix::fcntl::FcntlArg;
-use nix::fcntl::OFlag;
-use nix::sys::socket::recv;
-use nix::sys::socket::send;
-use nix::sys::socket::sendmsg;
-use nix::sys::socket::ControlMessage;
-use nix::sys::socket::MsgFlags;
+use resolvrs_utils::socket::sync::UnixSeqpacket;
 use socket2::Domain;
 use socket2::Socket;
 use socket2::Type;
 use std::io::Error;
 use std::io::ErrorKind;
-use std::io::IoSlice;
 use std::io::Result;
 use std::net::Ipv6Addr;
 use std::net::SocketAddrV6;
-use std::os::fd::AsRawFd as _;
-use std::os::fd::FromRawFd;
-use std::os::fd::OwnedFd;
-use std::os::fd::RawFd;
+use std::os::fd::FromRawFd as _;
 
 enum SocketType {
     TCP { ifindex: u32 },
@@ -88,51 +77,6 @@ impl SocketExt for Socket {
         let ifname_ubuf: &[u8] = bytemuck::cast_slice(&ifname_buf);
         self.bind_device(Some(ifname_ubuf))?;
         Ok(())
-    }
-}
-
-/// UnixSeqpacket is loosely modeled after std::os::unix::net::UnixDatagram.
-struct UnixSeqpacket {
-    fd: OwnedFd,
-}
-
-impl UnixSeqpacket {
-    fn set_nonblocking(&self, nonblocking: bool) -> Result<()> {
-        let mut flags = OFlag::from_bits_truncate(fcntl(self.fd.as_raw_fd(), FcntlArg::F_GETFL)?);
-        if nonblocking {
-            flags.insert(OFlag::O_NONBLOCK)
-        } else {
-            flags.remove(OFlag::O_NONBLOCK)
-        }
-        fcntl(self.fd.as_raw_fd(), FcntlArg::F_SETFL(flags))?;
-        Ok(())
-    }
-
-    fn recv(&self, buf: &mut [u8]) -> Result<usize> {
-        let len = recv(self.fd.as_raw_fd(), buf, MsgFlags::empty())?;
-        Ok(len)
-    }
-
-    fn send(&self, buf: &[u8]) -> Result<usize> {
-        let len = send(self.fd.as_raw_fd(), buf, MsgFlags::empty())?;
-        Ok(len)
-    }
-
-    fn send_with_fd(&self, buf: &[u8], fd: OwnedFd) -> Result<usize> {
-        let iov = [IoSlice::new(buf)];
-        let raw_fds = [fd.as_raw_fd()];
-        let cmsgs = [ControlMessage::ScmRights(&raw_fds)];
-
-        let size = sendmsg::<()>(self.fd.as_raw_fd(), &iov, &cmsgs, MsgFlags::empty(), None)?;
-        Ok(size)
-    }
-}
-
-impl FromRawFd for UnixSeqpacket {
-    unsafe fn from_raw_fd(fd: RawFd) -> Self {
-        // SAFETY:
-        // The caller is responsible for ensuring that `fd` is a valid (and unowned) file descriptor
-        unsafe { Self { fd: OwnedFd::from_raw_fd(fd) } }
     }
 }
 
