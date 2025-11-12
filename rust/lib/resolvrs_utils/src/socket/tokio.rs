@@ -17,6 +17,7 @@
 
 use crate::socket::sync;
 use std::io::Result;
+use std::os::fd::OwnedFd;
 use tokio::io::unix::AsyncFd;
 
 pub struct UnixSeqpacket {
@@ -33,6 +34,17 @@ impl UnixSeqpacket {
         loop {
             let mut guard = self.inner.readable().await?;
             match guard.try_io(|inner| inner.get_ref().recv(buf)) {
+                Ok(result) => return result,
+                // try_io's error is always EWOULDBLOCK.
+                Err(_would_block) => continue,
+            }
+        }
+    }
+
+    pub async fn recv_with_fd(&self, buf: &mut [u8]) -> Result<(usize, Option<OwnedFd>)> {
+        loop {
+            let mut guard = self.inner.readable().await?;
+            match guard.try_io(|inner| inner.get_ref().recv_with_fd(buf)) {
                 Ok(result) => return result,
                 // try_io's error is always EWOULDBLOCK.
                 Err(_would_block) => continue,
