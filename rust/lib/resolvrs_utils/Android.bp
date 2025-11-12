@@ -22,6 +22,7 @@ rust_library {
     srcs: ["src/lib.rs"],
     rlibs: [
         "libnix",
+        "libtokio",
     ],
     apex_available: ["com.android.resolv"],
     min_sdk_version: "30",

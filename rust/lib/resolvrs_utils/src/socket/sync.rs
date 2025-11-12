@@ -25,7 +25,7 @@ use nix::sys::socket::MsgFlags;
 use std::io::ErrorKind;
 use std::io::IoSlice;
 use std::io::Result;
-use std::os::fd::AsRawFd as _;
+use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd;
 use std::os::fd::OwnedFd;
 use std::os::fd::RawFd;
@@ -90,5 +90,11 @@ impl FromRawFd for UnixSeqpacket {
         // SAFETY:
         // The caller is responsible for ensuring that `fd` is a valid (and unowned) file descriptor
         unsafe { Self { fd: OwnedFd::from_raw_fd(fd) } }
+    }
+}
+
+impl AsRawFd for UnixSeqpacket {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd.as_raw_fd()
     }
 }
