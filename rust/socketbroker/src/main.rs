@@ -132,7 +132,6 @@ fn main() -> Result<()> {
 
             // Other messages are processed and other errors are ignored.
             Ok(len) => len,
-            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(e) => {
                 // TODO: Consider panicking as common errors are handled above.
                 error!("recv failed: {e}");

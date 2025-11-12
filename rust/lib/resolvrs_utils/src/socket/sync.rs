@@ -22,12 +22,32 @@ use nix::sys::socket::send;
 use nix::sys::socket::sendmsg;
 use nix::sys::socket::ControlMessage;
 use nix::sys::socket::MsgFlags;
+use std::io::ErrorKind;
 use std::io::IoSlice;
 use std::io::Result;
 use std::os::fd::AsRawFd as _;
 use std::os::fd::FromRawFd;
 use std::os::fd::OwnedFd;
 use std::os::fd::RawFd;
+
+fn temp_failure_retry<F, T, E>(mut f: F) -> std::io::Result<T>
+where
+    F: FnMut() -> std::result::Result<T, E>,
+    E: Into<std::io::Error>,
+{
+    loop {
+        match f() {
+            Err(e) => {
+                let error = e.into();
+                if error.kind() == ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            Ok(res) => return Ok(res),
+        }
+    }
+}
 
 /// UnixSeqpacket is loosely modeled after std::os::unix::net::UnixDatagram.
 pub struct UnixSeqpacket {
@@ -47,13 +67,11 @@ impl UnixSeqpacket {
     }
 
     pub fn recv(&self, buf: &mut [u8]) -> Result<usize> {
-        let len = recv(self.fd.as_raw_fd(), buf, MsgFlags::empty())?;
-        Ok(len)
+        temp_failure_retry(|| recv(self.fd.as_raw_fd(), buf, MsgFlags::empty()))
     }
 
     pub fn send(&self, buf: &[u8]) -> Result<usize> {
-        let len = send(self.fd.as_raw_fd(), buf, MsgFlags::empty())?;
-        Ok(len)
+        temp_failure_retry(|| send(self.fd.as_raw_fd(), buf, MsgFlags::empty()))
     }
 
     pub fn send_with_fd(&self, buf: &[u8], fd: OwnedFd) -> Result<usize> {
@@ -61,8 +79,9 @@ impl UnixSeqpacket {
         let raw_fds = [fd.as_raw_fd()];
         let cmsgs = [ControlMessage::ScmRights(&raw_fds)];
 
-        let size = sendmsg::<()>(self.fd.as_raw_fd(), &iov, &cmsgs, MsgFlags::empty(), None)?;
-        Ok(size)
+        temp_failure_retry(|| {
+            sendmsg::<()>(self.fd.as_raw_fd(), &iov, &cmsgs, MsgFlags::empty(), None)
+        })
     }
 }
 
