@@ -14,16 +14,20 @@
 
 //! Sync socket implementations.
 
+use nix::cmsg_space;
 use nix::fcntl::fcntl;
 use nix::fcntl::FcntlArg;
 use nix::fcntl::OFlag;
 use nix::sys::socket::recv;
+use nix::sys::socket::recvmsg;
 use nix::sys::socket::send;
 use nix::sys::socket::sendmsg;
 use nix::sys::socket::ControlMessage;
+use nix::sys::socket::ControlMessageOwned;
 use nix::sys::socket::MsgFlags;
 use std::io::ErrorKind;
 use std::io::IoSlice;
+use std::io::IoSliceMut;
 use std::io::Result;
 use std::os::fd::AsRawFd;
 use std::os::fd::FromRawFd;
@@ -81,6 +85,35 @@ impl UnixSeqpacket {
 
         temp_failure_retry(|| {
             sendmsg::<()>(self.fd.as_raw_fd(), &iov, &cmsgs, MsgFlags::empty(), None)
+        })
+    }
+
+    pub fn recv_with_fd(&self, buf: &mut [u8]) -> Result<(usize, Option<OwnedFd>)> {
+        let mut iov = [IoSliceMut::new(buf)];
+        let mut cmsg_buf = cmsg_space!([RawFd; 1]);
+
+        temp_failure_retry(|| {
+            let msg = recvmsg::<()>(
+                self.fd.as_raw_fd(),
+                &mut iov,
+                Some(&mut cmsg_buf),
+                MsgFlags::empty(),
+            )?;
+
+            let opt_raw_fd = msg.cmsgs()?.find_map(|cmsg| {
+                if let ControlMessageOwned::ScmRights(fds) = cmsg {
+                    fds.into_iter().next()
+                } else {
+                    None
+                }
+            });
+
+            let opt_fd = opt_raw_fd.map(|raw_fd| {
+                // SAFETY: The recipient of the file descriptor is expected to take ownership of it.
+                unsafe { OwnedFd::from_raw_fd(raw_fd) }
+            });
+
+            Ok::<_, nix::Error>((msg.bytes, opt_fd))
         })
     }
 }
