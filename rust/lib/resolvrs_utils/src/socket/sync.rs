@@ -71,11 +71,11 @@ impl UnixSeqpacket {
     }
 
     pub fn recv(&self, buf: &mut [u8]) -> Result<usize> {
-        temp_failure_retry(|| recv(self.fd.as_raw_fd(), buf, MsgFlags::empty()))
+        temp_failure_retry(|| recv(self.fd.as_raw_fd(), buf, MsgFlags::MSG_NOSIGNAL))
     }
 
     pub fn send(&self, buf: &[u8]) -> Result<usize> {
-        temp_failure_retry(|| send(self.fd.as_raw_fd(), buf, MsgFlags::empty()))
+        temp_failure_retry(|| send(self.fd.as_raw_fd(), buf, MsgFlags::MSG_NOSIGNAL))
     }
 
     pub fn send_with_fd(&self, buf: &[u8], fd: OwnedFd) -> Result<usize> {
@@ -84,7 +84,7 @@ impl UnixSeqpacket {
         let cmsgs = [ControlMessage::ScmRights(&raw_fds)];
 
         temp_failure_retry(|| {
-            sendmsg::<()>(self.fd.as_raw_fd(), &iov, &cmsgs, MsgFlags::empty(), None)
+            sendmsg::<()>(self.fd.as_raw_fd(), &iov, &cmsgs, MsgFlags::MSG_NOSIGNAL, None)
         })
     }
 
@@ -97,7 +97,7 @@ impl UnixSeqpacket {
                 self.fd.as_raw_fd(),
                 &mut iov,
                 Some(&mut cmsg_buf),
-                MsgFlags::empty(),
+                MsgFlags::MSG_NOSIGNAL,
             )?;
 
             let opt_raw_fd = msg.cmsgs()?.find_map(|cmsg| {
