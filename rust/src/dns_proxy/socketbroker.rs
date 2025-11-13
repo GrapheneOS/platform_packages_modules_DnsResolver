@@ -25,6 +25,7 @@ use resolvrs_utils::socket;
 use std::os::fd::AsRawFd as _;
 use std::process::Child;
 use std::process::Command;
+use tokio::runtime::Runtime;
 
 const SOCKET_BROKER_EXEC: &str = "/apex/com.android.resolv/bin/socketbroker";
 
@@ -35,7 +36,7 @@ struct SocketBroker {
 
 impl SocketBroker {
     /// Fork-execs the socketbroker and blocks the calling thread until the child is ready.
-    pub fn fork_exec() -> Result<Self> {
+    pub fn fork_exec(rt: &Runtime) -> Result<Self> {
         // Creates sockets in blocking mode.
         let (parent_cmd_sock, child_cmd_sock) =
             socketpair(AddressFamily::Unix, SockType::SeqPacket, None, SockFlag::SOCK_CLOEXEC)?;
@@ -57,10 +58,14 @@ impl SocketBroker {
             bail!("socketbroker already exited with status: {}", status);
         }
 
-        // TODO: this needs a tokio rt reference; otherwise it'll panic.
         // Change the socket to nonblocking mode before converting to its async counterpart.
         sync_socket.set_nonblocking(true)?;
-        let async_socket = socket::tokio::UnixSeqpacket::from_sync(sync_socket)?;
+        // UnixSeqpacket wraps a tokio::io::unix::AsyncFd which requires to be constructed from
+        // tokio runtime context.
+        let async_socket = {
+            let _rt_guard = rt.enter();
+            socket::tokio::UnixSeqpacket::from_sync(sync_socket)?
+        };
         Ok(Self { child, cmd_sock: async_socket })
     }
 }

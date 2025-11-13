@@ -25,6 +25,9 @@ pub struct UnixSeqpacket {
 }
 
 impl UnixSeqpacket {
+    /// Construct a new async UnixSeqpacket from its synchronous counterpart.
+    ///
+    /// This method must be called in the context of a tokio runtime.
     pub fn from_sync(socket: sync::UnixSeqpacket) -> Result<Self> {
         let inner = AsyncFd::new(socket)?;
         Ok(Self { inner })
