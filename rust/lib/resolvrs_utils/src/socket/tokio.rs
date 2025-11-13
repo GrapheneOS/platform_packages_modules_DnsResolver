@@ -30,36 +30,42 @@ impl UnixSeqpacket {
         Ok(Self { inner })
     }
 
-    pub async fn recv(&self, buf: &mut [u8]) -> Result<usize> {
+    async fn readable_io<F, T>(&self, mut f: F) -> Result<T>
+    where
+        F: FnMut(&sync::UnixSeqpacket) -> Result<T>,
+    {
         loop {
             let mut guard = self.inner.readable().await?;
-            match guard.try_io(|inner| inner.get_ref().recv(buf)) {
-                Ok(result) => return result,
-                // try_io's error is always EWOULDBLOCK.
-                Err(_would_block) => continue,
+            // try_io's error is always EWOULDBLOCK in which case the loop must continue.
+            if let Ok(result) = guard.try_io(|inner| f(inner.get_ref())) {
+                return result;
             }
         }
+    }
+
+    // TODO: consider loosening mut constraints and combining readable_io with writable_io.
+    async fn writable_io<F, T>(&self, f: F) -> Result<T>
+    where
+        F: Fn(&sync::UnixSeqpacket) -> Result<T>,
+    {
+        loop {
+            let mut guard = self.inner.writable().await?;
+            // try_io's error is always EWOULDBLOCK in which case the loop must continue.
+            if let Ok(result) = guard.try_io(|inner| f(inner.get_ref())) {
+                return result;
+            }
+        }
+    }
+
+    pub async fn recv(&self, buf: &mut [u8]) -> Result<usize> {
+        self.readable_io(|sync| sync.recv(buf)).await
     }
 
     pub async fn recv_with_fd(&self, buf: &mut [u8]) -> Result<(usize, Option<OwnedFd>)> {
-        loop {
-            let mut guard = self.inner.readable().await?;
-            match guard.try_io(|inner| inner.get_ref().recv_with_fd(buf)) {
-                Ok(result) => return result,
-                // try_io's error is always EWOULDBLOCK.
-                Err(_would_block) => continue,
-            }
-        }
+        self.readable_io(|sync| sync.recv_with_fd(buf)).await
     }
 
     pub async fn send(&self, buf: &[u8]) -> Result<usize> {
-        loop {
-            let mut guard = self.inner.writable().await?;
-            match guard.try_io(|inner| inner.get_ref().send(buf)) {
-                Ok(result) => return result,
-                // try_io's error is always EWOULDBLOCK.
-                Err(_would_block) => continue,
-            }
-        }
+        self.writable_io(|sync| sync.send(buf)).await
     }
 }
