@@ -226,8 +226,9 @@ fn proxy2_server_new(
     };
     let network_context = ResolverCallbacks { get_dns_mark_cb, get_name_servers_cb };
 
-    // TODO: consider whether panicking on error is ok here.
-    Box::new(server2::Server::new(socket, network_context).unwrap())
+    // TODO: consider whether panicking on error is ok here and below.
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    Box::new(server2::Server::new(runtime, socket, network_context).unwrap())
 }
 
 impl OpaqueServer {
