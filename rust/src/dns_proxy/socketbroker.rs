@@ -30,7 +30,7 @@ use tokio::runtime::Runtime;
 
 const SOCKET_BROKER_EXEC: &str = "/apex/com.android.resolv/bin/socketbroker";
 
-struct SocketBroker {
+pub struct SocketBroker {
     child: Child,
     cmd_sock: socket::tokio::UnixSeqpacket,
 }
