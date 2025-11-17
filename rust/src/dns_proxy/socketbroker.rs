@@ -25,12 +25,13 @@ use resolvrs_utils::socket;
 use std::os::fd::AsRawFd as _;
 use std::process::Child;
 use std::process::Command;
-use tokio::net::UdpSocket;
 use tokio::runtime::Runtime;
 
 const SOCKET_BROKER_EXEC: &str = "/apex/com.android.resolv/bin/socketbroker";
 
 pub struct SocketBroker {
+    pub udp_socket: Option<std::net::UdpSocket>,
+
     child: Child,
     cmd_sock: socket::tokio::UnixSeqpacket,
 }
@@ -49,15 +50,22 @@ impl SocketBroker {
 
         let mut child = cmd.spawn()?;
 
-        // The socketbroker will either write a single (arbitrary) byte to the cmd socket as soon
-        // as it is ready or close the socket in case it exits.
+        // The socketbroker will immediately return a UDP socket bound to port 53 upon creation.
         let sync_socket = socket::sync::UnixSeqpacket::from(parent_cmd_sock);
-        let _ = sync_socket.recv(&mut [0; 0]);
+        let recv_with_fd_result = sync_socket.recv_with_fd(&mut [0; 0]);
 
         // try_wait returns some status if the child has already exited.
         if let Some(status) = child.try_wait()? {
             bail!("socketbroker already exited with status: {}", status);
         }
+
+        let Ok((_, opt_fd)) = recv_with_fd_result else {
+            bail!("Failed to recv_with_fd");
+        };
+
+        let Some(udp_fd) = opt_fd else {
+            bail!("Failed to recv UDP socket fd");
+        };
 
         // Change the socket to nonblocking mode before converting to its async counterpart.
         sync_socket.set_nonblocking(true)?;
@@ -67,24 +75,7 @@ impl SocketBroker {
             let _rt_guard = rt.enter();
             socket::tokio::UnixSeqpacket::from_sync(sync_socket)?
         };
-        Ok(Self { child, cmd_sock: async_socket })
-    }
-
-    /// Create a UDP socket bound to port 53.
-    ///
-    /// This function takes exclusive access to self (&mut self) in order to enforce that
-    /// operations cannot be interleaved.
-    pub async fn create_udp_socket(&mut self) -> Result<UdpSocket> {
-        // Send a single 0 byte to request a new UDP socket.
-        self.cmd_sock.send(&[0; 1]).await?;
-        let (_, opt_fd) = self.cmd_sock.recv_with_fd(&mut [0; 0]).await?;
-        let Some(fd) = opt_fd else {
-            bail!("Failed to create UDP socket");
-        };
-
-        // socketbroker configures all sockets as non-blocking.
-        let sock = UdpSocket::from_std(fd.into())?;
-        Ok(sock)
+        Ok(Self { udp_socket: Some(udp_fd.into()), child, cmd_sock: async_socket })
     }
 }
 
