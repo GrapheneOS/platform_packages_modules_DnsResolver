@@ -22,9 +22,10 @@ use crate::dns_proxy::server::UpstreamParam;
 // TODO: import server2::Server directly once legacy implementation is removed.
 use crate::dns_proxy::server2;
 use crate::dns_proxy::server2::{NetworkContext, UpstreamConfig};
+use crate::dns_proxy::socketbroker::SocketBroker;
 use cxx::UniquePtr;
 use static_assertions::assert_impl_all;
-use std::net::{IpAddr, UdpSocket};
+use std::net::IpAddr;
 
 #[cxx::bridge(namespace = "android::net::dns_proxy_ffi")]
 #[allow(clippy::needless_maybe_sized)]
@@ -76,7 +77,6 @@ mod cpp2rust {
         type OpaqueServer;
 
         fn proxy2_server_new(
-            downstream_udp_socket_fd: i32,
             get_dns_mark_cb: UniquePtr<DnsMarkCallback>,
             get_name_servers_cb: UniquePtr<NameServersCallback>,
         ) -> Box<OpaqueServer>;
@@ -212,22 +212,19 @@ type OpaqueServer = server2::Server;
 assert_impl_all!(server2::Server: Send, Sync);
 
 fn proxy2_server_new(
-    downstream_udp_socket_fd: i32,
     get_dns_mark_cb: UniquePtr<cpp2rust::DnsMarkCallback>,
     get_name_servers_cb: UniquePtr<cpp2rust::NameServersCallback>,
 ) -> Box<OpaqueServer> {
-    assert!(downstream_udp_socket_fd >= 0);
-
-    // Safety: The caller guarantees that downstream_udp_socket_fd is a valid socket file
-    // descriptor and ownership is passed to the dns proxy.
-    let socket = unsafe {
-        use std::os::fd::FromRawFd as _;
-        UdpSocket::from_raw_fd(downstream_udp_socket_fd)
-    };
     let network_context = ResolverCallbacks { get_dns_mark_cb, get_name_servers_cb };
 
     // TODO: consider whether panicking on error is ok here and below.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+
+    // Note that SocketBroker::fork_exec() blocks until the socketbroker is ready.
+    let mut socketbroker = SocketBroker::fork_exec(&runtime).unwrap();
+
+    // udp_socket is guaranteed to exist if socketbroker::fork_exec succeeded.
+    let socket = socketbroker.udp_socket.take().unwrap();
     Box::new(server2::Server::new(runtime, socket, network_context).unwrap())
 }
 
