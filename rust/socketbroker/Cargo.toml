@@ -12,6 +12,7 @@ libc = { path = "../../../../../external/rust/android-crates-io/crates/libc" }
 # Do not use log from android-crates-io to prevent version conflicts.
 log = "^0.4.28"
 nix = { path = "../../../../../external/rust/android-crates-io/crates/nix", features = ["fs", "net", "socket", "uio"] }
+resolvrs_utils = { path = "../lib/resolvrs_utils" }
 socket2 = { path = "../../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
 
 # It follows the default Rust lints on Android. (Ref: build/soong/rust/config/lints.go)

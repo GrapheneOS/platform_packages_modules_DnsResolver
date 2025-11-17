@@ -28,6 +28,13 @@ rust_binary {
         "liblibc",
         "liblog_rust",
         "libnix",
+        "libresolvrs_utils",
         "libsocket2",
     ],
+    // Setting prefer_rlib to true prevents pulling in duplicate library dependencies from
+    // libresolvrs_utils:
+    // "error: found crates (`socket2` and `socket2`) with colliding StableCrateId values"
+    prefer_rlib: true,
+    apex_available: ["com.android.resolv"],
+    min_sdk_version: "30",
 }

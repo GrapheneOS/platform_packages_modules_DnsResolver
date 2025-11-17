@@ -12,16 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! DNS proxy for the Android DnsResolver module.
-
-// Some code may not be used during the development.
-// TODO (b/379992903): Remove this after library is completed.
-#![allow(dead_code)]
-
-#[cfg(feature = "android-ffi")]
-mod ffi;
-mod packet;
-mod server;
-// In-progress drop-in replacement for server.
-mod server2;
-mod socketbroker;
+// TODO: add documentation to all modules, structs, and methods exposed in this crate.
+#![allow(missing_docs)]
+pub mod socket;

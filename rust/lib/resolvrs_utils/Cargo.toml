@@ -1,0 +1,8 @@
+[package]
+name = "resolvrs_utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nix = { path = "../../../../../../external/rust/android-crates-io/crates/nix", features = ["fs", "net", "socket", "uio"] }
+tokio = { path = "../../../../../../external/rust/android-crates-io/crates/tokio", features = ["net"] }
