@@ -16,12 +16,9 @@
 
 //! DNS Proxy C FFI .
 
-use crate::dns_proxy::server::NetContextClient;
-use crate::dns_proxy::server::Server;
-use crate::dns_proxy::server::UpstreamParam;
-// TODO: import server2::Server directly once legacy implementation is removed.
-use crate::dns_proxy::server2;
-use crate::dns_proxy::server2::{NetworkContext, UpstreamConfig};
+use crate::dns_proxy::server2::NetworkContext;
+use crate::dns_proxy::server2::Server;
+use crate::dns_proxy::server2::UpstreamConfig;
 use crate::dns_proxy::socketbroker::SocketBroker;
 use cxx::UniquePtr;
 use static_assertions::assert_impl_all;
@@ -41,7 +38,7 @@ mod cpp2rust {
 
         /// Gets the nameservers given the net_id of the DNS.
         ///
-        /// Returns the vector of IP addresses literals (e.g.: {"8.8.8.8"})
+        /// Returns the vector of IP address literals (e.g.: {"8.8.8.8"})
         /// return value wrapped in UniquePtr since rust cannot obtain a C++ vector by value.
         fn get_name_servers(
             callback: &NameServersCallback,
@@ -49,31 +46,6 @@ mod cpp2rust {
         ) -> UniquePtr<CxxVector<CxxString>>;
     }
     extern "Rust" {
-        type DnsProxyServer;
-
-        /// Constructs the DNS proxy server.
-        /// Returns a pointer to the DNS proxy instance.
-        fn proxy_server_new(
-            dns_mark_callback: UniquePtr<DnsMarkCallback>,
-            name_server_callback: UniquePtr<NameServersCallback>,
-        ) -> Box<DnsProxyServer>;
-
-        /// Starts or updates the DNS proxy for an interface on a port.
-        fn configure_dns_proxy_ffi(
-            self: &DnsProxyServer,
-            upstream_net_id: u32,
-            uid: u32,
-            downstream_if_index: u32,
-            downstream_port: u16,
-        );
-
-        /// Stops the DNS proxy for an interface on a port.
-        fn stop_dns_proxy_ffi(
-            self: &DnsProxyServer,
-            downstream_if_index: u32,
-            downstream_port: u16,
-        );
-
         type OpaqueServer;
 
         fn proxy2_server_new(
@@ -95,59 +67,9 @@ mod cpp2rust {
 // Safety: The C++ code which constructs the callback must guarantee that it can be moved between
 // threads: no usage of thread-local resources.
 unsafe impl Send for cpp2rust::DnsMarkCallback {}
-// Safety: The C++ code which constructs the callback must guarantee that it can be concurrently
-// referenced from different threads.
-// TODO: can this be removed once legacy implementation is removed?
-unsafe impl Sync for cpp2rust::DnsMarkCallback {}
 // Safety: The C++ code which constructs the callback must guarantee that it can be moved between
 // threads: no usage of thread-local resources.
 unsafe impl Send for cpp2rust::NameServersCallback {}
-// Safety: The C++ code which constructs the callback must guarantee that it can be concurrently
-// referenced from different threads.
-// TODO: can this be removed once legacy implementation is removed?
-unsafe impl Sync for cpp2rust::NameServersCallback {}
-
-struct AndroidNetContextClient {
-    dns_mark_callback: UniquePtr<cpp2rust::DnsMarkCallback>,
-    name_servers_callback: UniquePtr<cpp2rust::NameServersCallback>,
-}
-
-impl AndroidNetContextClient {
-    fn new(
-        dns_mark_callback: UniquePtr<cpp2rust::DnsMarkCallback>,
-        name_servers_callback: UniquePtr<cpp2rust::NameServersCallback>,
-    ) -> Self {
-        Self { dns_mark_callback, name_servers_callback }
-    }
-}
-
-// Manual Debug implementation required for ContextClient trait.
-impl std::fmt::Debug for AndroidNetContextClient {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AndroidNetContextClient").finish()
-    }
-}
-
-impl NetContextClient for AndroidNetContextClient {
-    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> u32 {
-        let callback = self.dns_mark_callback.as_ref().expect("DNS mark callback pointer is null");
-        cpp2rust::get_dns_mark(callback, upstream_param.upstream_net_id, upstream_param.uid)
-    }
-
-    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr> {
-        let callback =
-            self.name_servers_callback.as_ref().expect("Name server callback pointer is null");
-        cpp2rust::get_name_servers(callback, upstream_param.upstream_net_id)
-            .into_iter()
-            .map(|ns| {
-                ns.to_string_lossy()
-                    .into_owned()
-                    .parse::<IpAddr>()
-                    .expect("Name server address parse fail")
-            })
-            .collect()
-    }
-}
 
 struct ResolverCallbacks {
     get_dns_mark_cb: UniquePtr<cpp2rust::DnsMarkCallback>,
@@ -178,38 +100,8 @@ impl NetworkContext for ResolverCallbacks {
     }
 }
 
-type DnsProxyServer = Server; // Opaque type required for FFI.
+type OpaqueServer = Server;
 assert_impl_all!(Server: Send, Sync);
-
-fn proxy_server_new(
-    net_context_callback: UniquePtr<cpp2rust::DnsMarkCallback>,
-    name_server_callback: UniquePtr<cpp2rust::NameServersCallback>,
-) -> Box<DnsProxyServer> {
-    Box::new(
-        Server::new(AndroidNetContextClient::new(net_context_callback, name_server_callback))
-            .expect("DNS proxy start failed"),
-    )
-}
-
-impl DnsProxyServer {
-    fn configure_dns_proxy_ffi(
-        &self,
-        upstream_net_id: u32,
-        uid: u32,
-        downstream_if_index: u32,
-        downstream_port: u16,
-    ) {
-        self.configure_dns_proxy(upstream_net_id, uid, downstream_if_index, downstream_port)
-            .expect("Configure DNS proxy failed")
-    }
-
-    fn stop_dns_proxy_ffi(&self, downstream_if_index: u32, downstream_port: u16) {
-        self.stop_dns_proxy(downstream_if_index, downstream_port).expect("Stop DNS proxy failed")
-    }
-}
-
-type OpaqueServer = server2::Server;
-assert_impl_all!(server2::Server: Send, Sync);
 
 fn proxy2_server_new(
     get_dns_mark_cb: UniquePtr<cpp2rust::DnsMarkCallback>,
@@ -225,7 +117,7 @@ fn proxy2_server_new(
 
     // udp_socket is guaranteed to exist if socketbroker::fork_exec succeeded.
     let socket = socketbroker.udp_socket.take().unwrap();
-    Box::new(server2::Server::new(runtime, socket, network_context).unwrap())
+    Box::new(Server::new(runtime, socket, network_context).unwrap())
 }
 
 impl OpaqueServer {
