@@ -16,9 +16,9 @@
 
 //! DNS Proxy C FFI .
 
-use crate::dns_proxy::server2::NetworkContext;
-use crate::dns_proxy::server2::Server;
-use crate::dns_proxy::server2::UpstreamConfig;
+use crate::dns_proxy::server::NetworkContext;
+use crate::dns_proxy::server::Server;
+use crate::dns_proxy::server::UpstreamConfig;
 use crate::dns_proxy::socketbroker::SocketBroker;
 use cxx::UniquePtr;
 use static_assertions::assert_impl_all;

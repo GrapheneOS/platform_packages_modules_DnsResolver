@@ -213,7 +213,8 @@ impl<T: NetworkContext> Driver<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::dns_proxy::{packet::tests::TEST_VALID_DNS_QUERY, server2::MockNetworkContext};
+    use crate::dns_proxy::packet::tests::TEST_VALID_DNS_QUERY;
+    use crate::dns_proxy::server::MockNetworkContext;
 
     use super::*;
     use nix::libc::in6_addr;

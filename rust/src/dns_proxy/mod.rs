@@ -21,5 +21,5 @@
 #[cfg(feature = "android-ffi")]
 mod ffi;
 mod packet;
-mod server2;
+mod server;
 mod socketbroker;
