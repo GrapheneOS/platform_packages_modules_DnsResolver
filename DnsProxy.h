@@ -46,8 +46,8 @@ class DnsProxy {
     DnsProxy(DnsProxy const&) = delete;
     void operator=(DnsProxy const&) = delete;
 
-    void configureDnsProxy(uint32_t upstreamNetId, uint32_t uid, uint32_t downstreamIfIndex);
-    void stopDnsProxy(uint32_t downstreamIfIndex);
+    void configureDnsForwarding(uint32_t ifindex, uint32_t netid, uint32_t uid);
+    void stopDnsForwarding(uint32_t ifindex);
 
   private:
     rust::Box<OpaqueServer> mServer;

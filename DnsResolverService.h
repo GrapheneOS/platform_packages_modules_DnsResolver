@@ -72,7 +72,7 @@ class DnsResolverService : public aidl::android::net::BnDnsResolver {
 
     // DNS proxy commands
     ::ndk::ScopedAStatus setDnsForwarding(
-            int32_t downstreamIfIndex,
+            int32_t ifindex,
             const std::optional<aidl::android::net::resolv::aidl::DnsForwardingParamsParcel>&
                     forwardingParams) override;
 

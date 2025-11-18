@@ -66,7 +66,7 @@ class ResolverController {
     int getPrefix64(unsigned netId, netdutils::IPPrefix* prefix);
 
     // Configure forwarding of dns packets from downstream ifindex to upstream {netid, uid}.
-    void configureDnsForwarding(uint32_t netid, uint32_t uid, uint32_t ifindex);
+    void configureDnsForwarding(uint32_t ifindex, uint32_t netid, uint32_t uid);
 
     // Stop forwarding of dns packets from downstream ifindex.
     void stopDnsForwarding(uint32_t ifindex);

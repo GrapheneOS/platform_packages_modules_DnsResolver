@@ -84,8 +84,8 @@ mod cpp2rust {
         fn proxy2_server_configure_forwarding(
             self: &OpaqueServer,
             ifindex: u32,
-            uid: u32,
             netid: u32,
+            uid: u32,
         );
 
         fn proxy2_server_stop_forwarding(self: &OpaqueServer, ifindex: u32);
@@ -229,9 +229,9 @@ fn proxy2_server_new(
 }
 
 impl OpaqueServer {
-    fn proxy2_server_configure_forwarding(self: &OpaqueServer, ifindex: u32, uid: u32, netid: u32) {
+    fn proxy2_server_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32) {
         // TODO: consider returning the result to the caller.
-        let _ = self.configure_dns_forwarding(ifindex, uid, netid);
+        let _ = self.configure_dns_forwarding(ifindex, netid, uid);
     }
 
     fn proxy2_server_stop_forwarding(self: &OpaqueServer, ifindex: u32) {

@@ -40,10 +40,10 @@ pub enum Command {
     ConfigureForwarding {
         /// The ifindex of the downstream interface.
         ifindex: u32,
-        /// The uid on behalf to forward.
-        uid: u32,
         /// The upstream netid.
         netid: u32,
+        /// The uid on behalf to forward.
+        uid: u32,
         /// oneshot::Sender to block the calling/binder thread until the command has been processed.
         status_tx: oneshot::Sender<Result<()>>,
     },
@@ -84,11 +84,11 @@ impl Server {
         Ok(())
     }
 
-    pub fn configure_dns_forwarding(&self, ifindex: u32, uid: u32, netid: u32) -> Result<()> {
+    pub fn configure_dns_forwarding(&self, ifindex: u32, netid: u32, uid: u32) -> Result<()> {
         // These methods are called from a synchronous AIDL interface, so they must block the
         // calling thread until completion.
         let (status_tx, status_rx) = oneshot::channel();
-        let cmd = Command::ConfigureForwarding { ifindex, uid, netid, status_tx };
+        let cmd = Command::ConfigureForwarding { ifindex, netid, uid, status_tx };
         self.command_tx.blocking_send(cmd)?;
         status_rx.blocking_recv()?
     }
