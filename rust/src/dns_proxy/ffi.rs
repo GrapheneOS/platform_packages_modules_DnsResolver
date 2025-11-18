@@ -48,19 +48,13 @@ mod cpp2rust {
     extern "Rust" {
         type OpaqueServer;
 
-        fn proxy2_server_new(
+        fn ffi_proxy_server_new(
             get_dns_mark_cb: UniquePtr<DnsMarkCallback>,
             get_name_servers_cb: UniquePtr<NameServersCallback>,
         ) -> Box<OpaqueServer>;
 
-        fn proxy2_server_configure_forwarding(
-            self: &OpaqueServer,
-            ifindex: u32,
-            netid: u32,
-            uid: u32,
-        );
-
-        fn proxy2_server_stop_forwarding(self: &OpaqueServer, ifindex: u32);
+        fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32);
+        fn ffi_stop_forwarding(self: &OpaqueServer, ifindex: u32);
     }
 }
 
@@ -103,7 +97,7 @@ impl NetworkContext for ResolverCallbacks {
 type OpaqueServer = Server;
 assert_impl_all!(Server: Send, Sync);
 
-fn proxy2_server_new(
+fn ffi_proxy_server_new(
     get_dns_mark_cb: UniquePtr<cpp2rust::DnsMarkCallback>,
     get_name_servers_cb: UniquePtr<cpp2rust::NameServersCallback>,
 ) -> Box<OpaqueServer> {
@@ -121,12 +115,12 @@ fn proxy2_server_new(
 }
 
 impl OpaqueServer {
-    fn proxy2_server_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32) {
+    fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32) {
         // TODO: consider returning the result to the caller.
         let _ = self.configure_dns_forwarding(ifindex, netid, uid);
     }
 
-    fn proxy2_server_stop_forwarding(self: &OpaqueServer, ifindex: u32) {
+    fn ffi_stop_forwarding(self: &OpaqueServer, ifindex: u32) {
         // TODO: consider returning the result to the caller.
         let _ = self.stop_forwarding(ifindex);
     }

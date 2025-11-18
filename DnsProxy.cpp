@@ -62,8 +62,8 @@ NameServersCallback makeNameServersCallback(DnsResolver& dnsResolv) {
 }
 
 DnsProxy::DnsProxy(DnsMarkCallback&& dnsMarkCallback, NameServersCallback&& nameServersCallback)
-    : mServer(proxy2_server_new(std::make_unique<DnsMarkCallback>(dnsMarkCallback),
-                                std::make_unique<NameServersCallback>(nameServersCallback))) {}
+    : mServer(ffi_proxy_server_new(std::make_unique<DnsMarkCallback>(dnsMarkCallback),
+                                   std::make_unique<NameServersCallback>(nameServersCallback))) {}
 
 // Default constructor depending on DnsResolver global variables.
 DnsProxy::DnsProxy()
@@ -71,11 +71,11 @@ DnsProxy::DnsProxy()
                makeNameServersCallback(*android::net::gDnsResolv)) {}
 
 void DnsProxy::configureDnsForwarding(uint32_t ifindex, uint32_t netid, uint32_t uid) {
-    mServer->proxy2_server_configure_forwarding(ifindex, netid, uid);
+    mServer->ffi_configure_forwarding(ifindex, netid, uid);
 }
 
 void DnsProxy::stopDnsForwarding(uint32_t ifindex) {
-    mServer->proxy2_server_stop_forwarding(ifindex);
+    mServer->ffi_stop_forwarding(ifindex);
 }
 
 }  // namespace dns_proxy_ffi
