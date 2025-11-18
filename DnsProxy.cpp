@@ -70,16 +70,11 @@ DnsProxy::DnsProxy()
     : DnsProxy(makeDnsMarkCallback(android::net::gResNetdCallbacks),
                makeNameServersCallback(*android::net::gDnsResolv)) {}
 
-void DnsProxy::configureDnsProxy(uint32_t upstreamNetId, uint32_t uid, uint32_t downstreamIfIndex,
-                                 uint16_t downstreamPort) {
-    // TODO: remove downstreamPort param.
-    (void)downstreamPort;
+void DnsProxy::configureDnsProxy(uint32_t upstreamNetId, uint32_t uid, uint32_t downstreamIfIndex) {
     mServer->proxy2_server_configure_forwarding(downstreamIfIndex, uid, upstreamNetId);
 }
 
-void DnsProxy::stopDnsProxy(uint32_t downstreamIfIndex, uint16_t downstreamPort) {
-    // TODO: remove downstreamPort param.
-    (void)downstreamPort;
+void DnsProxy::stopDnsProxy(uint32_t downstreamIfIndex) {
     mServer->proxy2_server_stop_forwarding(downstreamIfIndex);
 }
 

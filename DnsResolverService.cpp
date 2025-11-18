@@ -327,10 +327,10 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
 
     if (forwardingParams.has_value()) {
         const auto& params = forwardingParams.value();
-        gDnsResolv->resolverCtrl.configureDnsForwarding(params.netId, params.uid, downstreamIfIndex,
-                                                        53 /* port */);
+        gDnsResolv->resolverCtrl.configureDnsForwarding(params.netId, params.uid,
+                                                        downstreamIfIndex);
     } else {
-        gDnsResolv->resolverCtrl.stopDnsForwarding(downstreamIfIndex, 53 /* port */);
+        gDnsResolv->resolverCtrl.stopDnsForwarding(downstreamIfIndex);
     }
 
     // TODO: propagate possible error code to binder return value.
