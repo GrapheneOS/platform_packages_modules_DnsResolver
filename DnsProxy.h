@@ -33,7 +33,7 @@ using DnsMarkCallback = std::function<uint32_t(uint32_t netId, uint32_t uid)>;
 using NameServersCallback =
         std::function<std::unique_ptr<std::vector<std::string>>(uint32_t netId)>;
 
-struct DnsProxyServer;
+struct OpaqueServer;
 
 // Thread-safety: The Rust DnsProxyServer implementation is both Send and Sync and should thus be
 // safe to be accessed from multiple threads.
@@ -51,7 +51,7 @@ class DnsProxy {
     void stopDnsProxy(uint32_t downstreamIfIndex, uint16_t downstreamPort);
 
   private:
-    rust::Box<DnsProxyServer> mServer;
+    rust::Box<OpaqueServer> mServer;
 };
 }  // namespace dns_proxy_ffi
 }  // namespace net
