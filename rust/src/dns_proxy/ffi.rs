@@ -53,8 +53,8 @@ mod cpp2rust {
             get_name_servers_cb: UniquePtr<NameServersCallback>,
         ) -> Box<OpaqueServer>;
 
-        fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32);
-        fn ffi_stop_forwarding(self: &OpaqueServer, ifindex: u32);
+        fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32) -> i32;
+        fn ffi_stop_forwarding(self: &OpaqueServer, ifindex: u32) -> i32;
     }
 }
 
@@ -114,14 +114,27 @@ fn ffi_proxy_server_new(
     Box::new(Server::new(runtime, socket, network_context).unwrap())
 }
 
+pub trait IntoErrorCode {
+    fn into_error_code(self) -> i32;
+}
+
+impl<T> IntoErrorCode for anyhow::Result<T> {
+    fn into_error_code(self) -> i32 {
+        match self {
+            Ok(_) => 0,
+            Err(_) => -1,
+        }
+    }
+}
+
 impl OpaqueServer {
-    fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32) {
-        // TODO: consider returning the result to the caller.
-        let _ = self.configure_dns_forwarding(ifindex, netid, uid);
+    fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32) -> i32 {
+        // TODO: consider logging error here before it gets lost.
+        self.configure_dns_forwarding(ifindex, netid, uid).into_error_code()
     }
 
-    fn ffi_stop_forwarding(self: &OpaqueServer, ifindex: u32) {
-        // TODO: consider returning the result to the caller.
-        let _ = self.stop_forwarding(ifindex);
+    fn ffi_stop_forwarding(self: &OpaqueServer, ifindex: u32) -> i32 {
+        // TODO: consider logging error here before it gets lost.
+        self.stop_forwarding(ifindex).into_error_code()
     }
 }
