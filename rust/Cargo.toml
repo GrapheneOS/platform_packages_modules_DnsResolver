@@ -21,35 +21,32 @@ name = "resolvrs"
 version = "0.0.1"
 
 [dependencies]
-android_logger = { path = "../../../../external/rust/android-crates-io/crates/android_logger" }
-anyhow = { path = "../../../../external/rust/android-crates-io/crates/anyhow" }
-base64 = { path = "../../../../external/rust/android-crates-io/crates/base64" }
-bytes = { path = "../../../../external/rust/android-crates-io/crates/bytes" }
-cxx = { path = "../../../../external/rust/cxx", optional = true }
-command-fds = { path = "../../../../external/rust/android-crates-io/crates/command-fds" }
-futures = { path = "../../../../external/rust/android-crates-io/crates/futures" }
-libc = { path = "../../../../external/rust/android-crates-io/crates/libc" }
-# Note that this can't use log from external/rust/android-crates-io, because some of the
-# dependencies use log at version 0.4.28 while the version in android-crates-io is at 0.4.27.
-# Usually, cargo is smart enough to resolve this automatically, but android-crates-io only consists
-# of a single version, so it can't do that.
+android_logger = "0.15.1"
+anyhow = "1.0.99"
+base64 = "0.22.1"
+bytes = "1.10.1"
+cxx = { version = "1.0.160", optional = true }
+command-fds = "0.3.0"
+futures = "0.3.31"
+libc = "0.2.177"
 log = "^0.4.28"
-mockall = { path = "../../../../external/rust/android-crates-io/crates/mockall" }
-nix = { path = "../../../../external/rust/android-crates-io/crates/nix", features = ["fs", "net", "uio", "user"] }
-num_enum = { path = "../../../../external/rust/android-crates-io/crates/num_enum" }
-rand = { path = "../../../../external/rust/android-crates-io/crates/rand", features = ["std", "std_rng"] }
-ring = { path = "../../../../external/rust/android-crates-io/crates/ring", features = ["std"] }
-quiche = { path = "../../../../external/rust/android-crates-io/crates/quiche" }
+mockall = "0.13.1"
+nix = { version = "0.29.0", features = ["fs", "net", "uio", "user"] }
+num_enum = "0.7.4"
+rand = { version = "0.9.2", features = ["std", "std_rng"] }
+ring = { version = "0.17.2", features = ["std"] }
+quiche = "0.17.1"
 resolvrs_utils = { path = "lib/resolvrs_utils" }
-socket2 = { path = "../../../../external/rust/android-crates-io/crates/socket2", features = ["all"] }
-static_assertions = { path = "../../../../external/rust/android-crates-io/crates/static_assertions" }
-thiserror = { path = "../../../../external/rust/android-crates-io/crates/thiserror" }
-tokio = { path = "../../../../external/rust/android-crates-io/crates/tokio", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
-url = { path = "../../../../external/rust/android-crates-io/crates/url" }
+socket2 = { version = "0.6.0", features = ["all"] }
+static_assertions = "1.1.0"
+thiserror = "2.0.16"
+tokio = { version = "1.47.2", features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+url = "2.5.2"
 
 [features]
 default = []
 android-ffi = ["dep:cxx"]
+statslog = []
 
 [lib]
 name = "android_dns_proxy"
@@ -60,7 +57,7 @@ path = "src/lib.rs"
 deprecated = "allow"
 unknown_lints = "allow"
 missing_docs = "deny"
-warning = "deny"
+# warnings = "deny"
 unsafe_op_in_unsafe_fn = "deny"
 # Note that lints.go temporarily includes mismatched_lifetime_syntaxes = "allow" which is omitted
 # here.
@@ -75,4 +72,3 @@ unusual-byte-groupings = "allow"
 upper-case-acronyms = "allow"
 uninlined_format_args = "allow"
 undocumented_unsafe_blocks = "deny"
-
