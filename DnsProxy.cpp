@@ -70,12 +70,12 @@ DnsProxy::DnsProxy()
     : DnsProxy(makeDnsMarkCallback(android::net::gResNetdCallbacks),
                makeNameServersCallback(*android::net::gDnsResolv)) {}
 
-void DnsProxy::configureDnsForwarding(uint32_t ifindex, uint32_t netid, uint32_t uid) {
-    mServer->ffi_configure_forwarding(ifindex, netid, uid);
+int DnsProxy::configureDnsForwarding(uint32_t ifindex, uint32_t netid, uint32_t uid) {
+    return mServer->ffi_configure_forwarding(ifindex, netid, uid);
 }
 
-void DnsProxy::stopDnsForwarding(uint32_t ifindex) {
-    mServer->ffi_stop_forwarding(ifindex);
+int DnsProxy::stopDnsForwarding(uint32_t ifindex) {
+    return mServer->ffi_stop_forwarding(ifindex);
 }
 
 }  // namespace dns_proxy_ffi
