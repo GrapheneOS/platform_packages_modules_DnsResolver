@@ -37,6 +37,7 @@
 
 using aidl::android::net::ResolverOptionsParcel;
 using aidl::android::net::ResolverParamsParcel;
+using aidl::android::net::resolv::aidl::DnsForwardingParamsParcel;
 using android::base::Join;
 using android::netdutils::DumpWriter;
 using android::netdutils::IPPrefix;
@@ -320,17 +321,14 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
 }
 
 ::ndk::ScopedAStatus DnsResolverService::setDnsForwarding(
-        int32_t downstreamIfIndex,
-        const std::optional<aidl::android::net::resolv::aidl::DnsForwardingParamsParcel>&
-                forwardingParams) {
+        int32_t ifindex, const std::optional<DnsForwardingParamsParcel>& forwardingParams) {
     ENFORCE_NETWORK_STACK_PERMISSIONS();
 
     if (forwardingParams.has_value()) {
         const auto& params = forwardingParams.value();
-        gDnsResolv->resolverCtrl.configureDnsForwarding(params.netId, params.uid, downstreamIfIndex,
-                                                        53 /* port */);
+        gDnsResolv->resolverCtrl.configureDnsForwarding(ifindex, params.netId, params.uid);
     } else {
-        gDnsResolv->resolverCtrl.stopDnsForwarding(downstreamIfIndex, 53 /* port */);
+        gDnsResolv->resolverCtrl.stopDnsForwarding(ifindex);
     }
 
     // TODO: propagate possible error code to binder return value.

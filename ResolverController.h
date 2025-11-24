@@ -65,11 +65,11 @@ class ResolverController {
     // Return the current NAT64 prefix network, regardless of how it was discovered.
     int getPrefix64(unsigned netId, netdutils::IPPrefix* prefix);
 
-    // Configure forwarding of dns packets from downstream {ifindex, port} to upstream {netid, uid}.
-    void configureDnsForwarding(uint32_t netid, uint32_t uid, uint32_t ifindex, uint16_t port);
+    // Configure forwarding of dns packets from downstream ifindex to upstream {netid, uid}.
+    void configureDnsForwarding(uint32_t ifindex, uint32_t netid, uint32_t uid);
 
-    // Stop forwarding of dns packets from downstream {ifindex, port}
-    void stopDnsForwarding(uint32_t ifindex, uint16_t port);
+    // Stop forwarding of dns packets from downstream ifindex.
+    void stopDnsForwarding(uint32_t ifindex);
 
     void dump(netdutils::DumpWriter& dw, unsigned netId);
 

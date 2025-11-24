@@ -8937,12 +8937,7 @@ TEST_F(ResolverMultinetworkTest, UidAllowedNetworks) {
 // DNS:  | 192.168.0.2(fake neighbor)         N.A.      |          | 192.168.2.101(fake responder) |
 TEST_F(ResolverMultinetworkTest, TetheringDnsForwardingTest) {
     SKIP_IF_REMOTE_VERSION_LESS_THAN(mDnsClient.resolvService(), 17);
-    // b/433358124: DNS proxy works only on Baklava (API level 36) or later due to NET_BIND_SERVICE
-    // privilege requirement.
-    if (getApiLevel() <= 35) {
-        GTEST_SKIP() << "Skipping test on V or earlier builds.";
-    }
-    constexpr int16_t DNS_PORT = 53;
+
     /*
      * Tethering downstream always support IPV4, and may support IPV6 if the upstream supports it.
      * Therefore, the following connectivity pairs are possible:

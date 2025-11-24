@@ -34,22 +34,6 @@ enum SocketType {
     UDP,
 }
 
-impl SocketType {
-    fn from_message(buf: &[u8]) -> Option<SocketType> {
-        // UDP socket requests are encoded as a single arbitrary byte.
-        // TCP socket requests are encoded as a 4-byte little-endian ifindex.
-        if buf.len() == 1 {
-            Some(SocketType::UDP)
-        } else if buf.len() == 4 {
-            // The conversion cannot fail because the length was already checked above.
-            let bytes: [u8; 4] = buf.try_into().unwrap();
-            Some(SocketType::TCP { ifindex: u32::from_le_bytes(bytes) })
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Parser)]
 struct Args {
     // File descriptor of unix seqpacket socket to pass a socket request / result.
@@ -116,22 +100,32 @@ fn main() -> Result<()> {
     let cmd_sock = unsafe { UnixSeqpacket::from_raw_fd(args.cmdfd) };
     cmd_sock.set_nonblocking(false)?;
 
+    // Immediately create a UDP socket.
+    let sock = create_socket(SocketType::UDP)?;
+    cmd_sock.send_with_fd(&[0; 1], sock.into())?;
+
     loop {
-        // Allocate a 5-byte buffer to detect large packets since the maximum message length is 4 bytes.
+        // Allocate a 5-byte buffer to detect large packets since the message length is 4 bytes.
         let mut buf = [0; 5];
-        let len = match cmd_sock.recv(&mut buf) {
-            // If the other side closed gracefully, the socket will read EOF (len == 0). Otherwise,
-            // it will return with ECONNRESET. In either case, exit the program.
+        let ifindex = match cmd_sock.recv(&mut buf) {
+            Ok(4) => u32::from_le_bytes(buf[..4].try_into().unwrap()),
+            // If the other side closed gracefully, the socket will read EOF (len == 0, handled as
+            // part of Ok(len)). Otherwise, it will return with ECONNRESET. In either case, exit
+            // the program.
             // Note that len == 0 could also indicate a 0-length packet. The 2 cases are
             // indistinguishable on AF_UNIX SOCK_SEQPACKET sockets when using recv(). It seems that
             // the only way to reliably detect socket closure is to poll() and wait for POLLHUP |
             // POLLERR. In reality, this should not matter, because we are in control of the
             // client and should never see a 0-length packet.
-            Ok(0) => break,
             Err(e) if e.kind() == ErrorKind::ConnectionReset => break,
 
-            // Other messages are processed and other errors are ignored.
-            Ok(len) => len,
+            // A TCP socket request must always be 4-bytes, so exit the program if any other length
+            // is received.
+            Ok(_len) => {
+                error!("Received an illformed TCP socket request");
+                panic!();
+            }
+            // Ignore all other errors. This should never happen.
             Err(e) => {
                 // TODO: Consider panicking as common errors are handled above.
                 error!("recv failed: {e}");
@@ -139,13 +133,7 @@ fn main() -> Result<()> {
             }
         };
 
-        let Some(socket_type) = SocketType::from_message(&buf[..len]) else {
-            // Ignore invalid messages.
-            error!("Failed to parse socket request message with len {}", len);
-            continue;
-        };
-
-        match create_socket(socket_type) {
+        match create_socket(SocketType::TCP { ifindex }) {
             Ok(sock) => {
                 // Send a single 0 byte along with the fd. Ignore any errors.
                 let _ = cmd_sock.send_with_fd(&[0; 1], sock.into());

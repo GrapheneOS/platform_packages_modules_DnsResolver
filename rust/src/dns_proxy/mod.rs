@@ -22,6 +22,4 @@
 mod ffi;
 mod packet;
 mod server;
-// In-progress drop-in replacement for server.
-mod server2;
 mod socketbroker;

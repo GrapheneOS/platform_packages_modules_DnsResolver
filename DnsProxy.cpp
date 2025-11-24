@@ -62,21 +62,20 @@ NameServersCallback makeNameServersCallback(DnsResolver& dnsResolv) {
 }
 
 DnsProxy::DnsProxy(DnsMarkCallback&& dnsMarkCallback, NameServersCallback&& nameServersCallback)
-    : mServer(proxy_server_new(std::make_unique<DnsMarkCallback>(dnsMarkCallback),
-                               std::make_unique<NameServersCallback>(nameServersCallback))) {}
+    : mServer(ffi_proxy_server_new(std::make_unique<DnsMarkCallback>(dnsMarkCallback),
+                                   std::make_unique<NameServersCallback>(nameServersCallback))) {}
 
 // Default constructor depending on DnsResolver global variables.
 DnsProxy::DnsProxy()
     : DnsProxy(makeDnsMarkCallback(android::net::gResNetdCallbacks),
                makeNameServersCallback(*android::net::gDnsResolv)) {}
 
-void DnsProxy::configureDnsProxy(uint32_t upstreamNetId, uint32_t uid, uint32_t downstreamIfIndex,
-                                 uint16_t downstreamPort) {
-    mServer->configure_dns_proxy_ffi(upstreamNetId, uid, downstreamIfIndex, downstreamPort);
+void DnsProxy::configureDnsForwarding(uint32_t ifindex, uint32_t netid, uint32_t uid) {
+    mServer->ffi_configure_forwarding(ifindex, netid, uid);
 }
 
-void DnsProxy::stopDnsProxy(uint32_t downstreamIfIndex, uint16_t downstreamPort) {
-    mServer->stop_dns_proxy_ffi(downstreamIfIndex, downstreamPort);
+void DnsProxy::stopDnsForwarding(uint32_t ifindex) {
+    mServer->ffi_stop_forwarding(ifindex);
 }
 
 }  // namespace dns_proxy_ffi

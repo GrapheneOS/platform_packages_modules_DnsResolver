@@ -14,138 +14,46 @@
  * limitations under the License.
  */
 
-//! DNS proxy server implementation.
-
-use std::io::Error as IoError;
-use std::net::IpAddr;
+use anyhow::Result;
+use log::info;
+use std::net::{IpAddr, UdpSocket};
 use std::thread;
-
-#[cfg(test)]
-use mockall::automock;
-use nix::errno::Errno;
-use thiserror::Error;
-use tokio::runtime::Builder as RuntimeBuilder;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::SendError;
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::error::RecvError;
-
-use crate::dns_proxy::packet::PacketError;
+use tokio::runtime;
+use tokio::sync::{mpsc, oneshot};
 
 mod driver;
 use driver::Driver;
-use driver::UdpDnsQuery;
 
-// TODO: clean up and reduce the number of error types.
-/// Error type for server
-#[derive(Debug, Error)]
-pub enum Error {
-    /// Io Errors:
-    #[error(transparent)]
-    Io(#[from] IoError),
-    #[error(transparent)]
-    Errno(#[from] Errno),
-    /// Command send error:
-    #[error(transparent)]
-    CommandSend(#[from] SendError<Command>),
-    /// DNS response does not match query sent
-    #[error("DNS response does not match query sent")]
-    DnsResponseMismatch,
-    /// No name server on upstream
-    #[error("No name server on upstream")]
-    NoNameServer,
-    /// Packet error
-    #[error(transparent)]
-    Packet(#[from] PacketError),
-    /// Query send error:
-    #[error("Query send error: {0}")]
-    QuerySend(String),
-    /// Receive response error:
-    #[error(transparent)]
-    ReceiveResponse(#[from] RecvError),
-    /// Server already stopped
-    #[error("Server already stopped")]
-    ServerStopped,
-}
-
-// Manual implementation required since UdpDnsQuery is not `Send`.
-impl From<SendError<UdpDnsQuery>> for Error {
-    fn from(e: SendError<UdpDnsQuery>) -> Self {
-        Error::QuerySend(e.to_string())
-    }
-}
-
-/// Result type for server
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// DownstreamIndexPort is the pair of interface index and port number that uniquely
-/// identifies a downstream.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct DownstreamIndexPort {
-    pub if_index: u32,
-    pub port: u16,
-}
-
-impl DownstreamIndexPort {
-    /// Constructor.
-    pub fn new(if_index: u32, port: u16) -> Self {
-        Self { if_index, port }
-    }
-}
-
-/// Commands for controlling Server
 #[derive(Debug)]
-pub(crate) enum Command {
-    /// Start or update the DNS proxy on the DownstreamIndexPort pair with
-    /// configuration parameters for upstream.
-    ConfigureDnsProxy {
-        /// The interface index and port number pair of the downstream.
-        index_port: DownstreamIndexPort,
-        /// The configuration parameters to be used to retrrieve net context when building upstram.
-        upstream_param: UpstreamParam,
-        /// Sender for the result of the command.
-        response_tx: oneshot::Sender<Result<()>>,
-    },
-    /// Stops the DNS proxy on the DownstreamIndexPort pair.
-    StopDnsProxy {
-        /// The interface index and port number pair of the downstream.
-        index_port: DownstreamIndexPort,
-        /// Sender for the result of the command.
-        response_tx: oneshot::Sender<Result<()>>,
-    },
-    /// Forwards the UDP query
-    ForwardUdpQuery(UdpDnsQuery),
-}
-
-/// Parameters to configure upstream, which is used to retrieve net context when
-/// pakcets are forwarded.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct UpstreamParam {
-    /// The UID on behalf of which to forward packets received on this downstrem interface.
+pub struct UpstreamConfig {
     pub uid: u32,
-    /// The network ID of the upstream network for sending DNS queries.
-    pub upstream_net_id: u32,
+    pub netid: u32,
 }
 
-impl UpstreamParam {
-    /// Constructor.
-    pub fn new(uid: u32, upstream_net_id: u32) -> Self {
-        Self { uid, upstream_net_id }
-    }
+#[cfg_attr(test, mockall::automock)]
+pub trait NetworkContext: Send {
+    fn get_name_servers(&self, upstream: &UpstreamConfig) -> Vec<IpAddr>;
+    fn get_dns_mark(&self, upstream: &UpstreamConfig) -> u32;
 }
 
-/// NetContextClient gets the net context for upstream configuration.
-#[cfg_attr(test, automock)]
-pub(crate) trait NetContextClient: Send + Sync + std::fmt::Debug {
-    /// Returns the name servers given |upstream_param|.
-    fn get_name_servers(&self, upstream_param: &UpstreamParam) -> Vec<IpAddr>;
-
-    /// Returns the DNS fwmark for the upstream sockets.
-    fn get_dns_mark(&self, upstream_param: &UpstreamParam) -> u32;
+pub enum Command {
+    ConfigureForwarding {
+        /// The ifindex of the downstream interface.
+        ifindex: u32,
+        /// The upstream netid.
+        netid: u32,
+        /// The uid on behalf to forward.
+        uid: u32,
+        /// oneshot::Sender to block the calling/binder thread until the command has been processed.
+        status_tx: oneshot::Sender<Result<()>>,
+    },
+    StopForwarding {
+        ifindex: u32,
+        /// oneshot::Sender to block the calling/binder thread until the command has been processed.
+        status_tx: oneshot::Sender<Result<()>>,
+    },
 }
 
-/// Interface class for operating with DNS Proxy Server.
-#[derive(Debug)]
 pub struct Server {
     command_tx: mpsc::Sender<Command>,
     join_handle: thread::JoinHandle<()>,
@@ -153,83 +61,64 @@ pub struct Server {
 
 impl Server {
     /// Creates a server running a current thread runtime.
-    pub fn new(net_context_client: impl NetContextClient + 'static) -> Result<Server> {
-        let runtime = RuntimeBuilder::new_current_thread().enable_all().build()?;
-        let (command_tx, command_rx) = mpsc::channel(100 /* capacity */);
-        let weak_command_tx = command_tx.clone().downgrade();
+    pub fn new(
+        runtime: runtime::Runtime,
+        downstream_udp_socket: UdpSocket,
+        network_context: impl NetworkContext + 'static,
+    ) -> Result<Server> {
+        let (command_tx, command_rx) = mpsc::channel::<Command>(100 /*capacity*/);
         let join_handle = thread::spawn(move || {
             runtime.block_on(async {
-                Driver::new(net_context_client, weak_command_tx, command_rx).drive().await
+                if let Err(e) =
+                    Driver::new(command_rx, downstream_udp_socket, network_context).drive().await
+                {
+                    info!("Server exited due to {e:?}");
+                }
             });
         });
         Ok(Server { command_tx, join_handle })
     }
 
-    /// Stops Server, return after the Driver stops.
+    pub fn send_command(&self, command: Command) -> Result<()> {
+        self.command_tx.blocking_send(command)?;
+        Ok(())
+    }
+
+    pub fn configure_dns_forwarding(&self, ifindex: u32, netid: u32, uid: u32) -> Result<()> {
+        // These methods are called from a synchronous AIDL interface, so they must block the
+        // calling thread until completion.
+        let (status_tx, status_rx) = oneshot::channel();
+        let cmd = Command::ConfigureForwarding { ifindex, netid, uid, status_tx };
+        self.command_tx.blocking_send(cmd)?;
+        status_rx.blocking_recv()?
+    }
+
+    pub fn stop_forwarding(&self, ifindex: u32) -> Result<()> {
+        let (status_tx, status_rx) = oneshot::channel();
+        let cmd = Command::StopForwarding { ifindex, status_tx };
+        self.command_tx.blocking_send(cmd)?;
+        status_rx.blocking_recv()?
+    }
+
+    // TODO: consider calling stop() in a Drop trait impl; however, joining threads inside drop()
+    // is generally considered bad practice.
     pub fn stop(self) {
+        // Dropping command_tx causes command_rx.recv() to fail and subsequently causes termination
+        // of the driver.
         drop(self.command_tx);
         let _ = self.join_handle.join();
-    }
-
-    /// Configures the DNS proxy and blocks the calling thread until the operation completes.
-    pub fn configure_dns_proxy(
-        &self,
-        upstream_net_id: u32,
-        uid: u32,
-        downstream_if_index: u32,
-        downstream_port: u16,
-    ) -> Result<()> {
-        let (response_tx, response_rx) = oneshot::channel();
-        self.command_tx.blocking_send(Command::ConfigureDnsProxy {
-            index_port: DownstreamIndexPort::new(downstream_if_index, downstream_port),
-            upstream_param: UpstreamParam::new(uid, upstream_net_id),
-            response_tx,
-        })?;
-        response_rx.blocking_recv()?
-    }
-
-    // Stops DNS proxy on the interface-port pair.
-    pub fn stop_dns_proxy(&self, downstream_if_index: u32, downstream_port: u16) -> Result<()> {
-        let (response_tx, response_rx) = oneshot::channel();
-        self.command_tx.blocking_send(Command::StopDnsProxy {
-            index_port: DownstreamIndexPort::new(downstream_if_index, downstream_port),
-            response_tx,
-        })?;
-        response_rx.blocking_recv()?
     }
 }
 
 #[cfg(test)]
-pub mod tests {
-    use std::sync::atomic::AtomicU16;
-
+mod tests {
     use super::*;
 
-    static TEST_PORT: AtomicU16 = AtomicU16::new(10000);
-
-    /// Gets the next port number to be used by the unit test
-    pub fn next_test_port() -> u16 {
-        TEST_PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    /// Checks that the server can be created and deleted.
     #[test]
-    fn server_new_delete() {
-        let server = Server::new(MockNetContextClient::new()).unwrap();
-        server.stop();
-    }
-
-    /// Checks that the server can be created, added with a downstream, and deleted.
-    #[test]
-    fn server_new_listen_delete() {
-        let server = Server::new(MockNetContextClient::new()).unwrap();
-        let test_port = next_test_port();
-        server
-            .configure_dns_proxy(
-                /*upstream_net_id*/ 1, /*uid*/ 1000, /*downstream_if_index*/ 1,
-                test_port,
-            )
-            .unwrap();
+    fn test_start_stop() {
+        let sock = std::net::UdpSocket::bind("[::]:0").unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let server = Server::new(runtime, sock, MockNetworkContext::new()).unwrap();
         server.stop();
     }
 }

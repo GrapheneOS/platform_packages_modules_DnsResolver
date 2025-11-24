@@ -1307,8 +1307,11 @@ static int send_mdns(ResState* statp, span<const uint8_t> msg, span<uint8_t> ans
             *terrno = errno;
             continue;
         }
-        // RFC 6762: Typically, the timeout would also be shortened to two or three seconds.
-        const struct timespec finish = evAddTime(evNowTime(), {2, 2000000});
+
+        // Wait for 702ms. Justification: 99.99% of networks use a DTIM period <= 5, so a device
+        // connected to a WiFi network should receive the query within 500ms. This gives an
+        // additional 202ms to receive a unicast reply.
+        const struct timespec finish = evAddTime(evNowTime(), {0, 702000000});
 
         // Wait for reply.
         if (retrying_poll(fd, POLLIN, &finish) <= 0) {
