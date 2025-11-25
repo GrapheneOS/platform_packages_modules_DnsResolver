@@ -119,7 +119,6 @@ impl<T: NetworkContext> Driver<T> {
         // Some "linux-like" architecture variants of the nix library define ipi6_ifindex as i32
         // requiring an explicit cast.
         let ifindex = pktinfo.ipi6_ifindex as u32;
-        // TODO: use upstream config to fetch nameserver and mark.
         let Some(upstream_config) = self.upstream_config_map.get(&ifindex) else {
             // If forwarding is not configured for the given downstream ifindex,
             // ignore the packet.
