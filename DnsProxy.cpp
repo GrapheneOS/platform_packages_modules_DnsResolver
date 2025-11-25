@@ -63,7 +63,8 @@ NameServersCallback makeNameServersCallback(DnsResolver& dnsResolv) {
 
 DnsProxy::DnsProxy(DnsMarkCallback&& dnsMarkCallback, NameServersCallback&& nameServersCallback)
     : mServer(ffi_proxy_server_new(std::make_unique<DnsMarkCallback>(dnsMarkCallback),
-                                   std::make_unique<NameServersCallback>(nameServersCallback))) {}
+                                   std::make_unique<NameServersCallback>(nameServersCallback),
+                                   true)) {}
 
 // Default constructor depending on DnsResolver global variables.
 DnsProxy::DnsProxy()
