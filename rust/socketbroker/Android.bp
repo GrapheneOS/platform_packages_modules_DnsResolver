@@ -16,8 +16,9 @@ package {
     default_team: "trendy_team_fwk_core_networking",
 }
 
+// this target is currently unused, and the C socketbroker is used instead
 rust_binary {
-    name: "socketbroker",
+    name: "rust_socketbroker",
     srcs: ["src/main.rs"],
     rustlibs: [
         "libandroid_logger",
@@ -36,5 +37,13 @@ rust_binary {
     // "error: found crates (`socket2` and `socket2`) with colliding StableCrateId values"
     prefer_rlib: true,
     apex_available: ["com.android.resolv"],
+    min_sdk_version: "30",
+}
+
+cc_binary {
+    name: "socketbroker",
+    srcs: ["socketbroker.c"],
+    apex_available: ["com.android.resolv"],
+    stl: "none",
     min_sdk_version: "30",
 }
