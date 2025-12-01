@@ -20,7 +20,7 @@ rust_library {
     name: "libresolvrs_utils",
     crate_name: "resolvrs_utils",
     srcs: ["src/lib.rs"],
-    rustlibs: [
+    rlibs: [
         "libnix",
         "libtokio",
     ],
