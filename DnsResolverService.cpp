@@ -324,15 +324,15 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
         int32_t ifindex, const std::optional<DnsForwardingParamsParcel>& forwardingParams) {
     ENFORCE_NETWORK_STACK_PERMISSIONS();
 
+    int res;
     if (forwardingParams.has_value()) {
         const auto& params = forwardingParams.value();
-        gDnsResolv->resolverCtrl.configureDnsForwarding(ifindex, params.netId, params.uid);
+        res = gDnsResolv->resolverCtrl.configureDnsForwarding(ifindex, params.netId, params.uid);
     } else {
-        gDnsResolv->resolverCtrl.stopDnsForwarding(ifindex);
+        res = gDnsResolv->resolverCtrl.stopDnsForwarding(ifindex);
     }
 
-    // TODO: propagate possible error code to binder return value.
-    return ::ndk::ScopedAStatus(AStatus_newOk());
+    return statusFromErrcode(res);
 }
 
 }  // namespace net
