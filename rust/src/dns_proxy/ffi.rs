@@ -21,8 +21,13 @@ use crate::dns_proxy::server::Server;
 use crate::dns_proxy::server::UpstreamConfig;
 use crate::dns_proxy::socketbroker::SocketBroker;
 use cxx::UniquePtr;
+use socket2::Domain;
+use socket2::Socket;
+use socket2::Type;
 use static_assertions::assert_impl_all;
 use std::net::IpAddr;
+use std::net::Ipv6Addr;
+use std::net::SocketAddrV6;
 
 #[cxx::bridge(namespace = "android::net::dns_proxy_ffi")]
 #[allow(clippy::needless_maybe_sized)]
@@ -51,9 +56,11 @@ mod cpp2rust {
         fn ffi_proxy_server_new(
             get_dns_mark_cb: UniquePtr<DnsMarkCallback>,
             get_name_servers_cb: UniquePtr<NameServersCallback>,
+            use_socket_broker: bool,
         ) -> Box<OpaqueServer>;
 
-        fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32) -> i32;
+        fn ffi_configure_forwarding(self: &OpaqueServer, ifindex: u32, netid: u32, uid: u32)
+            -> i32;
         fn ffi_stop_forwarding(self: &OpaqueServer, ifindex: u32) -> i32;
     }
 }
@@ -100,17 +107,38 @@ assert_impl_all!(Server: Send, Sync);
 fn ffi_proxy_server_new(
     get_dns_mark_cb: UniquePtr<cpp2rust::DnsMarkCallback>,
     get_name_servers_cb: UniquePtr<cpp2rust::NameServersCallback>,
+    use_socket_broker: bool,
 ) -> Box<OpaqueServer> {
     let network_context = ResolverCallbacks { get_dns_mark_cb, get_name_servers_cb };
 
     // TODO: consider whether panicking on error is ok here and below.
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
-    // Note that SocketBroker::fork_exec() blocks until the socketbroker is ready.
-    let mut socketbroker = SocketBroker::fork_exec(&runtime).unwrap();
+    let socket = if use_socket_broker {
+        // Note that SocketBroker::fork_exec() blocks until the socketbroker is ready.
+        let mut socketbroker = SocketBroker::fork_exec(&runtime).unwrap();
 
-    // udp_socket is guaranteed to exist if socketbroker::fork_exec succeeded.
-    let socket = socketbroker.udp_socket.take().unwrap();
+        // udp_socket is guaranteed to exist if socketbroker::fork_exec succeeded.
+        socketbroker.udp_socket.take().unwrap()
+    } else {
+        // TODO: this block copied from socketbroker/src/main.rs:create_socket() -- merge with it.
+        let socket = Socket::new(Domain::IPV6, Type::DGRAM.nonblocking().cloexec(), None).unwrap();
+
+        socket.set_only_v6(false).unwrap();
+        socket.set_reuse_address(true).unwrap();
+
+        // Bind socket to port 53
+        let addr = SocketAddrV6::new(
+            Ipv6Addr::UNSPECIFIED,
+            53, /*port*/
+            0,  /*flowinfo*/
+            0,  /*scope*/
+        );
+
+        socket.bind(&addr.into()).unwrap();
+
+        socket.into()
+    };
     Box::new(Server::new(runtime, socket, network_context).unwrap())
 }
 
