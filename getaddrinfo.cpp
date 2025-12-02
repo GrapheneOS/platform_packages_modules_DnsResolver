@@ -51,14 +51,15 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
-
 #include <chrono>
 #include <future>
 
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
+#include <android-base/unique_fd.h>
 
 #include "Experiments.h"
+#include "addrlabel.h"
 #include "netd_resolv/resolv.h"
 #include "res_comp.h"
 #include "res_debug.h"
@@ -1078,57 +1079,6 @@ static int _get_scope(const struct sockaddr* addr) {
     }
 }
 
-/* These macros are modelled after the ones in <netinet/in6.h>. */
-
-/* RFC 4380, section 2.6 */
-#define IN6_IS_ADDR_TEREDO(a) \
-    ((*(const uint32_t*) (const void*) (&(a)->s6_addr[0]) == ntohl(0x20010000)))
-
-/* RFC 3056, section 2. */
-#define IN6_IS_ADDR_6TO4(a) (((a)->s6_addr[0] == 0x20) && ((a)->s6_addr[1] == 0x02))
-
-/* 6bone testing address area (3ffe::/16), deprecated in RFC 3701. */
-#define IN6_IS_ADDR_6BONE(a) (((a)->s6_addr[0] == 0x3f) && ((a)->s6_addr[1] == 0xfe))
-
-/*
- * Get the label for a given IPv4/IPv6 address.
- * RFC 6724, section 2.1.
- */
-
-static int _get_label(const struct sockaddr* addr) {
-    if (addr->sa_family == AF_INET) {
-        return 4;
-    } else if (addr->sa_family == AF_INET6) {
-        const struct sockaddr_in6* addr6 = (const struct sockaddr_in6*) addr;
-        if (IN6_IS_ADDR_LOOPBACK(&addr6->sin6_addr)) {
-            return 0;
-        } else if (IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
-            return 4;
-        } else if (IN6_IS_ADDR_6TO4(&addr6->sin6_addr)) {
-            return 2;
-        } else if (IN6_IS_ADDR_TEREDO(&addr6->sin6_addr)) {
-            return 5;
-        } else if (IN6_IS_ADDR_ULA(&addr6->sin6_addr)) {
-            return 13;
-        } else if (IN6_IS_ADDR_V4COMPAT(&addr6->sin6_addr)) {
-            return 3;
-        } else if (IN6_IS_ADDR_SITELOCAL(&addr6->sin6_addr)) {
-            return 11;
-        } else if (IN6_IS_ADDR_6BONE(&addr6->sin6_addr)) {
-            return 12;
-        } else {
-            /* All other IPv6 addresses, including global unicast addresses. */
-            return 1;
-        }
-    } else {
-        /*
-         * This should never happen.
-         * Return a semi-random label as a last resort.
-         */
-        return 1;
-    }
-}
-
 /*
  * Get the precedence for a given IPv4/IPv6 address.
  * RFC 6724, section 2.1.
@@ -1232,12 +1182,12 @@ static int _rfc6724_compare(const void* ptr1, const void* ptr2) {
      */
 
     /* Rule 5: Prefer matching label. */
-    label_src1 = _get_label(&a1->src_addr.sa);
-    label_dst1 = _get_label(a1->ai->ai_addr);
+    label_src1 = resolv_getaddrlabel(&a1->src_addr.sa);
+    label_dst1 = resolv_getaddrlabel(a1->ai->ai_addr);
     label_match1 = (label_src1 == label_dst1);
 
-    label_src2 = _get_label(&a2->src_addr.sa);
-    label_dst2 = _get_label(a2->ai->ai_addr);
+    label_src2 = resolv_getaddrlabel(&a2->src_addr.sa);
+    label_dst2 = resolv_getaddrlabel(a2->ai->ai_addr);
     label_match2 = (label_src2 == label_dst2);
 
     if (label_match1 != label_match2) {
