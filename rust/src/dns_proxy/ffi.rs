@@ -150,7 +150,7 @@ impl<T> IntoErrorCode for anyhow::Result<T> {
     fn into_error_code(self) -> i32 {
         match self {
             Ok(_) => 0,
-            Err(_) => -1,
+            Err(_) => -121, // EREMOTEIO
         }
     }
 }
