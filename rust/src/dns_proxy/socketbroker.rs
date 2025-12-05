@@ -27,7 +27,7 @@ use std::process::Child;
 use std::process::Command;
 use tokio::runtime::Runtime;
 
-const SOCKET_BROKER_EXEC: &str = "/apex/com.android.resolv/bin/socketbroker";
+const SOCKET_BROKER_EXEC: &str = "/apex/com.android.tethering/bin/socketbroker";
 
 pub struct SocketBroker {
     pub udp_socket: Option<std::net::UdpSocket>,

@@ -531,7 +531,6 @@ TEST_P(TransportParameterizedTest, MdnsGetAddrInfo_fallback) {
 
 TEST_P(TransportParameterizedTest, BlockDnsQuery) {
     SKIP_IF_BEFORE_T;
-    SKIP_IF_DEPENDENT_LIB_DOES_NOT_EXIST(DNS_HELPER);
 
     constexpr char ptr_name[] = "v4v6.example.com.";
     // PTR record for IPv6 address 2001:db8::102:304
@@ -597,7 +596,6 @@ TEST_P(TransportParameterizedTest, BlockDnsQuery) {
 // Verify whether the DNS fail-fast feature can be turned off by flag.
 TEST_P(TransportParameterizedTest, BlockDnsQuery_FlaggedOff) {
     SKIP_IF_BEFORE_T;
-    SKIP_IF_DEPENDENT_LIB_DOES_NOT_EXIST(DNS_HELPER);
 
     constexpr char ptr_name[] = "v4v6.example.com.";
     // PTR record for IPv6 address 2001:db8::102:304
