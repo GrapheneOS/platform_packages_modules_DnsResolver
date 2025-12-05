@@ -63,6 +63,7 @@ cc_library_static {
     ],
     apex_available: [
         "com.android.resolv",
+        "com.android.tethering",
     ],
     min_sdk_version: "30",
 }
@@ -93,6 +94,7 @@ aidl_interface {
             gen_log: true,
             apex_available: [
                 "com.android.resolv",
+                "com.android.tethering",
             ],
             min_sdk_version: "30",
         },
@@ -363,7 +365,10 @@ cc_library_static {
     srcs: [
         "stats.proto",
     ],
-    apex_available: ["com.android.resolv"],
+    apex_available: [
+        "com.android.resolv",
+        "com.android.tethering",
+    ],
     min_sdk_version: "30",
 }
 
@@ -399,7 +404,10 @@ cc_library_static {
     shared_libs: [
         "libstatssocket",
     ],
-    apex_available: ["com.android.resolv"],
+    apex_available: [
+        "com.android.resolv",
+        "com.android.tethering",
+    ],
     min_sdk_version: "30",
 }
 

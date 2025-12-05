@@ -76,7 +76,10 @@ rust_ffi_static {
         "libcxx",
         "libquiche",
     ],
-    apex_available: ["com.android.resolv"],
+    apex_available: [
+        "com.android.resolv",
+        "com.android.tethering",
+    ],
     min_sdk_version: "30",
 }
 
@@ -115,6 +118,7 @@ rust_ffi_static {
     apex_available: [
         "apex_available:platform",
         "com.android.resolv",
+        "com.android.tethering",
     ],
     min_sdk_version: "30",
 }

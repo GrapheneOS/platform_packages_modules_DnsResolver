@@ -24,6 +24,9 @@ rust_library {
         "libnix",
         "libtokio",
     ],
-    apex_available: ["com.android.resolv"],
+    apex_available: [
+        "com.android.resolv",
+        "com.android.tethering",
+    ],
     min_sdk_version: "30",
 }
