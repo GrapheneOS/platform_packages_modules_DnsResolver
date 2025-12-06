@@ -45,16 +45,14 @@ namespace {
 
 // Make a DNS query for the hostname "<random>-dnsotls-ds.metric.gstatic.com".
 std::vector<uint8_t> makeDnsQuery() {
-    static constexpr char kDnsSafeChars[] =
-            "0123456789"
-            "abcdefghijklmnopqrstuvwxyz"
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    // sizeof() includes ASCIZ terminating NUL character
-    static constexpr size_t kDnsSafeCharsCount = sizeof(kDnsSafeChars) - 1;
+    static const char kDnsSafeChars[] =
+            "abcdefhijklmnopqrstuvwxyz"
+            "ABCDEFHIJKLMNOPQRSTUVWXYZ"
+            "0123456789";
     const auto c = [](uint8_t rnd) -> uint8_t {
-        return kDnsSafeChars[rnd % kDnsSafeCharsCount];
+        return kDnsSafeChars[(rnd % std::size(kDnsSafeChars))];
     };
-    uint8_t rnd[6];
+    uint8_t rnd[8];
     arc4random_buf(rnd, std::size(rnd));
 
     return std::vector<uint8_t>{
