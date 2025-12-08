@@ -20,10 +20,13 @@ rust_library {
     name: "libresolvrs_utils",
     crate_name: "resolvrs_utils",
     srcs: ["src/lib.rs"],
-    rustlibs: [
+    rlibs: [
         "libnix",
         "libtokio",
     ],
-    apex_available: ["com.android.resolv"],
+    apex_available: [
+        "com.android.resolv",
+        "com.android.tethering",
+    ],
     min_sdk_version: "30",
 }

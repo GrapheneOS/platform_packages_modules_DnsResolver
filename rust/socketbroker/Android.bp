@@ -16,8 +16,9 @@ package {
     default_team: "trendy_team_fwk_core_networking",
 }
 
+// this target is currently unused, and the C socketbroker is used instead
 rust_binary {
-    name: "socketbroker",
+    name: "rust_socketbroker",
     srcs: ["src/main.rs"],
     rustlibs: [
         "libandroid_logger",
@@ -31,15 +32,24 @@ rust_binary {
         "libresolvrs_utils",
         "libsocket2",
     ],
-    apex_available: ["com.android.resolv"],
-    min_sdk_version: "30",
-    // Strip all debug information/symbols.
-    strip: {
-        all: true,
-    },
-    // Optimize for size.
-    flags: [
-        "-C",
-        "opt-level=z",
+    // Setting prefer_rlib to true prevents pulling in duplicate library dependencies from
+    // libresolvrs_utils:
+    // "error: found crates (`socket2` and `socket2`) with colliding StableCrateId values"
+    prefer_rlib: true,
+    apex_available: [
+        "com.android.resolv",
+        "com.android.tethering",
     ],
+    min_sdk_version: "30",
+}
+
+cc_binary {
+    name: "socketbroker",
+    srcs: ["socketbroker.c"],
+    apex_available: [
+        "com.android.resolv",
+        "com.android.tethering",
+    ],
+    stl: "none",
+    min_sdk_version: "30",
 }

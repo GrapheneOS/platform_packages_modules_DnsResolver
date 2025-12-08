@@ -15,6 +15,7 @@
 #include "DnsProxy.h"
 #include <cstdint>
 #include <memory>
+#include <sys/system_properties.h>
 #include "DnsResolver.h"
 #include "dns_proxy_cxx_bridge.rs.h"
 #include "include/netd_resolv/resolv.h"
@@ -64,7 +65,7 @@ NameServersCallback makeNameServersCallback(DnsResolver& dnsResolv) {
 DnsProxy::DnsProxy(DnsMarkCallback&& dnsMarkCallback, NameServersCallback&& nameServersCallback)
     : mServer(ffi_proxy_server_new(std::make_unique<DnsMarkCallback>(dnsMarkCallback),
                                    std::make_unique<NameServersCallback>(nameServersCallback),
-                                   true)) {}
+                                   android_get_device_api_level() < 36 /* use_socket_broker */ )) {}
 
 // Default constructor depending on DnsResolver global variables.
 DnsProxy::DnsProxy()

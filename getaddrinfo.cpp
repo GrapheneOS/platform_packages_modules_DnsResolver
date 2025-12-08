@@ -51,14 +51,15 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
-
 #include <chrono>
 #include <future>
 
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
+#include <android-base/unique_fd.h>
 
 #include "Experiments.h"
+#include "addrlabel.h"
 #include "netd_resolv/resolv.h"
 #include "res_comp.h"
 #include "res_debug.h"
@@ -1031,13 +1032,6 @@ static struct addrinfo* getanswer(const std::vector<uint8_t>& answer, int anslen
     return NULL;
 }
 
-struct addrinfo_sort_elem {
-    struct addrinfo* ai;
-    int has_src_addr;
-    sockaddr_union src_addr;
-    int original_order;
-};
-
 static int _get_scope(const struct sockaddr* addr) {
     if (addr->sa_family == AF_INET6) {
         const struct sockaddr_in6* addr6 = (const struct sockaddr_in6*) addr;
@@ -1075,57 +1069,6 @@ static int _get_scope(const struct sockaddr* addr) {
          * Return a scope with low priority as a last resort.
          */
         return IPV6_ADDR_SCOPE_NODELOCAL;
-    }
-}
-
-/* These macros are modelled after the ones in <netinet/in6.h>. */
-
-/* RFC 4380, section 2.6 */
-#define IN6_IS_ADDR_TEREDO(a) \
-    ((*(const uint32_t*) (const void*) (&(a)->s6_addr[0]) == ntohl(0x20010000)))
-
-/* RFC 3056, section 2. */
-#define IN6_IS_ADDR_6TO4(a) (((a)->s6_addr[0] == 0x20) && ((a)->s6_addr[1] == 0x02))
-
-/* 6bone testing address area (3ffe::/16), deprecated in RFC 3701. */
-#define IN6_IS_ADDR_6BONE(a) (((a)->s6_addr[0] == 0x3f) && ((a)->s6_addr[1] == 0xfe))
-
-/*
- * Get the label for a given IPv4/IPv6 address.
- * RFC 6724, section 2.1.
- */
-
-static int _get_label(const struct sockaddr* addr) {
-    if (addr->sa_family == AF_INET) {
-        return 4;
-    } else if (addr->sa_family == AF_INET6) {
-        const struct sockaddr_in6* addr6 = (const struct sockaddr_in6*) addr;
-        if (IN6_IS_ADDR_LOOPBACK(&addr6->sin6_addr)) {
-            return 0;
-        } else if (IN6_IS_ADDR_V4MAPPED(&addr6->sin6_addr)) {
-            return 4;
-        } else if (IN6_IS_ADDR_6TO4(&addr6->sin6_addr)) {
-            return 2;
-        } else if (IN6_IS_ADDR_TEREDO(&addr6->sin6_addr)) {
-            return 5;
-        } else if (IN6_IS_ADDR_ULA(&addr6->sin6_addr)) {
-            return 13;
-        } else if (IN6_IS_ADDR_V4COMPAT(&addr6->sin6_addr)) {
-            return 3;
-        } else if (IN6_IS_ADDR_SITELOCAL(&addr6->sin6_addr)) {
-            return 11;
-        } else if (IN6_IS_ADDR_6BONE(&addr6->sin6_addr)) {
-            return 12;
-        } else {
-            /* All other IPv6 addresses, including global unicast addresses. */
-            return 1;
-        }
-    } else {
-        /*
-         * This should never happen.
-         * Return a semi-random label as a last resort.
-         */
-        return 1;
     }
 }
 
@@ -1196,11 +1139,8 @@ static int _common_prefix_len(const struct in6_addr* a1, const struct in6_addr* 
 static int _rfc6724_compare(const void* ptr1, const void* ptr2) {
     const struct addrinfo_sort_elem* a1 = (const struct addrinfo_sort_elem*) ptr1;
     const struct addrinfo_sort_elem* a2 = (const struct addrinfo_sort_elem*) ptr2;
-    int scope_src1, scope_dst1, scope_match1;
-    int scope_src2, scope_dst2, scope_match2;
-    int label_src1, label_dst1, label_match1;
-    int label_src2, label_dst2, label_match2;
-    int precedence1, precedence2;
+    int scope_match1, scope_match2;
+    int label_match1, label_match2;
     int prefixlen1, prefixlen2;
 
     /* Rule 1: Avoid unusable destinations. */
@@ -1209,14 +1149,8 @@ static int _rfc6724_compare(const void* ptr1, const void* ptr2) {
     }
 
     /* Rule 2: Prefer matching scope. */
-    scope_src1 = _get_scope(&a1->src_addr.sa);
-    scope_dst1 = _get_scope(a1->ai->ai_addr);
-    scope_match1 = (scope_src1 == scope_dst1);
-
-    scope_src2 = _get_scope(&a2->src_addr.sa);
-    scope_dst2 = _get_scope(a2->ai->ai_addr);
-    scope_match2 = (scope_src2 == scope_dst2);
-
+    scope_match1 = (a1->scope_src == a1->scope_dst);
+    scope_match2 = (a2->scope_src == a2->scope_dst);
     if (scope_match1 != scope_match2) {
         return scope_match2 - scope_match1;
     }
@@ -1232,23 +1166,15 @@ static int _rfc6724_compare(const void* ptr1, const void* ptr2) {
      */
 
     /* Rule 5: Prefer matching label. */
-    label_src1 = _get_label(&a1->src_addr.sa);
-    label_dst1 = _get_label(a1->ai->ai_addr);
-    label_match1 = (label_src1 == label_dst1);
-
-    label_src2 = _get_label(&a2->src_addr.sa);
-    label_dst2 = _get_label(a2->ai->ai_addr);
-    label_match2 = (label_src2 == label_dst2);
-
+    label_match1 = (a1->label_src == a1->label_dst);
+    label_match2 = (a2->label_src == a2->label_dst);
     if (label_match1 != label_match2) {
         return label_match2 - label_match1;
     }
 
     /* Rule 6: Prefer higher precedence. */
-    precedence1 = _get_precedence(a1->ai->ai_addr);
-    precedence2 = _get_precedence(a2->ai->ai_addr);
-    if (precedence1 != precedence2) {
-        return precedence2 - precedence1;
+    if (a1->precedence != a2->precedence) {
+        return a2->precedence - a1->precedence;
     }
 
     /*
@@ -1257,8 +1183,8 @@ static int _rfc6724_compare(const void* ptr1, const void* ptr2) {
      */
 
     /* Rule 8: Prefer smaller scope. */
-    if (scope_dst1 != scope_dst2) {
-        return scope_dst1 - scope_dst2;
+    if (a1->scope_dst != a2->scope_dst) {
+        return a1->scope_dst - a2->scope_dst;
     }
 
     /*
@@ -1359,6 +1285,10 @@ static int _find_src_addr(const struct sockaddr* addr, struct sockaddr* src_addr
     return 1;
 }
 
+void rfc6724_sort_array(addrinfo_sort_elem* elems, int nelem) {
+    qsort((void*)elems, nelem, sizeof(struct addrinfo_sort_elem), _rfc6724_compare);
+}
+
 /*
  * Sort the linked list starting at sentinel->ai_next in RFC6724 order.
  * Will leave the list unchanged if an error occurs.
@@ -1398,10 +1328,19 @@ void resolv_rfc6724_sort(struct addrinfo* list_sentinel, unsigned mark, uid_t ui
             goto error;
         }
         elems[i].has_src_addr = has_src_addr;
+
+        // NOTE: data is pre-populated in all cases, even if it isn't universally necessary.
+        const sockaddr* src = &elems[i].src_addr.sa;
+        const sockaddr* dst = elems[i].ai->ai_addr;
+        elems[i].scope_src = _get_scope(src);
+        elems[i].scope_dst = _get_scope(dst);
+        elems[i].label_src = resolv_getaddrlabel(src);
+        elems[i].label_dst = resolv_getaddrlabel(dst);
+        elems[i].precedence = _get_precedence(dst);
     }
 
     /* Sort the addresses, and rearrange the linked list so it matches the sorted order. */
-    qsort((void*) elems, nelem, sizeof(struct addrinfo_sort_elem), _rfc6724_compare);
+    rfc6724_sort_array(elems, nelem);
 
     list_sentinel->ai_next = elems[0].ai;
     for (i = 0; i < nelem - 1; ++i) {
