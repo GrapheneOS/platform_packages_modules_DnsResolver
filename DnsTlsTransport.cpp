@@ -45,24 +45,26 @@ namespace {
 
 // Make a DNS query for the hostname "<random>-dnsotls-ds.metric.gstatic.com".
 std::vector<uint8_t> makeDnsQuery() {
-    static const char kDnsSafeChars[] =
-            "abcdefhijklmnopqrstuvwxyz"
-            "ABCDEFHIJKLMNOPQRSTUVWXYZ"
-            "0123456789";
+    static constexpr char kDnsSafeChars[] =
+            "0123456789"
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    // sizeof() includes ASCIZ terminating NUL character
+    static constexpr size_t kDnsSafeCharsCount = sizeof(kDnsSafeChars) - 1;
     const auto c = [](uint8_t rnd) -> uint8_t {
-        return kDnsSafeChars[(rnd % std::size(kDnsSafeChars))];
+        return kDnsSafeChars[rnd % kDnsSafeCharsCount];
     };
-    uint8_t rnd[8];
+    uint8_t rnd[8];  // first 2 used for query ID, remaining 6 for characters
     arc4random_buf(rnd, std::size(rnd));
 
     return std::vector<uint8_t>{
-            rnd[6], rnd[7],  // [0-1]   query ID
+            rnd[0], rnd[1],  // [0-1]   query ID
             1,      0,       // [2-3]   flags; query[2] = 1 for recursion desired (RD).
             0,      1,       // [4-5]   QDCOUNT (number of queries)
             0,      0,       // [6-7]   ANCOUNT (number of answers)
             0,      0,       // [8-9]   NSCOUNT (number of name server records)
             0,      0,       // [10-11] ARCOUNT (number of additional records)
-            17,     c(rnd[0]), c(rnd[1]), c(rnd[2]), c(rnd[3]), c(rnd[4]), c(rnd[5]), '-', 'd', 'n',
+            17,     c(rnd[2]), c(rnd[3]), c(rnd[4]), c(rnd[5]), c(rnd[6]), c(rnd[7]), '-', 'd', 'n',
             's',    'o',       't',       'l',       's',       '-',       'd',       's', 6,   'm',
             'e',    't',       'r',       'i',       'c',       7,         'g',       's', 't', 'a',
             't',    'i',       'c',       3,         'c',       'o',       'm',
