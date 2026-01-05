@@ -135,6 +135,8 @@ enum NsType {
     NS_T_NSEC3 = 50;       // Negative security type 3
     NS_T_NSEC3PARAM = 51;  // Negative security type 3 parameters
     NS_T_HIP = 55;         // Host Identity Protocol
+    NS_T_SVCB = 64;        // Service Binding (SVCB, RFC 9460)
+    NS_T_HTTPS = 65;       // HTTPS service (HTTPS, RFC 9460)
     NS_T_SPF = 99;         // Sender Policy Framework
     NS_T_TKEY = 249;       // Transaction key
     NS_T_TSIG = 250;       // Transaction signature.
