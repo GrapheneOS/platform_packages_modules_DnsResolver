@@ -288,6 +288,7 @@ cc_test {
         "libcrypto_static",
         "libconnectivity_native_test_utils",
         "libcutils",
+        "libdns_helper",
         "libgmock",
         "libnetd_resolv",
         "libnetd_test_dnsresponder_ndk",
@@ -466,9 +467,7 @@ cc_fuzz {
         "libbase",
         "libbinder_random_parcel",
         "libcutils",
-    ],
-    shared_libs: [
-        "libcom.android.tethering.dns_helper",
+        "libdns_helper",
     ],
     target: {
         android: {

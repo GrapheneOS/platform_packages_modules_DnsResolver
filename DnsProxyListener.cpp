@@ -682,64 +682,21 @@ std::string makeThreadName(unsigned netId, uint32_t uid) {
     return fmt::format("Dns_{}_{}", netId, multiuser_get_app_id(uid));
 }
 
-typedef int (*InitFn)();
-typedef int (*IsUidBlockedFn)(uid_t, bool);
-
-IsUidBlockedFn ADnsHelper_isUidNetworkingBlocked;
-
-IsUidBlockedFn resolveIsUidNetworkingBlockedFn() {
-    // Related BPF maps were mainlined from T, but we want to init on S too.
-    if (!isAtLeastS()) return nullptr;
-
-    // TODO: Check whether it is safe to shared link the .so without using dlopen when the carrier
-    // APEX module (tethering) is fully released.
-    void* handle = dlopen("libcom.android.tethering.dns_helper.so", RTLD_NOW | RTLD_LOCAL);
-    if (!handle) {
-        // Can happen if the tethering apex is ancient.
-        LOG(WARNING) << __func__ << ": " << dlerror();
-        return nullptr;
-    }
-
-    InitFn ADnsHelper_init = reinterpret_cast<InitFn>(dlsym(handle, "ADnsHelper_init"));
-    if (!ADnsHelper_init) {
-        LOG(ERROR) << __func__ << ": " << dlerror();
-        abort();
-    }
-    const int ret = (*ADnsHelper_init)();
-    if (ret) {
-        // On S/Sv2 this can fail if tethering apex is too old, ignore it.
-        if (ret == -EOPNOTSUPP && !isAtLeastT()) return nullptr;
-        LOG(ERROR) << __func__ << ": ADnsHelper_init failed " << strerror(-ret);
-        abort();
-    }
-
-    // Related BPF maps were only mainlined from T.
-    if (!isAtLeastT()) return nullptr;
-
-    IsUidBlockedFn f =
-            reinterpret_cast<IsUidBlockedFn>(dlsym(handle, "ADnsHelper_isUidNetworkingBlocked"));
-    if (!f) {
-        LOG(ERROR) << __func__ << ": " << dlerror();
-        // TODO: Change to abort() when NDK is finalized
-        return nullptr;
-    }
-    return f;
-}
+extern "C" int ADnsHelper_init();
+extern "C" int ADnsHelper_isUidNetworkingBlocked(uid_t, bool);
 
 bool isUidNetworkingBlocked(uid_t uid, unsigned netId) {
-    if (!ADnsHelper_isUidNetworkingBlocked) return false;
+    static const bool hasBPF = isAtLeastT();  // Related BPF maps were only mainlined from T.
+    if (!hasBPF) return false;
 
     // The enforceDnsUid is an OEM feature that sets DNS packet with AID_DNS instead of the
     // application's UID. Its DNS packets are not subject to certain network restriction features.
     if (resolv_is_enforceDnsUid_enabled_network(netId)) return false;
 
     // Feature flag that can disable the feature.
-    if (!android::net::Experiments::getInstance()->getFlag("fail_fast_on_uid_network_blocking",
-                                                           1)) {
-        return false;
-    }
+    if (!Experiments::getInstance()->getFlag("fail_fast_on_uid_network_blocking", 1)) return false;
 
-    return (*ADnsHelper_isUidNetworkingBlocked)(uid, resolv_is_metered_network(netId)) == 1;
+    return ADnsHelper_isUidNetworkingBlocked(uid, resolv_is_metered_network(netId)) == 1;
 }
 
 }  // namespace
@@ -760,7 +717,7 @@ DnsProxyListener::DnsProxyListener() : FrameworkListener(SOCKET_NAME) {
     mGetDnsNetIdCommand = std::make_unique<GetDnsNetIdCommand>();
     registerCmd(mGetDnsNetIdCommand.get());
 
-    ADnsHelper_isUidNetworkingBlocked = resolveIsUidNetworkingBlockedFn();
+    if (ADnsHelper_init()) abort();
 }
 
 void DnsProxyListener::Handler::spawn() {

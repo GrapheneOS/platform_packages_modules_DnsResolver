@@ -304,6 +304,7 @@ cc_library {
         "dnsresolver_aidl_interface-lateststable-ndk",
         "libbase",
         "libcutils",
+        "libdns_helper",
         "libnetdutils",
         "libmodules-utils-build",
         "libprotobuf-cpp-lite",
@@ -329,9 +330,6 @@ cc_library {
         "libssl",
         "libstatssocket",
     ],
-    runtime_libs: [
-        "libcom.android.tethering.dns_helper",
-    ],
     header_libs: [
         "libnetdbinder_utils_headers",
     ],
@@ -351,7 +349,7 @@ cc_library {
     sanitize: {
         cfi: true,
     },
-    apex_available: ["com.android.resolv"],
+    apex_available: ["com.android.tethering"],
     min_sdk_version: "30",
 }
 
