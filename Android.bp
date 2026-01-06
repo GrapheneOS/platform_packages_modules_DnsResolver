@@ -302,10 +302,7 @@ cc_library {
     stl: "libc++_static",
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
-        "libbase",
-        "libcutils",
         "libdns_helper",
-        "libnetdutils",
         "libmodules-utils-build",
         "libprotobuf-cpp-lite",
         "libstatslog_resolv",
@@ -324,9 +321,12 @@ cc_library {
     // protocol to logd implemented in the library isn't guaranteed to be
     // stable. See b/151051671
     shared_libs: [
+        "libbase",
         "libbinder_ndk",
         "libcrypto",
+        "libcutils",
         "liblog", //Used by libstatslog_resolv
+        "libnetdutils",
         "libssl",
         "libstatssocket",
     ],
