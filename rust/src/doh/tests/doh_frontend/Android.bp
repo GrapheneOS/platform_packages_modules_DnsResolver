@@ -24,6 +24,4 @@ rust_ffi_static {
         "libbase64_rust",
     ],
     prefer_rlib: true,
-    // TODO(b/194022174): this is a workaround for resolv_integration_test to run on Q devices.
-    whole_static_libs: ["libunwind"],
 }
