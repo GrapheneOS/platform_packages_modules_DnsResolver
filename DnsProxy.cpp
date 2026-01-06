@@ -15,8 +15,8 @@
 #include <cstdint>
 #include <memory>
 #include <sys/system_properties.h>
-#include <sys/utsname.h>
 
+#include "bpf/KernelUtils.h"
 #include "DnsProxy.h"
 #include "DnsResolver.h"
 #include "dns_proxy_cxx_bridge.rs.h"
@@ -64,24 +64,12 @@ NameServersCallback makeNameServersCallback(DnsResolver& dnsResolv) {
     return [&dnsResolv](uint32_t netId) { return getNameServers(dnsResolv, netId); };
 }
 
-// is the active kernel 5.15+
-static inline bool is_5_15_plus() {
-    struct utsname buf;
-    if (uname(&buf)) abort();
-
-    int major, minor;
-    if (sscanf(buf.release, "%d.%d", &major, &minor) < 2) abort();
-    if (major > 5) return true;
-    if (major < 5) return false;
-    return minor >= 15;
-}
-
 // Android 12/S (implies kver < 5.15, has no mainline netd bpf programs) -> true
 // Android 13/T .. 15/V has mainline netd bpf programs, but need 5.15+ functionality -> kver < 5.15
 // Android 16+ (Baklava+) relies on netd.te sepolicy -> false
 static inline bool shouldUseSocketBroker() {
     static const bool lacks_sepolicy = android_get_device_api_level() < 36;
-    static const bool has_netd_bind_magic = is_5_15_plus();
+    static const bool has_netd_bind_magic = bpf::isAtLeastKernelVersion(5, 15);  // 5.15+ implies T+
     return lacks_sepolicy && !has_netd_bind_magic;
 }
 

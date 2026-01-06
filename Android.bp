@@ -331,6 +331,7 @@ cc_library {
         "libstatssocket",
     ],
     header_libs: [
+        "bpf_headers",
         "libnetdbinder_utils_headers",
     ],
     export_include_dirs: ["include"],
