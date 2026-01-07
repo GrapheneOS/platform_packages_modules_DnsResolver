@@ -298,8 +298,8 @@ cc_library {
         "ResolverEventReporter.cpp",
         "rust/src/dns_proxy/net_context_client.cpp",
     ],
+    stl: "libc++",
     // Link most things statically to minimize our dependence on system ABIs.
-    stl: "libc++_static",
     static_libs: [
         "dnsresolver_aidl_interface-lateststable-ndk",
         "libdns_helper",
@@ -397,10 +397,8 @@ cc_library_static {
     generated_headers: ["statslog_resolv.h"],
     defaults: ["netd_defaults"],
     export_generated_headers: ["statslog_resolv.h"],
-    static_libs: [
-        "libcutils",
-    ],
     shared_libs: [
+        "libcutils",
         "libstatssocket",
     ],
     apex_available: [
