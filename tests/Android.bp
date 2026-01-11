@@ -91,7 +91,7 @@ cc_test {
     name: "resolv_gold_test",
     test_suites: [
         "general-tests",
-        "mts-dnsresolver",
+        "mts-tethering",
     ],
     isolated: false,
     require_root: true,
@@ -148,7 +148,7 @@ cc_test {
     name: "resolv_stress_test",
     test_suites: [
         "general-tests",
-        "mts-dnsresolver",
+        "mts-tethering",
     ],
     isolated: false,
     // This won't work with test_config
@@ -184,7 +184,7 @@ cc_test {
     name: "resolv_integration_test",
     test_suites: [
         "general-tests",
-        "mts-dnsresolver",
+        "mts-tethering",
     ],
     isolated: false,
     require_root: true,
@@ -258,7 +258,7 @@ cc_test {
     name: "resolv_unit_test",
     test_suites: [
         "general-tests",
-        "mts-dnsresolver",
+        "mts-tethering",
     ],
     isolated: false,
     require_root: true,
@@ -347,7 +347,7 @@ cc_test {
     name: "doh_ffi_test",
     test_suites: [
         "general-tests",
-        "mts-dnsresolver",
+        "mts-tethering",
     ],
     defaults: [
         "connectivity-mainline-presubmit-cc-defaults",
