@@ -258,6 +258,9 @@ cc_test {
     name: "resolv_unit_test",
     test_suites: [
         "general-tests",
+        // TODO: clean "mts-dnsresolver" after remove the DnsResolver module
+        // test gantry gate
+        "mts-dnsresolver",
         "mts-tethering",
     ],
     isolated: false,
