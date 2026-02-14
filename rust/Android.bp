@@ -80,7 +80,7 @@ rust_ffi_static {
         "com.android.resolv",
         "com.android.tethering",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }
 
 cc_defaults {
@@ -120,7 +120,7 @@ rust_ffi_static {
         "com.android.resolv",
         "com.android.tethering",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }
 
 rust_test {
@@ -133,5 +133,5 @@ rust_test {
         "libmockall",
     ],
     shared_libs: ["libc++"],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }

@@ -45,8 +45,7 @@ cc_library_headers {
 
 cc_library_headers {
     name: "dnsproxyd_protocol_headers",
-    sdk_version: "30",
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
     export_include_dirs: ["include/dnsproxyd_protocol"],
     apex_available: [
         "//apex_available:platform",
@@ -65,7 +64,7 @@ cc_library_static {
         "com.android.resolv",
         "com.android.tethering",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }
 
 aidl_interface {
@@ -88,7 +87,7 @@ aidl_interface {
                 "com.android.tethering",
                 "com.android.wifi",
             ],
-            min_sdk_version: "30",
+            min_sdk_version: "31",
         },
         ndk: {
             gen_log: true,
@@ -96,7 +95,7 @@ aidl_interface {
                 "com.android.resolv",
                 "com.android.tethering",
             ],
-            min_sdk_version: "30",
+            min_sdk_version: "31",
         },
     },
 
@@ -203,7 +202,7 @@ cc_defaults {
     shared_libs: [
         "liblog",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }
 
 cc_defaults {
@@ -351,7 +350,7 @@ cc_library {
         cfi: true,
     },
     apex_available: ["com.android.tethering"],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }
 
 cc_library_static {
@@ -368,14 +367,14 @@ cc_library_static {
         "com.android.resolv",
         "com.android.tethering",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }
 
 genrule {
     name: "statslog_resolv.h",
     tools: ["stats-log-api-gen"],
     cmd: "$(location stats-log-api-gen) --header $(genDir)/statslog_resolv.h --module resolv" +
-        " --namespace android,net,stats --minApiLevel 30",
+        " --namespace android,net,stats --minApiLevel 31",
     out: [
         "statslog_resolv.h",
     ],
@@ -385,7 +384,7 @@ genrule {
     name: "statslog_resolv.cpp",
     tools: ["stats-log-api-gen"],
     cmd: "$(location stats-log-api-gen) --cpp $(genDir)/statslog_resolv.cpp --module resolv" +
-        " --namespace android,net,stats --importHeader statslog_resolv.h --minApiLevel 30",
+        " --namespace android,net,stats --importHeader statslog_resolv.h --minApiLevel 31",
     out: [
         "statslog_resolv.cpp",
     ],
@@ -405,7 +404,7 @@ cc_library_static {
         "com.android.resolv",
         "com.android.tethering",
     ],
-    min_sdk_version: "30",
+    min_sdk_version: "apex_inherit",
 }
 
 filegroup {

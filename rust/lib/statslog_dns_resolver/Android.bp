@@ -45,5 +45,5 @@ rust_library {
         "com.android.resolv",
         "com.android.tethering",
     ],
-    min_sdk_version: "29",
+    min_sdk_version: "apex_inherit",
 }
