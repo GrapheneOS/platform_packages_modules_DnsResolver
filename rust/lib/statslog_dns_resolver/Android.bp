@@ -41,9 +41,6 @@ rust_library {
     flags: [
         "-A clippy::needless-lifetimes",
     ],
-    apex_available: [
-        "com.android.resolv",
-        "com.android.tethering",
-    ],
+    apex_available: ["com.android.tethering"],
     min_sdk_version: "apex_inherit",
 }

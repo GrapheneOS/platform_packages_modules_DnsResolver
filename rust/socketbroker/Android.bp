@@ -36,20 +36,14 @@ rust_binary {
     // libresolvrs_utils:
     // "error: found crates (`socket2` and `socket2`) with colliding StableCrateId values"
     prefer_rlib: true,
-    apex_available: [
-        "com.android.resolv",
-        "com.android.tethering",
-    ],
+    apex_available: ["com.android.tethering"],
     min_sdk_version: "apex_inherit",
 }
 
 cc_binary {
     name: "socketbroker",
     srcs: ["socketbroker.c"],
-    apex_available: [
-        "com.android.resolv",
-        "com.android.tethering",
-    ],
+    apex_available: ["com.android.tethering"],
     stl: "none",
     min_sdk_version: "apex_inherit",
 }
