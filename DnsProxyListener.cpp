@@ -745,14 +745,6 @@ DnsProxyListener::GetAddrInfoHandler::GetAddrInfoHandler(SocketClient* c, std::s
 
 DnsProxyListener::GetAddrInfoHandler::~GetAddrInfoHandler() = default;
 
-// Before U, the Netd callback is implemented by OEM to evaluate if a DNS query for the provided
-// hostname is allowed. On U+, the Netd callback also checks if the user is allowed to send DNS on
-// the specified network.
-static bool evaluate_domain_name(const android_net_context& netcontext, const char* host) {
-    if (!gResNetdCallbacks.evaluate_domain_name) return true;
-    return gResNetdCallbacks.evaluate_domain_name(netcontext, host);
-}
-
 static int HandleArgumentError(SocketClient* cli, int errorcode, std::string strerrormessage,
                                int argc, char** argv) {
     for (int i = 0; i < argc; i++) {
@@ -903,7 +895,7 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
     } else if (startQueryLimiter(uid)) {
         const char* host = mHost.starts_with('^') ? nullptr : mHost.c_str();
         const char* service = mService.starts_with('^') ? nullptr : mService.c_str();
-        if (evaluate_domain_name(mNetContext, host)) {
+        if (gResNetdCallbacks.evaluate_domain_name(mNetContext, host)) {
             rv = resolv_getaddrinfo(host, service, mHints.get(), &mNetContext, mClient->getSocket(),
                                     &result, &event);
             doDns64Synthesis(&rv, &result, &event);
@@ -1116,7 +1108,7 @@ void DnsProxyListener::ResNSendHandler::run() {
         LOG(INFO) << "ResNSendHandler::run: network access blocked";
         ansLen = -ECONNREFUSED;
     } else if (startQueryLimiter(uid)) {
-        if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
+        if (gResNetdCallbacks.evaluate_domain_name(mNetContext, rr_name.c_str())) {
             ansLen = resolv_res_nsend(&mNetContext, mClient->getSocket(),
                                       std::span(msg.data(), msgLen), ansBuf, &rcode,
                                       static_cast<ResNsendFlags>(mFlags), &event);
@@ -1341,7 +1333,7 @@ void DnsProxyListener::GetHostByNameHandler::run() {
         rv = EAI_FAIL;
     } else if (startQueryLimiter(uid)) {
         const char* name = mName.starts_with('^') ? nullptr : mName.c_str();
-        if (evaluate_domain_name(mNetContext, name)) {
+        if (gResNetdCallbacks.evaluate_domain_name(mNetContext, name)) {
             rv = resolv_gethostbyname(name, mAf, &hbuf, tmpbuf, sizeof tmpbuf, &mNetContext,
                                       mClient->getSocket(), &hp, &event);
             doDns64Synthesis(&rv, &hbuf, tmpbuf, sizeof tmpbuf, &hp, &event);
@@ -1510,7 +1502,7 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
         // applied on U+ only so that the behavior won’t change on T- OEM devices.
         // TODO: pass the actual name into evaluate_domain_name, e.g., 238.26.217.172.in-addr.arpa
         //       when the lookup address is 172.217.26.238.
-        if (isAtLeastU() && !evaluate_domain_name(mNetContext, nullptr)) {
+        if (isAtLeastU() && !gResNetdCallbacks.evaluate_domain_name(mNetContext, nullptr)) {
             rv = EAI_SYSTEM;
         } else {
             rv = resolv_gethostbyaddr(&mAddress, mAddressLen, mAddressFamily, &hbuf, tmpbuf,

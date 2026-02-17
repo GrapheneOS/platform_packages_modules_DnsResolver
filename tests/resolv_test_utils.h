@@ -477,3 +477,11 @@ inline int resolv_set_nameservers(
     } while (0)
 
 bool is64bitAbi();
+
+struct android_net_context;
+
+int noop_tagSocketCallback(int sockFd, uint32_t tag, uid_t uid, pid_t pid);
+void noop_getNetworkContextCallback(uint32_t, uint32_t, android_net_context*);
+bool noop_checkCallingPermissionCallback(const char*);
+void noop_logCallback(const char*);
+bool noop_evaluateDomainNameCallback(const android_net_context&, const char*);

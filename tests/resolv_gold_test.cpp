@@ -32,6 +32,7 @@
 #include "golddata.pb.h"
 #include "resolv_cache.h"
 #include "resolv_test_utils.h"
+#include "tests/resolv_test_callbacks.h"
 #include "tests/dns_responder/dns_responder.h"
 #include "tests/dns_responder/dns_responder_client_ndk.h"
 #include "tests/dns_responder/dns_tls_certificate.h"
@@ -78,6 +79,7 @@ class TestBase : public NetNativeTestBase {
     }
 
     void SetUp() override {
+        resetDnsResolverCallbacks();
         // Create cache for test
         resolv_create_cache_for_net(TEST_NETID);
     }
@@ -87,6 +89,7 @@ class TestBase : public NetNativeTestBase {
         privateDnsConfiguration.clear(TEST_NETID);
         // Delete cache for test
         resolv_delete_cache_for_net(TEST_NETID);
+        resetDnsResolverCallbacks();
     }
 
     void SetResolverConfiguration(const std::vector<std::string>& servers,

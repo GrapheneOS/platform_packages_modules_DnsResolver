@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <netdutils/NetNativeTestBase.h>
 #include <resolv_stats_test_utils.h>
+#include "tests/resolv_test_callbacks.h"
 
 #include "PrivateDnsConfiguration.h"
 #include "resolv_cache.h"
@@ -54,6 +55,7 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
     }
 
     void SetUp() {
+        resetDnsResolverCallbacks();
         mPdc.setObserver(&mObserver);
         mPdc.mBackoffBuilder.withInitialRetransmissionTime(std::chrono::seconds(1))
                 .withMaximumRetransmissionTime(std::chrono::seconds(1));
@@ -93,6 +95,7 @@ class PrivateDnsConfigurationTest : public NetNativeTestBase {
 
     void TearDown() {
         // Reset the state for the next test.
+        resetDnsResolverCallbacks();
         resolv_delete_cache_for_net(kNetId);
         mPdc.set(kNetId, kMark, {}, {});
     }

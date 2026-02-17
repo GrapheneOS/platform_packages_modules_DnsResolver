@@ -119,7 +119,7 @@ typedef int (*tagSocketCallback)(int sockFd, uint32_t tag, uid_t uid, pid_t pid)
 // of returning true.
 //
 // This callback *will* be invoked concurrently from multiple threads. It must
-// peform its own locking when accessing shared data structures. Furthermore,
+// perform its own locking when accessing shared data structures. Furthermore,
 // the callback must not sleep nor perform RPC requests.
 //
 // Be mindful that hostnames could contain sensitive user data. Do not log them
@@ -136,11 +136,14 @@ typedef bool (*evaluate_domain_name_callback)(
  * function pointers.
  */
 struct ResolverNetdCallbacks {
+    // the following are guaranteed non-null on Q+
     check_calling_permission_callback check_calling_permission;
     get_network_context_callback get_network_context;
     log_callback log;
+    // the following are guaranteed non-null on R+
     tagSocketCallback tagSocket;
     evaluate_domain_name_callback evaluate_domain_name;
+    // any future additions go below here, but can only be read with appropriate api checks
 };
 
 #define TAG_SYSTEM_DNS 0xFFFFFF82

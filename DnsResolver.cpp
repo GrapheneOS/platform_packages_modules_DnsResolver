@@ -34,16 +34,15 @@ bool resolv_init(const ResolverNetdCallbacks* callbacks) {
     const bool isDebug = isDebuggable();
     resolv_set_log_severity(isDebug ? android::base::INFO : android::base::WARNING);
     doh_init_logger(isDebug ? DOH_LOG_LEVEL_INFO : DOH_LOG_LEVEL_WARN);
-    using android::net::gApiLevel;
-    gApiLevel = getApiLevel();
     using android::net::gResNetdCallbacks;
+    // we copy into our local structure as the 'callbacks' pointer may point to only a prefix struct
+    // depending on api level, all current fields are guaranteed present on R and we only support S+
     gResNetdCallbacks.check_calling_permission = callbacks->check_calling_permission;
     gResNetdCallbacks.get_network_context = callbacks->get_network_context;
     gResNetdCallbacks.log = callbacks->log;
-    if (gApiLevel >= 30) {
-        gResNetdCallbacks.tagSocket = callbacks->tagSocket;
-        gResNetdCallbacks.evaluate_domain_name = callbacks->evaluate_domain_name;
-    }
+    gResNetdCallbacks.tagSocket = callbacks->tagSocket;
+    gResNetdCallbacks.evaluate_domain_name = callbacks->evaluate_domain_name;
+    // if any more fields are added they will need to be copied within api checks
     android::net::gDnsResolv = android::net::DnsResolver::getInstance();
     return android::net::gDnsResolv->start();
 }
@@ -54,21 +53,18 @@ namespace net {
 namespace {
 
 bool verifyCallbacks() {
-    if (!(gResNetdCallbacks.check_calling_permission && gResNetdCallbacks.get_network_context &&
-          gResNetdCallbacks.log)) {
-        return false;
-    }
-    if (gApiLevel >= 30) {
-        return gResNetdCallbacks.tagSocket != nullptr;
-    }
-    return true;
+    // simple as everything must exist on R+ and we only support S+
+    return gResNetdCallbacks.check_calling_permission &&
+           gResNetdCallbacks.get_network_context &&
+           gResNetdCallbacks.log &&
+           gResNetdCallbacks.tagSocket &&
+           gResNetdCallbacks.evaluate_domain_name;
 }
 
 }  // namespace
 
 DnsResolver* gDnsResolv = nullptr;
 ResolverNetdCallbacks gResNetdCallbacks;
-uint64_t gApiLevel = 0;
 
 DnsResolver* DnsResolver::getInstance() {
     // Instantiated on first use.

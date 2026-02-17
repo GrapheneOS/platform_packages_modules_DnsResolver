@@ -246,3 +246,16 @@ void AllowNetworkInBackground(int uid, bool allow) {
 bool is64bitAbi() {
     return android::base::GetProperty("ro.product.cpu.abi", "").find("64") != std::string::npos;
 }
+
+int noop_tagSocketCallback(int /*sockFd*/, uint32_t /*tag*/, uid_t /*uid*/, pid_t /*pid*/) {
+    return 0;
+}
+
+void noop_getNetworkContextCallback(uint32_t, uint32_t, android_net_context*) {}
+bool noop_checkCallingPermissionCallback(const char*) {
+    return true;
+}
+void noop_logCallback(const char*) {}
+bool noop_evaluateDomainNameCallback(const android_net_context&, const char*) {
+    return true;
+}

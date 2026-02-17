@@ -36,6 +36,7 @@
 #include "resolv_private.h"
 #include "stats.h"
 #include "tests/dns_responder/dns_responder.h"
+#include "tests/resolv_test_callbacks.h"
 #include "tests/resolv_test_utils.h"
 
 using namespace std::chrono_literals;
@@ -147,11 +148,13 @@ class ResolvCacheTest : public NetNativeTestBase {
     };
 
     ResolvCacheTest() {
+        resetDnsResolverCallbacks();
         // Store the default one and conceal 10000+ lines of resolver cache logs.
         defaultLogSeverity = android::base::SetMinimumLogSeverity(
                 static_cast<android::base::LogSeverity>(android::base::WARNING));
     }
     ~ResolvCacheTest() {
+        resetDnsResolverCallbacks();
         cacheDelete(TEST_NETID);
         cacheDelete(TEST_NETID_2);
 
