@@ -29,6 +29,7 @@
 #include "resolv_cache.h"
 #include "resolv_private.h"
 #include "tests/resolv_test_utils.h"
+#include "tests/resolv_test_callbacks.h"
 
 namespace android::net {
 
@@ -41,60 +42,22 @@ const uid_t TEST_UID = 99999;
 // Use testUid to make sure TagSocketCallback is called.
 static uid_t testUid = 0;
 
-// gApiLevel would be initialized in resolv_init().
-#define SKIP_IF_APILEVEL_LESS_THAN(version)                                          \
-    do {                                                                             \
-        if (android::net::gApiLevel < (version)) {                                   \
-            GTEST_LOG_(INFO) << "Skip. Required API version: " << (version) << "\n"; \
-            return;                                                                  \
-        }                                                                            \
-    } while (0)
-
-void getNetworkContextCallback(uint32_t, uint32_t, android_net_context*) {
-    // No-op
-}
-
-bool checkCallingPermissionCallback(const char*) {
-    // No-op
-    return true;
-}
-
-void logCallback(const char*) {
-    // No-op
-}
-
 int tagSocketCallback(int, uint32_t, uid_t uid, pid_t) {
     testUid = uid;
     return true;
 }
 
-bool evaluateDomainNameCallback(const android_net_context&, const char*) {
-    // No-op
-    return true;
-}
-
 void initDnsResolverCallbacks() {
     ResolverNetdCallbacks callbacks = {
-            .check_calling_permission = &checkCallingPermissionCallback,
-            .get_network_context = &getNetworkContextCallback,
-            .log = &logCallback,
+            .check_calling_permission = &noop_checkCallingPermissionCallback,
+            .get_network_context = &noop_getNetworkContextCallback,
+            .log = &noop_logCallback,
             .tagSocket = &tagSocketCallback,
-            .evaluate_domain_name = &evaluateDomainNameCallback,
+            .evaluate_domain_name = &noop_evaluateDomainNameCallback,
     };
     // It returns fail since socket 'dnsproxyd' has been occupied.
     // But the callback funtions is configured successfully and can
     // be tested when running unit test cases.
-    resolv_init(&callbacks);
-}
-
-void resetDnsResolverCallbacks() {
-    ResolverNetdCallbacks callbacks = {
-            .check_calling_permission = nullptr,
-            .get_network_context = nullptr,
-            .log = nullptr,
-            .tagSocket = nullptr,
-            .evaluate_domain_name = nullptr,
-    };
     resolv_init(&callbacks);
 }
 
@@ -144,9 +107,6 @@ class CallbackTest : public NetNativeTestBase {
 };
 
 TEST_F(CallbackTest, tagSocketCallback) {
-    // tagSocketCallback is used when supported sdk version >=30.
-    SKIP_IF_APILEVEL_LESS_THAN(30);
-
     test::DNSResponder dns;
     dns.addMapping(kHelloExampleCom, ns_type::ns_t_a, kHelloExampleComAddrV4);
     ASSERT_TRUE(dns.startServer());

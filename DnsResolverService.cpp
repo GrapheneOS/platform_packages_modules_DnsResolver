@@ -153,10 +153,6 @@ binder_status_t DnsResolverService::dump(int fd, const char** args, uint32_t num
         const std::vector<const char*>& permissions) {
     // TODO: Remove callback and move this to unnamed namespace after libbiner_ndk supports
     // check_permission.
-    if (!gResNetdCallbacks.check_calling_permission) {
-        return ::ndk::ScopedAStatus(AStatus_fromExceptionCodeWithMessage(
-                EX_NULL_POINTER, "check_calling_permission is null"));
-    }
     pid_t pid = AIBinder_getCallingPid();
     uid_t uid = AIBinder_getCallingUid();
 

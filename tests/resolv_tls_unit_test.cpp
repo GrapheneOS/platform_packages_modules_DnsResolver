@@ -38,6 +38,7 @@
 #include "IDnsTlsSocketFactory.h"
 #include "IDnsTlsSocketObserver.h"
 #include "tests/dns_responder/dns_tls_frontend.h"
+#include "tests/resolv_test_callbacks.h"
 
 namespace android {
 namespace net {
@@ -62,6 +63,16 @@ class BaseTest : public NetNativeTestBase {
   protected:
     BaseTest() {
         SERVER1.name = SERVERNAME1;
+    }
+
+    void SetUp() override {
+        NetNativeTestBase::SetUp();
+        resetDnsResolverCallbacks();
+    }
+
+    void TearDown() override {
+        resetDnsResolverCallbacks();
+        NetNativeTestBase::TearDown();
     }
 
     DnsTlsServer SERVER1{V4ADDR1};
@@ -971,6 +982,16 @@ TEST_F(QueryMapTest, FillHole) {
 
 class DnsTlsSocketTest : public NetNativeTestBase {
   protected:
+    void SetUp() override {
+        NetNativeTestBase::SetUp();
+        resetDnsResolverCallbacks();
+    }
+
+    void TearDown() override {
+        resetDnsResolverCallbacks();
+        NetNativeTestBase::TearDown();
+    }
+
     class MockDnsTlsSocketObserver : public IDnsTlsSocketObserver {
       public:
         MOCK_METHOD(void, onClosed, (), (override));

@@ -243,11 +243,8 @@ android::net::NsType getQueryType(std::span<const uint8_t> msg);
 android::net::IpVersion ipFamilyToIPVersion(int ipFamily);
 
 inline void resolv_tag_socket(int sock, uid_t uid, pid_t pid) {
-    // This is effectively equivalent to testing for R+
-    if (android::net::gResNetdCallbacks.tagSocket != nullptr) {
-        if (int err = android::net::gResNetdCallbacks.tagSocket(sock, TAG_SYSTEM_DNS, uid, pid)) {
-            LOG(WARNING) << "Failed to tag socket: " << strerror(-err);
-        }
+    if (int err = android::net::gResNetdCallbacks.tagSocket(sock, TAG_SYSTEM_DNS, uid, pid)) {
+        LOG(WARNING) << "Failed to tag socket: " << strerror(-err);
     }
 
     if (fchown(sock, uid, -1) == -1) {

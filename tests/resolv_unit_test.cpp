@@ -35,6 +35,7 @@
 #include "resolv_cache.h"
 #include "resolv_private.h"
 #include "stats.pb.h"
+#include "tests/resolv_test_callbacks.h"
 #include "tests/resolv_test_utils.h"
 
 #define NAME(variable) #variable
@@ -62,11 +63,13 @@ class TestBase : public NetNativeTestBase {
     };
 
     void SetUp() override {
+        resetDnsResolverCallbacks();
         // Create cache for test
         resolv_create_cache_for_net(TEST_NETID);
         SetMdnsRoute();
     }
     void TearDown() override {
+        resetDnsResolverCallbacks();
         // Delete cache for test
         resolv_delete_cache_for_net(TEST_NETID);
         RemoveMdnsRoute();

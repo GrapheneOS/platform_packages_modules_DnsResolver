@@ -160,9 +160,7 @@ int getDnsInfo(unsigned netId, std::vector<std::string>* servers, std::vector<st
 
 ResolverController::ResolverController()
     : mDns64Configuration(make_shared<Dns64Configuration>(
-              [](uint32_t netId, uint32_t uid, android_net_context* netcontext) {
-                  gResNetdCallbacks.get_network_context(netId, uid, netcontext);
-              },
+              gResNetdCallbacks.get_network_context,
               std::bind(sendNat64PrefixEvent, std::placeholders::_1))) {}
 
 void ResolverController::destroyNetworkCache(unsigned netId) {

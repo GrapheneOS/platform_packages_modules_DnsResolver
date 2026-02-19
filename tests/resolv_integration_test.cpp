@@ -60,7 +60,7 @@
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
 #include <bpf/BpfUtils.h>
-#include <util.h>  // getApiLevel
+#include <util.h>
 #include "Experiments.h"
 #include "NetdClient.h"
 #include "ResolverStats.h"
