@@ -129,6 +129,8 @@ typedef int (*tagSocketCallback)(int sockFd, uint32_t tag, uid_t uid, pid_t pid)
 typedef bool (*evaluate_domain_name_callback)(
     const android_net_context &netcontext, const char *host);
 
+typedef bool (*check_lockdown_vpn_blocking_dns_callback)(android_net_context* netcontext);
+
 /*
  * Some functions needed by the resolver (e.g. checkCallingPermission()) live in
  * libraries with no ABI stability guarantees, such as libbinder.so.
@@ -141,6 +143,7 @@ struct ResolverNetdCallbacks {
     log_callback log;
     tagSocketCallback tagSocket;
     evaluate_domain_name_callback evaluate_domain_name;
+    check_lockdown_vpn_blocking_dns_callback check_lockdown_vpn_blocking_dns;
 };
 
 #define TAG_SYSTEM_DNS 0xFFFFFF82

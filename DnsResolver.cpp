@@ -44,6 +44,7 @@ bool resolv_init(const ResolverNetdCallbacks* callbacks) {
         gResNetdCallbacks.tagSocket = callbacks->tagSocket;
         gResNetdCallbacks.evaluate_domain_name = callbacks->evaluate_domain_name;
     }
+    gResNetdCallbacks.check_lockdown_vpn_blocking_dns = callbacks->check_lockdown_vpn_blocking_dns;
     android::net::gDnsResolv = android::net::DnsResolver::getInstance();
     return android::net::gDnsResolv->start();
 }
