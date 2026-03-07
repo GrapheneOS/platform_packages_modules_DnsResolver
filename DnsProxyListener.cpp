@@ -940,8 +940,9 @@ void DnsProxyListener::GetAddrInfoHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     const bool isUidBlocked = isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid);
-    if (isUidBlocked) {
-        LOG(INFO) << "GetAddrInfoHandler::run: network access blocked";
+    bool isLockdownVpnBlockingDns = gResNetdCallbacks.check_lockdown_vpn_blocking_dns(&mNetContext);
+    if (isUidBlocked || isLockdownVpnBlockingDns) {
+        LOG(INFO) << "GetAddrInfoHandler::run: network or DNS server access blocked";
         rv = EAI_FAIL;
     } else if (startQueryLimiter(uid)) {
         const char* host = mHost.starts_with('^') ? nullptr : mHost.c_str();
@@ -1155,8 +1156,9 @@ void DnsProxyListener::ResNSendHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     const bool isUidBlocked = isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid);
-    if (isUidBlocked) {
-        LOG(INFO) << "ResNSendHandler::run: network access blocked";
+    bool isLockdownVpnBlockingDns = gResNetdCallbacks.check_lockdown_vpn_blocking_dns(&mNetContext);
+    if (isUidBlocked || isLockdownVpnBlockingDns) {
+        LOG(INFO) << "ResNSendHandler::run: network or DNS server access blocked";
         ansLen = -ECONNREFUSED;
     } else if (startQueryLimiter(uid)) {
         if (evaluate_domain_name(mNetContext, rr_name.c_str())) {
@@ -1379,8 +1381,9 @@ void DnsProxyListener::GetHostByNameHandler::run() {
     NetworkDnsEventReported event;
     initDnsEvent(&event, mNetContext);
     const bool isUidBlocked = isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid);
-    if (isUidBlocked) {
-        LOG(INFO) << "GetHostByNameHandler::run: network access blocked";
+    bool isLockdownVpnBlockingDns = gResNetdCallbacks.check_lockdown_vpn_blocking_dns(&mNetContext);
+    if (isUidBlocked || isLockdownVpnBlockingDns) {
+        LOG(INFO) << "GetHostByNameHandler::run: network or DNS server access blocked";
         rv = EAI_FAIL;
     } else if (startQueryLimiter(uid)) {
         const char* name = mName.starts_with('^') ? nullptr : mName.c_str();
@@ -1543,8 +1546,9 @@ void DnsProxyListener::GetHostByAddrHandler::run() {
     initDnsEvent(&event, mNetContext);
 
     const bool isUidBlocked = isUidNetworkingBlocked(mNetContext.uid, mNetContext.dns_netid);
-    if (isUidBlocked) {
-        LOG(INFO) << "GetHostByAddrHandler::run: network access blocked";
+    bool isLockdownVpnBlockingDns = gResNetdCallbacks.check_lockdown_vpn_blocking_dns(&mNetContext);
+    if (isUidBlocked || isLockdownVpnBlockingDns) {
+        LOG(INFO) << "GetHostByAddrHandler::run: network or DNS server access blocked";
         rv = EAI_FAIL;
     } else if (startQueryLimiter(uid)) {
         // From Android U, evaluate_domain_name() is not only for OEM customization, but also tells
