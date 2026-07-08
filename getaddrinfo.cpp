@@ -217,12 +217,27 @@ void freeaddrinfo(struct addrinfo* ai) {
     }
 }
 
-static bool have_global_ipv6_connectivity(unsigned mark, uid_t uid) {
+static bool have_global_ipv6_connectivity(unsigned mark, uid_t uid, const std::vector<android::netdutils::IPSockAddr>& nsaddrs) {
     static const struct sockaddr_in6 sin6_test = {
             .sin6_family = AF_INET6,
             .sin6_addr.s6_addr = {// 2000::
                                   0x20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
     sockaddr_union addr = {.sin6 = sin6_test};
+
+    // Use first IPv6 address if available
+    if (!nsaddrs.empty()) {
+        for (const auto& nsaddr : nsaddrs) {
+            // Check if this is an IPv6 address
+            if (nsaddr.family() == AF_INET6) {
+                sockaddr_storage ss = nsaddr;
+                sockaddr_union nsUnion{};
+                memcpy(&nsUnion.sin, &ss, sizeof(sockaddr_in));
+                addr = nsUnion;
+                break;
+            }
+        }
+    }
+
     sockaddr_storage sa;
     return _find_src_addr(&addr.sa, (struct sockaddr*)&sa, mark, uid,
                           /*allow_v6_linklocal=*/false) == 1;
@@ -249,12 +264,27 @@ static bool have_local_ipv6_connectivity(unsigned mark, uid_t uid, int netid) {
     return false;
 }
 
-static bool have_ipv4_connectivity(unsigned mark, uid_t uid) {
+static bool have_ipv4_connectivity(unsigned mark, uid_t uid, const std::vector<android::netdutils::IPSockAddr>& nsaddrs) {
     static const struct sockaddr_in sin_test = {
             .sin_family = AF_INET,
             .sin_addr.s_addr = __constant_htonl(0x08080808L)  // 8.8.8.8
     };
     sockaddr_union addr = {.sin = sin_test};
+
+    // Use first IPv4 address if available
+    if (!nsaddrs.empty()) {
+        for (const auto& nsaddr : nsaddrs) {
+            // Check if this is an IPv4 address
+            if (nsaddr.family() == AF_INET) {
+                sockaddr_storage ss = nsaddr;
+                sockaddr_union nsUnion{};
+                memcpy(&nsUnion.sin, &ss, sizeof(sockaddr_in));
+                addr = nsUnion;
+                break;
+            }
+        }
+    }
+
     sockaddr_storage sa;
     return _find_src_addr(&addr.sa, (struct sockaddr*)&sa, mark, uid,
                           /*(don't care) allow_v6_linklocal=*/false) == 1;
@@ -1364,6 +1394,8 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
     bool query_ipv6 = false;
     bool query_ipv4 = false;
 
+    resolv_populate_res_for_net(&res); // has been moved up before the connectivity check
+
     if (pai->ai_family == AF_UNSPEC) {
         query_ipv6 = true;
         query_ipv4 = true;
@@ -1384,8 +1416,6 @@ static int dns_getaddrinfo(const char* name, const addrinfo* pai,
     } else {
         return EAI_FAMILY;
     }
-
-    resolv_populate_res_for_net(&res);
 
     std::vector<ResState> res_states;
     if (is_mdns) {
