@@ -8333,14 +8333,13 @@ TEST_F(ResolverMultinetworkTest, DnsWithVpn) {
                 EXPECT_RESULT_OK(secureVpnNetwork.enableVpnIsolation(TEST_UID2));
             }
 
-            // Test secure VPN without DNS server.
+            // On GrapheneOS, this UID cannot bypass the secure VPN to reach the underlying DNS server.
             ASSERT_TRUE(secureVpnNetwork.clearDnsConfiguration());
             for (const auto* selectedNetwork : nwVec) {
                 SCOPED_TRACE(fmt::format("Secure VPN without DnsServer, selectedNetwork = {}",
                                          selectedNetwork->name()));
-                expectDnsWorksForUid(host_name, selectedNetwork->netId(), TEST_UID2, result);
-                expectDnsQueryCountsFn(*underlyingNwDnsSv, host_name, result.size(),
-                                       underlyingNetId);
+                expectDnsFailedForUid(host_name, selectedNetwork->netId(), TEST_UID2);
+                expectDnsQueryCountsFn(*underlyingNwDnsSv, host_name, 0, underlyingNetId);
             }
 
             // Test secure VPN with DNS server.
