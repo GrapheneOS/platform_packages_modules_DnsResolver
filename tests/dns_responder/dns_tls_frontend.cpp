@@ -259,8 +259,9 @@ again:
             DNSHeader dnsHdr;
             dnsHdr.read((char*)query, (char*)query + qlen);
             for (const auto& question : dnsHdr.questions) {
-                if (question.qname.name.find("dnsotls-ds.metric.gstatic.com") !=
-                    std::string::npos) {
+                const auto& name = question.qname.name;
+                if (name.ends_with("-dnsotls-ds.metric.gstatic.com.") ||
+                    name.ends_with("-dnsotls-ds.dnscheck.grapheneos.org.")) {
                     isDotProbe = true;
                     break;
                 }
